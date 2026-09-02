@@ -1,0 +1,141 @@
+.relatorios-container {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.relatorios-container h2 {
+  font-size: 28px;
+  color: #333;
+  margin-bottom: 30px;
+}
+
+.metricas-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+.metrica-card {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+
+.metrica-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+
+.metrica-card h3 {
+  color: #666;
+  font-size: 14px;
+  margin: 0 0 15px 0;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.metrica-card .numero {
+  font-size: 48px;
+  font-weight: bold;
+  color: #667eea;
+  margin: 10px 0;
+}
+
+.metrica-card .label {
+  color: #999;
+  font-size: 12px;
+}
+
+.relatorio-section {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 30px;
+}
+
+.relatorio-section h3 {
+  color: #333;
+  margin-top: 0;
+  margin-bottom: 20px;
+  font-size: 18px;
+}
+
+.relatorio-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.relatorio-table thead {
+  background: #f9f9f9;
+}
+
+.relatorio-table th {
+  padding: 12px;
+  text-align: left;
+  font-weight: bold;
+  color: #333;
+  border-bottom: 2px solid #ddd;
+}
+
+.relatorio-table td {
+  padding: 12px;
+  border-bottom: 1px solid #eee;
+  color: #555;
+}
+
+.relatorio-table tbody tr:hover {
+  background: #f9f9f9;
+}
+
+.status {
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.status.ativa {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status.pausada {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.status.finalizada {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.disponibilidade {
+  padding: 5px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.disponibilidade.disponivel {
+  background: #d4edda;
+  color: #155724;
+}
+
+.disponibilidade.indisponivel {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.empty {
+  text-align: center;
+  color: #999;
+  padding: 40px;
+  font-size: 14px;
+}

@@ -1,0 +1,299 @@
+.minha-agenda-container {
+  padding: 20px;
+  background: white;
+  min-height: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  width: 95%;
+}
+
+.agenda-header {
+  margin-bottom: 15px;
+}
+
+.agenda-header h2 {
+  font-size: 24px;
+  color: #333;
+  margin: 0 0 3px 0;
+}
+
+.agenda-subtitle {
+  color: #666;
+  font-size: 14px;
+  margin: 0;
+}
+
+.agenda-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.stat-card {
+  background: white;
+  padding: 8px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  text-align: center;
+  border-left: 3px solid #667eea;
+}
+
+.stat-label {
+  display: block;
+  color: #666;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 3px;
+}
+
+.stat-number {
+  display: block;
+  font-size: 18px;
+  font-weight: bold;
+  color: #667eea;
+}
+
+.calendario-wrapper {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  margin-bottom: 12px;
+}
+
+.calendario-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.calendario-header h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #333;
+}
+
+.calendario-dias-semana {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+  margin-bottom: 5px;
+}
+
+.dia-semana-header {
+  text-align: center;
+  font-weight: bold;
+  color: #667eea;
+  padding: 4px;
+  font-size: 10px;
+}
+
+.calendario-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+
+.calendario-dia {
+  aspect-ratio: 1;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  padding: 4px;
+  background: #f9f9f9;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-height: 50px;
+  transition: all 0.3s;
+  font-size: 11px;
+}
+
+.calendario-dia.vazio {
+  background: #f0f0f0;
+  border: none;
+}
+
+.calendario-dia.escalado {
+  background: #d4edda;
+  border-color: #27ae60;
+  box-shadow: 0 2px 8px rgba(39, 174, 96, 0.2);
+}
+
+.dia-numero {
+  font-weight: bold;
+  font-size: 12px;
+  color: #333;
+  margin-bottom: 3px;
+}
+
+.dia-status {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.badge-escalado {
+  background: #27ae60;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: bold;
+}
+
+.escala-info {
+  font-size: 9px;
+  color: #155724;
+}
+
+.escalas-lista {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.escalas-lista h3 {
+  margin-top: 0;
+  color: #333;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.escalas-table-wrapper {
+  overflow-x: auto;
+}
+
+.escalas-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.escalas-table thead {
+  background: #f9f9f9;
+}
+
+.escalas-table th {
+  padding: 10px;
+  text-align: left;
+  font-weight: bold;
+  color: #333;
+  border-bottom: 2px solid #ddd;
+  font-size: 12px;
+}
+
+.escalas-table td {
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+  color: #555;
+  font-size: 12px;
+}
+
+.escalas-table tbody tr:hover {
+  background: #f9f9f9;
+}
+
+.status-ativo {
+  background: #d4edda;
+  color: #155724;
+  padding: 4px 8px;
+  border-radius: 15px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.empty-state {
+  text-align: center;
+  color: #999;
+  padding: 30px;
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .calendario-grid {
+    gap: 5px;
+  }
+
+  .calendario-dia {
+    min-height: 50px;
+    padding: 5px;
+  }
+
+  .dia-numero {
+    font-size: 11px;
+  }
+}
+.escalas-lista {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  margin-top: 12px;
+}
+
+.escalas-lista h3 {
+  margin-top: 0;
+  color: #333;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.escalas-table-wrapper {
+  overflow-x: auto;
+}
+
+.escalas-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.escalas-table thead {
+  background: #f9f9f9;
+}
+
+.escalas-table th {
+  padding: 10px;
+  text-align: left;
+  font-weight: bold;
+  color: #333;
+  border-bottom: 2px solid #ddd;
+  font-size: 12px;
+}
+
+.escalas-table td {
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+  color: #555;
+  font-size: 12px;
+}
+
+.escalas-table tbody tr:hover {
+  background: #f9f9f9;
+}
+
+.nome-cell {
+  font-weight: 500;
+}
+
+.status-badge {
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: bold;
+  display: inline-block;
+}
+
+.status-badge.ativa {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-badge.finalizada {
+  background: #f8d7da;
+  color: #721c24;
+}
