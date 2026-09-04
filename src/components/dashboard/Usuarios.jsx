@@ -1,14 +1,13 @@
-import { httpsCallable } from 'firebase/functions'
-import { functions } from '../services/firebase'
+'use client'
+
 import { useState, useEffect } from 'react'
-import { registerUser } from '../services/auth'
-import { auth } from '../services/firebase'
-import '../styles/Usuarios.css'
+import { registerUser } from '../../services/auth'
+import { useDashboardUser } from '../../context/DashboardUserContext'
+import '../../styles/Usuarios.css'
 
 export default function Usuarios() {
+  const { user, userData } = useDashboardUser()
   const [usuarios, setUsuarios] = useState([])
-  const [user, setUser] = useState(null)
-  const [userData, setUserData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showFormCriar, setShowFormCriar] = useState(false)
   const [showFormEditar, setShowFormEditar] = useState(false)
@@ -48,21 +47,14 @@ export default function Usuarios() {
   ]
 
   useEffect(() => {
-    const currentUser = auth.currentUser
-    setUser(currentUser)
-    if (currentUser) {
-      const usuarios = JSON.parse(localStorage.getItem('usuarios') || '[]')
-      const usuarioEncontrado = usuarios.find(u => u.uid === currentUser.uid)
-      if (usuarioEncontrado) {
-        setUserData(usuarioEncontrado)
-        setFormCriar(prev => ({
-          ...prev,
-          equipe: usuarioEncontrado.equipe || 'suporte'
-        }))
-      }
+    if (userData) {
+      setFormCriar(prev => ({
+        ...prev,
+        equipe: userData.equipe || 'suporte'
+      }))
     }
     carregarUsuarios()
-  }, [])
+  }, [userData])
 
   useEffect(() => {
     if (error || success) {
@@ -74,13 +66,11 @@ export default function Usuarios() {
     }
   }, [error, success])
 
-  const carregarUsuarios = () => {
+  const carregarUsuarios = async () => {
     try {
-      const dados = localStorage.getItem('usuarios')
-      if (dados) {
-        const usuariosParsed = JSON.parse(dados)
-        setUsuarios(usuariosParsed)
-      }
+      const response = await fetch('/api/usuarios')
+      const dados = await response.json()
+      setUsuarios(dados)
       setLoading(false)
     } catch (error) {
       console.error('Erro ao carregar usuários:', error)
@@ -158,36 +148,26 @@ export default function Usuarios() {
 
   try {
     const userCredential = await registerUser(formCriar.email, formCriar.senha, formCriar.nome)
-    const usuariosAtualizados = JSON.parse(localStorage.getItem('usuarios') || '[]')
-    const usuarioCriado = usuariosAtualizados.find(u => u.uid === userCredential.uid)
-    
-    if (usuarioCriado) {
-      usuarioCriado.role = formCriar.role
-      
-      // ✅ Admin NÃO precisa de equipe
-      if (formCriar.role === 'admin') {
-        usuarioCriado.equipe = null
-      } else {
-        usuarioCriado.equipe = formCriar.equipe
-      }
 
-      localStorage.setItem('usuarios', JSON.stringify(usuariosAtualizados))
-      setUsuarios(usuariosAtualizados)
+    // registerUser já cria o usuário no banco com role=tecnico/equipe=suporte;
+    // aqui ajustamos para o perfil/equipe escolhidos no formulário.
+    const equipeFinal = formCriar.role === 'admin' ? null : formCriar.equipe
+    const patchResponse = await fetch(`/api/usuarios/${encodeURIComponent(userCredential.uid)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nome: formCriar.nome,
+        role: formCriar.role,
+        equipe: equipeFinal,
+      }),
+    })
 
-      if (formCriar.role === 'tecnico' || formCriar.role === 'analista') {
-        const tecnicos = JSON.parse(localStorage.getItem('tecnicos') || '[]')
-        tecnicos.push({
-          id: usuarioCriado.uid,
-          nome: formCriar.nome,
-          email: formCriar.email,
-          telefone: '',
-          especialidade: formCriar.equipe,
-          disponivel: true,
-          equipe: formCriar.equipe
-        })
-        localStorage.setItem('tecnicos', JSON.stringify(tecnicos))
-      }
+    if (!patchResponse.ok) {
+      const data = await patchResponse.json().catch(() => ({}))
+      throw new Error(data.error || 'Falha ao definir perfil/equipe do usuário')
     }
+
+    await carregarUsuarios()
 
     const nomeEquipe = formCriar.role === 'admin' ? 'Master' : EQUIPES.find(e => e.id === formCriar.equipe)?.label
     const nomePerfil = PERFIS.find(p => p.id === formCriar.role)?.label
@@ -201,11 +181,6 @@ export default function Usuarios() {
       role: 'tecnico'
     })
     setShowFormCriar(false)
-    
-    // ✅ RECARREGAR APÓS 2 SEGUNDOS PARA SINCRONIZAR
-    setTimeout(() => {
-      window.location.reload()
-    }, 2000)
   } catch (err) {
     console.error('❌ Erro:', err.message)
     if (err.message.includes('email-already-in-use')) {
@@ -242,27 +217,24 @@ export default function Usuarios() {
   }
 
   try {
-    const usuariosAtualizados = usuarios.map(u => {
-      if (u.uid === usuarioEditando.uid) {
-        const usuarioAtualizado = {
-          ...u,
-          nome: formEditar.nome,
-          role: formEditar.role
-        }
-        
-        // ✅ Admin NÃO precisa de equipe
-        if (formEditar.role === 'admin') {
-          usuarioAtualizado.equipe = null
-        } else {
-          usuarioAtualizado.equipe = formEditar.equipe
-        }
-        
-        return usuarioAtualizado
-      }
-      return u
+    const equipeFinal = formEditar.role === 'admin' ? null : formEditar.equipe
+
+    const response = await fetch(`/api/usuarios/${encodeURIComponent(usuarioEditando.uid)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nome: formEditar.nome,
+        role: formEditar.role,
+        equipe: equipeFinal,
+      }),
     })
-    localStorage.setItem('usuarios', JSON.stringify(usuariosAtualizados))
-    setUsuarios(usuariosAtualizados)
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      throw new Error(data.error || 'Falha ao editar usuário')
+    }
+
+    await carregarUsuarios()
     setSuccess(`✅ ${formEditar.nome} atualizado com sucesso!`)
     setShowFormEditar(false)
     setUsuarioEditando(null)
@@ -281,35 +253,20 @@ export default function Usuarios() {
       return
     }
 
-    // 1. Deletar do localStorage
-    const usuariosAtualizados = usuarios.filter(u => u.uid !== uid)
-    localStorage.setItem('usuarios', JSON.stringify(usuariosAtualizados))
-    setUsuarios(usuariosAtualizados)
+    // 1. Deletar do banco de dados
+    const response = await fetch(`/api/usuarios/${encodeURIComponent(uid)}`, {
+      method: 'DELETE',
+    })
 
-    // 2. Deletar do técnicos também
-    const tecnicos = JSON.parse(localStorage.getItem('tecnicos') || '[]')
-    const tecnicosAtualizados = tecnicos.filter(t => t.id !== uid)
-    localStorage.setItem('tecnicos', JSON.stringify(tecnicosAtualizados))
-
-    // 3. ✅ DELETAR DO FIREBASE
-    try {
-      const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:delete?key=${import.meta.env.VITE_FIREBASE_API_KEY}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          idToken: await user.getIdToken()
-        })
-      })
-      
-      if (!response.ok) {
-        console.warn('⚠️ Não foi possível deletar do Firebase, mas foi removido do localStorage')
-      }
-    } catch (firebaseError) {
-      console.warn('⚠️ Erro ao deletar do Firebase:', firebaseError)
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      throw new Error(data.error || 'Falha ao deletar usuário')
     }
 
+    await carregarUsuarios()
+
     setSuccess('✅ Usuário deletado com sucesso!')
-    
+
     setTimeout(() => {
       setSuccess('')
     }, 3000)
@@ -442,7 +399,7 @@ const usuariosFiltrados = usuarios
           ))}
         </select>
       </div>
-      
+
       {/* ✅ MOSTRAR EQUIPE APENAS SE NÃO FOR ADMIN */}
       {formCriar.role !== 'admin' && (
         <div className="form-group">
@@ -513,7 +470,7 @@ const usuariosFiltrados = usuarios
           ))}
         </select>
       </div>
-      
+
       {/* ✅ MOSTRAR EQUIPE APENAS SE NÃO FOR ADMIN */}
       {formEditar.role !== 'admin' && (
         <div className="form-group">

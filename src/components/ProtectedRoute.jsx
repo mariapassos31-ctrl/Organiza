@@ -1,15 +1,28 @@
-import { Navigate } from 'react-router-dom'
+'use client'
+
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 
 export default function ProtectedRoute({ children, requiredRoles, userData }) {
-  if (!userData) {
-    return <Navigate to="/login" />
-  }
+  const router = useRouter()
 
-  // Se requiredRoles é um array, verifica se o role do usuário está nele
-  if (Array.isArray(requiredRoles)) {
-    if (!requiredRoles.includes(userData.role)) {
-      return <Navigate to="/dashboard" />
+  const hasAccess = userData
+    ? !Array.isArray(requiredRoles) || requiredRoles.includes(userData.role)
+    : false
+
+  useEffect(() => {
+    if (!userData) {
+      router.replace('/login')
+      return
     }
+
+    if (Array.isArray(requiredRoles) && !requiredRoles.includes(userData.role)) {
+      router.replace('/dashboard')
+    }
+  }, [userData, requiredRoles, router])
+
+  if (!hasAccess) {
+    return null
   }
 
   return children

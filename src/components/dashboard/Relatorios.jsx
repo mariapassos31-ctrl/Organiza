@@ -1,16 +1,22 @@
+'use client'
+
 import { useState, useEffect } from 'react'
-import '../styles/Relatorios.css'
+import '../../styles/Relatorios.css'
 
 export default function Relatorios() {
   const [escalas, setEscalas] = useState([])
   const [tecnicos, setTecnicos] = useState([])
 
   useEffect(() => {
-    const escalasData = localStorage.getItem('escalas')
-    const tecnicosData = localStorage.getItem('tecnicos')
-    
-    if (escalasData) setEscalas(JSON.parse(escalasData))
-    if (tecnicosData) setTecnicos(JSON.parse(tecnicosData))
+    fetch('/api/escalas')
+      .then(res => res.json())
+      .then(setEscalas)
+      .catch(error => console.error('Erro ao carregar escalas:', error))
+
+    fetch('/api/tecnicos')
+      .then(res => res.json())
+      .then(setTecnicos)
+      .catch(error => console.error('Erro ao carregar técnicos:', error))
   }, [])
 
   const totalEscalas = escalas.length

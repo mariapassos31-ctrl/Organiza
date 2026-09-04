@@ -1,9 +1,15 @@
-import { useState } from 'react'
-import { registerUser } from '../services/auth'
-import { useNavigate } from 'react-router-dom'
-import '../styles/Register.css'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { registerUser } from '../../services/auth'
+import { useAuthUser } from '../../hooks/useAuthUser'
+import '../../styles/Register.css'
 
 export default function Register() {
+  const router = useRouter()
+  const { user, loading: checkingAuth } = useAuthUser()
   const [formData, setFormData] = useState({
     nome: '',
     email: '',
@@ -12,7 +18,12 @@ export default function Register() {
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (!checkingAuth && user) {
+      router.replace('/dashboard')
+    }
+  }, [checkingAuth, user, router])
 
   const validarSenha = (senha) => {
     if (senha.length < 6) {
@@ -52,7 +63,7 @@ export default function Register() {
     try {
       await registerUser(formData.email, formData.senha, formData.nome)
       alert('Usuário criado com sucesso! Faça login agora.')
-      navigate('/login')
+      router.push('/login')
     } catch (err) {
       if (err.message.includes('email-already-in-use')) {
         setError('Este e-mail já está cadastrado')
@@ -68,12 +79,20 @@ export default function Register() {
     }
   }
 
+  if (checkingAuth || user) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        Carregando...
+      </div>
+    )
+  }
+
   return (
     <div className="register-container">
       <div className="register-box">
         <h1>Escala TI</h1>
         <h2>Criar Conta</h2>
-        
+
         <form onSubmit={handleRegister}>
           <div className="form-group">
             <label>Nome Completo</label>
@@ -127,7 +146,7 @@ export default function Register() {
         </form>
 
         <p className="login-link">
-          Já tem conta? <a href="/login">Faça login aqui</a>
+          Já tem conta? <Link href="/login">Faça login aqui</Link>
         </p>
       </div>
     </div>

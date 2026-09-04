@@ -1,12 +1,12 @@
+'use client'
 
 import { useState, useEffect } from 'react'
 
-import { auth } from '../services/firebase'
-import '../styles/Escalas.css'
+import { useDashboardUser } from '../../context/DashboardUserContext'
+import '../../styles/Escalas.css'
 
 export default function Escalas() {
-  const [user, setUser] = useState(null)
-  const [userData, setUserData] = useState(null)
+  const { user, userData } = useDashboardUser()
   const [usuarios, setUsuarios] = useState([])
   const [escalas, setEscalas] = useState([])
   const [loading, setLoading] = useState(true)
@@ -55,19 +55,12 @@ const [filtrosAplicados, setFiltrosAplicados] = useState({
   })
 
   useEffect(() => {
-    const currentUser = auth.currentUser
-    setUser(currentUser)
-    if (currentUser) {
-      const usuariosData = JSON.parse(localStorage.getItem('usuarios') || '[]')
-      const usuarioEncontrado = usuariosData.find(u => u.uid === currentUser.uid)
-      setUserData(usuarioEncontrado)
-      setUsuarios(usuariosData)
-      if (usuarioEncontrado?.role === 'gestor') {
-        setFilterEquipe(usuarioEncontrado.equipe)
-      }
+    if (userData?.role === 'gestor') {
+      setFilterEquipe(userData.equipe)
     }
+    carregarUsuarios()
     carregarEscalas()
-  }, [])
+  }, [userData])
 
   const aplicarFiltros = () => {
   setFiltrosAplicados({
@@ -97,12 +90,21 @@ const limparFiltros = () => {
   })
 }
 
-  const carregarEscalas = () => {
+  const carregarUsuarios = async () => {
     try {
-      const dados = localStorage.getItem('escalas')
-      if (dados) {
-        setEscalas(JSON.parse(dados))
-      }
+      const response = await fetch('/api/usuarios')
+      const dados = await response.json()
+      setUsuarios(dados)
+    } catch (error) {
+      console.error('Erro ao carregar usuários:', error)
+    }
+  }
+
+  const carregarEscalas = async () => {
+    try {
+      const response = await fetch('/api/escalas')
+      const dados = await response.json()
+      setEscalas(dados)
       setLoading(false)
     } catch (error) {
       console.error('Erro ao carregar escalas:', error)
@@ -111,13 +113,7 @@ const limparFiltros = () => {
   }
 
   const carregarTecnicosEquipe = (equipe) => {
-    try {
-      const usuariosData = JSON.parse(localStorage.getItem('usuarios') || '[]')
-      return usuariosData.filter(u => u.equipe === equipe && (u.role === 'tecnico' || u.role === 'analista'))
-    } catch (error) {
-      console.error('Erro ao carregar técnicos:', error)
-      return []
-    }
+    return usuarios.filter(u => u.equipe === equipe && (u.role === 'tecnico' || u.role === 'analista'))
   }
 
   const podeEditar = userData?.role === 'admin' || userData?.role === 'gestor'
@@ -183,29 +179,41 @@ const limparFiltros = () => {
     })
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
     if (!formData.dataInicio || !formData.dataFim || formData.tecnicos.length === 0) {
       alert('Preencha os campos obrigatórios!')
       return
     }
     try {
-      let novasEscalas
-      if (editingId) {
-        novasEscalas = escalas.map(e => 
-          e.id === editingId ? { ...formData, id: editingId } : e
-        )
-      } else {
-        const novaEscala = {
-          ...formData,
-          id: Date.now().toString(),
-          criadoPor: userData?.nome || user?.email,
-          dataCriacao: new Date().toISOString()
-        }
-        novasEscalas = [...escalas, novaEscala]
+      const payload = {
+        tipo: formData.tipo,
+        dataInicio: formData.dataInicio,
+        dataFim: formData.dataFim,
+        tecnicos: formData.tecnicos,
+        equipe: formData.equipe,
+        descricao: formData.descricao,
+        status: formData.status,
       }
-      localStorage.setItem('escalas', JSON.stringify(novasEscalas))
-      setEscalas(novasEscalas)
+
+      const response = editingId
+        ? await fetch(`/api/escalas/${encodeURIComponent(editingId)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        : await fetch('/api/escalas', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...payload, criadoPorUid: user?.uid }),
+          })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao salvar escala')
+      }
+
+      await carregarEscalas()
       setFormData({
         tipo: 'presencial',
         dataInicio: '',
@@ -235,7 +243,7 @@ const limparFiltros = () => {
     setModalOpen(true)
   }
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     const escala = escalas.find(e => e.id === id)
     if (!escala) {
       alert('Escala não encontrada')
@@ -247,9 +255,12 @@ const limparFiltros = () => {
     }
     if (window.confirm('Tem certeza que deseja deletar esta escala?')) {
       try {
-        const novasEscalas = escalas.filter(e => e.id !== id)
-        localStorage.setItem('escalas', JSON.stringify(novasEscalas))
-        setEscalas(novasEscalas)
+        const response = await fetch(`/api/escalas/${encodeURIComponent(id)}`, { method: 'DELETE' })
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error(data.error || 'Falha ao deletar escala')
+        }
+        await carregarEscalas()
         setModalOpen(false)
         alert('Escala deletada com sucesso!')
       } catch (error) {

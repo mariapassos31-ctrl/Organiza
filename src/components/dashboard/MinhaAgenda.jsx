@@ -1,10 +1,11 @@
+'use client'
+
 import { useState, useEffect } from 'react'
-import { auth } from '../services/firebase'
-import '../styles/MinhaAgenda.css'
+import { useDashboardUser } from '../../context/DashboardUserContext'
+import '../../styles/MinhaAgenda.css'
 
 export default function MinhaAgenda() {
-  const [user, setUser] = useState(null)
-  const [userData, setUserData] = useState(null)
+  const { user, userData } = useDashboardUser()
   const [usuarios, setUsuarios] = useState([])
   const [escalas, setEscalas] = useState([])
   const [escalasFiltradasCorretas, setEscalasFiltradasCorretas] = useState([])
@@ -12,60 +13,73 @@ export default function MinhaAgenda() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const currentUser = auth.currentUser
-    setUser(currentUser)
+    if (!user || !userData) {
+      setLoading(false)
+      return
+    }
 
-    if (currentUser) {
-      // Carregar dados do localStorage
-      const usuariosData = JSON.parse(localStorage.getItem('usuarios') || '[]')
-      const escalasData = JSON.parse(localStorage.getItem('escalas') || '[]')
-      
-      setUsuarios(usuariosData)
-      
-      // Encontrar usuário logado
-      const usuarioEncontrado = usuariosData.find(u => u.uid === currentUser.uid)
-      
-      if (usuarioEncontrado) {
-        setUserData(usuarioEncontrado)
-        
+    let cancelled = false
+
+    const carregar = async () => {
+      try {
+        const [usuariosRes, escalasRes] = await Promise.all([
+          fetch('/api/usuarios'),
+          fetch('/api/escalas'),
+        ])
+        const usuariosData = await usuariosRes.json()
+        const escalasData = await escalasRes.json()
+
+        if (cancelled) return
+
+        setUsuarios(usuariosData)
+
         // FILTRO CORRETO POR ROLE
         let escalasCorretas = []
-        
-        if (usuarioEncontrado.role === 'tecnico' || usuarioEncontrado.role === 'analista') {
+
+        if (userData.role === 'tecnico' || userData.role === 'analista') {
           // TÉCNICO/ANALISTA: vê APENAS suas escalas
-          escalasCorretas = escalasData.filter(e => 
-            Array.isArray(e.tecnicos) ? e.tecnicos.includes(currentUser.uid) : e.tecnico === currentUser.uid
+          escalasCorretas = escalasData.filter(e =>
+            Array.isArray(e.tecnicos) ? e.tecnicos.includes(user.uid) : e.tecnico === user.uid
           )
-          console.log('🔧 Técnico logado:', usuarioEncontrado.nome, 'Escalas:', escalasCorretas.length)
-        } 
-        else if (usuarioEncontrado.role === 'gestor') {
+          console.log('🔧 Técnico logado:', userData.nome, 'Escalas:', escalasCorretas.length)
+        }
+        else if (userData.role === 'gestor') {
           // GESTOR: vê escalas de TODOS os técnicos da sua equipe
           escalasCorretas = escalasData.filter(escala => {
             // Se tecnicos é array, verifica se algum técnico é da equipe
             if (Array.isArray(escala.tecnicos)) {
               return escala.tecnicos.some(tecnicoId => {
                 const tecnico = usuariosData.find(u => u.uid === tecnicoId)
-                return tecnico?.equipe === usuarioEncontrado.equipe
+                return tecnico?.equipe === userData.equipe
               })
             }
             // Fallback para campo tecnico singular
             const tecnicoEscalado = usuariosData.find(u => u.uid === escala.tecnico)
-            return tecnicoEscalado?.equipe === usuarioEncontrado.equipe
+            return tecnicoEscalado?.equipe === userData.equipe
           })
-          console.log('👔 Gestor logado:', usuarioEncontrado.nome, 'Equipe:', usuarioEncontrado.equipe, 'Escalas:', escalasCorretas.length)
-        } 
-        else if (usuarioEncontrado.role === 'admin') {
+          console.log('👔 Gestor logado:', userData.nome, 'Equipe:', userData.equipe, 'Escalas:', escalasCorretas.length)
+        }
+        else if (userData.role === 'admin') {
           // ADMIN: vê TODAS as escalas
           escalasCorretas = escalasData
-          console.log('🔐 Admin logado:', usuarioEncontrado.nome, 'Escalas:', escalasCorretas.length)
+          console.log('🔐 Admin logado:', userData.nome, 'Escalas:', escalasCorretas.length)
         }
-        
+
         setEscalas(escalasData)
         setEscalasFiltradasCorretas(escalasCorretas)
+      } catch (error) {
+        console.error('Erro ao carregar agenda:', error)
+      } finally {
+        if (!cancelled) setLoading(false)
       }
     }
-    setLoading(false)
-  }, [])
+
+    carregar()
+
+    return () => {
+      cancelled = true
+    }
+  }, [user, userData])
 
   // Gerar calendário do mês
   const gerarCalendario = () => {

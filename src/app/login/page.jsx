@@ -1,12 +1,25 @@
-import { useState } from 'react'
-import { loginUser } from '../services/auth'
-import '../styles/Login.css'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { signIn } from 'next-auth/react'
+import { useAuthUser } from '../../hooks/useAuthUser'
+import '../../styles/Login.css'
 
 export default function Login() {
+  const router = useRouter()
+  const { user, loading: checkingAuth } = useAuthUser()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!checkingAuth && user) {
+      router.replace('/dashboard')
+    }
+  }, [checkingAuth, user, router])
 
   const handleLogin = async (e) => {
     e.preventDefault()
@@ -14,13 +27,27 @@ export default function Login() {
     setLoading(true)
 
     try {
-      await loginUser(email, password)
+      const result = await signIn('credentials', { email, password, redirect: false })
+
+      if (result?.error) {
+        setError('E-mail ou senha inválidos')
+        return
+      }
+
       window.location.href = '/dashboard'
     } catch (err) {
       setError(err.message)
     } finally {
       setLoading(false)
     }
+  }
+
+  if (checkingAuth || user) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        Carregando...
+      </div>
+    )
   }
 
   return (
@@ -47,7 +74,7 @@ export default function Login() {
             {loading ? 'Entrando...' : 'Entrar'}
           </button>
           <p className="register-link">
-            Não tem conta? <a href="/register">Crie uma aqui</a>
+            Não tem conta? <Link href="/register">Crie uma aqui</Link>
           </p>
         </form>
       </div>
