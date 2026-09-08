@@ -52,6 +52,7 @@ if (!session?.user) {
   return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 }
 const { role, equipe: userEquipe } = session.user
+console.log('DEBUG POST:', { role, userEquipe, equipeEnviada: (await request.clone().json()).equipe })
 if (role !== 'admin' && role !== 'gestor') {
   return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
 }
