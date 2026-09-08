@@ -55,12 +55,13 @@ const [filtrosAplicados, setFiltrosAplicados] = useState({
   })
 
   useEffect(() => {
-    if (userData?.role === 'gestor') {
-      setFilterEquipe(userData.equipe)
-    }
-    carregarUsuarios()
-    carregarEscalas()
-  }, [userData])
+  if (userData?.role === 'gestor') {
+    setFilterEquipe(userData.equipe)
+    setFormData(prev => ({ ...prev, equipe: userData.equipe }))
+  }
+  carregarUsuarios()
+  carregarEscalas()
+}, [userData])
 
   const aplicarFiltros = () => {
   setFiltrosAplicados({
