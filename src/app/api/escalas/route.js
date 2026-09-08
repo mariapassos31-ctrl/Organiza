@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { query, getPool, equipeIdFromSlug, tecnicoIdsFromUids } from '../../../lib/db'
+import { auth } from '../../../auth'
 
 const SELECT_ESCALAS = `
   SELECT es.cd_escala,
@@ -46,10 +47,24 @@ export async function GET() {
 }
 
 export async function POST(request) {
-  const client = await getPool().connect()
-  try {
-    const body = await request.json()
-    const { tipo, dataInicio, dataFim, tecnicos, equipe, descricao, status, criadoPorUid } = body
+const session = await auth()
+if (!session?.user) {
+  return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+}
+const { role, equipe: userEquipe } = session.user
+if (role !== 'admin' && role !== 'gestor') {
+  return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
+}
+const body = await request.json()
+const { tipo, dataInicio, dataFim, tecnicos, equipe, descricao, status, criadoPorUid } = body
+if (role === 'gestor' && equipe !== userEquipe) {
+  return NextResponse.json(
+    { error: 'Você só pode criar escalas para sua equipe' },
+    { status: 403 }
+  )
+}
+const client = await getPool().connect()
+try {
 
     await client.query('BEGIN')
 
