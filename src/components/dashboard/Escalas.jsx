@@ -219,7 +219,7 @@ const limparFiltros = () => {
         dataInicio: '',
         dataFim: '',
         tecnicos: [],
-        equipe: userData?.isGestor ? userData.equipe : 'suporte',
+        equipe: userData?.role === 'gestor' ? userData?.equipe : 'suporte',
         descricao: '',
         status: 'ativa'
       })
@@ -371,9 +371,13 @@ const limparFiltros = () => {
         <label>Filtrar por Equipe:</label>
         <select value={filterEquipe} onChange={(e) => setFilterEquipe(e.target.value)}>
           <option value="todas">📊 Todas as Equipes</option>
-          {EQUIPES.map(eq => (
-            <option key={eq.id} value={eq.id}>{eq.label}</option>
-          ))}
+          {userData?.role === 'gestor' ? (
+  <option value={userData.equipe}>{userData.equipe}</option>
+) : (
+  EQUIPES.map(eq => (
+    <option key={eq.id} value={eq.id}>{eq.label}</option>
+  ))
+)}
         </select>
       </div>
 
@@ -431,20 +435,25 @@ const limparFiltros = () => {
                   <div className="form-group">
                     <label>Equipe *</label>
                     <select
-                      value={formData.equipe}
-                      onChange={(e) => {
-                        const novaEquipe = e.target.value
-                        setFormData({
-                          ...formData, 
-                          equipe: novaEquipe,
-                          tecnicos: []
-                        })
-                      }}
-                    >
-                      {EQUIPES.map(eq => (
-                        <option key={eq.id} value={eq.id}>{eq.label}</option>
-                      ))}
-                    </select>
+  value={formData.equipe}
+  onChange={(e) => {
+    const novaEquipe = e.target.value
+    setFormData({
+      ...formData,
+      equipe: novaEquipe,
+      tecnicos: []
+    })
+  }}
+  disabled={userData?.role === 'gestor'}
+>
+  {userData?.role === 'gestor' ? (
+    <option value={userData.equipe}>{userData.equipe}</option>
+  ) : (
+    EQUIPES.map(eq => (
+      <option key={eq.id} value={eq.id}>{eq.label}</option>
+    ))
+  )}
+</select>
                   </div>
                 )}
               </div>
@@ -542,9 +551,13 @@ const limparFiltros = () => {
                     })
                   }}
                 >
-                  {EQUIPES.map(eq => (
-                    <option key={eq.id} value={eq.id}>{eq.label}</option>
-                  ))}
+                  {userData?.role === 'gestor' ? (
+  <option value={userData.equipe}>{userData.equipe}</option>
+) : (
+  EQUIPES.map(eq => (
+    <option key={eq.id} value={eq.id}>{eq.label}</option>
+  ))
+)}
                 </select>
               </div>
             )}
