@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { useAuthUser } from '../../hooks/useAuthUser'
@@ -11,6 +11,7 @@ import '../../styles/Dashboard.css'
 export default function DashboardLayout({ children }) {
   const router = useRouter()
   const { user, loading } = useAuthUser()
+  const [trocasPendentes, setTrocasPendentes] = useState(0)
 
   const userData = user
     ? {
@@ -27,6 +28,32 @@ export default function DashboardLayout({ children }) {
       router.replace('/login')
     }
   }, [loading, user, router])
+
+  useEffect(() => {
+    if (!userData) return
+    let cancelled = false
+
+    const carregarPendentes = async () => {
+      try {
+        const res = await fetch('/api/trocas')
+        const data = await res.json()
+        if (cancelled || !Array.isArray(data)) return
+        const count = (userData.role === 'admin' || userData.role === 'gestor')
+          ? data.filter(t => t.status === 'pendente').length
+          : data.filter(t => t.status === 'pendente' && t.destinoUid === userData.uid).length
+        setTrocasPendentes(count)
+      } catch {
+        // silencioso: badge só é um indicativo, não crítico
+      }
+    }
+
+    carregarPendentes()
+    const intervalo = setInterval(carregarPendentes, 60000)
+    return () => {
+      cancelled = true
+      clearInterval(intervalo)
+    }
+  }, [userData?.uid, userData?.role, userData?.equipe])
 
   const handleLogout = async () => {
     try {
@@ -100,6 +127,9 @@ export default function DashboardLayout({ children }) {
               }}
             >
               {item.label}
+              {item.path === '/dashboard/trocas' && trocasPendentes > 0 && (
+                <span className="menu-badge">{trocasPendentes}</span>
+              )}
             </a>
           ))}
         </nav>

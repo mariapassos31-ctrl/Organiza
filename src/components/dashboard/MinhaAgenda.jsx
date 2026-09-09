@@ -153,11 +153,13 @@ export default function MinhaAgenda() {
 
   const obterEscalasDoDia = (data) => {
     if (!data) return []
-    return escalasFiltradas.filter(escala => {
+    const doDia = escalasFiltradas.filter(escala => {
       const inicio = new Date(escala.dataInicio + 'T00:00:00')
       const fim = new Date(escala.dataFim + 'T00:00:00')
       return data >= inicio && data <= fim
     })
+    // Sobreaviso sempre aparece primeiro
+    return doDia.sort((a, b) => (b.tipo === 'sobreaviso') - (a.tipo === 'sobreaviso'))
   }
 
   const mudarMes = (direcao) => {

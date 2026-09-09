@@ -86,6 +86,7 @@ export default function Usuarios() {
   const [success, setSuccess] = useState('')
   const [criando, setCriando] = useState(false)
   const [editando, setEditando] = useState(false)
+  const [excluindoUid, setExcluindoUid] = useState(null)
 
   const souAdmin = userData?.role === 'admin'
 
@@ -303,12 +304,15 @@ export default function Usuarios() {
   const handleDelete = async (uid) => {
     if (!window.confirm('Tem certeza que deseja deletar este usuário?')) return
 
-    try {
-      if (user?.uid === uid) {
-        alert('Você não pode deletar sua própria conta!')
-        return
-      }
+    if (user?.uid === uid) {
+      alert('Você não pode deletar sua própria conta!')
+      return
+    }
 
+    setError('')
+    setSuccess('')
+    setExcluindoUid(uid)
+    try {
       const response = await fetch(`/api/usuarios/${encodeURIComponent(uid)}`, {
         method: 'DELETE',
       })
@@ -323,7 +327,9 @@ export default function Usuarios() {
       setTimeout(() => setSuccess(''), 3000)
     } catch (error) {
       console.error('Erro ao deletar usuário:', error)
-      setError('❌ Erro ao deletar usuário')
+      setError(`❌ Erro ao deletar usuário: ${error.message}`)
+    } finally {
+      setExcluindoUid(null)
     }
   }
 
@@ -729,6 +735,7 @@ export default function Usuarios() {
                                 className="btn-editar"
                                 onClick={() => abrirEditar(usuario)}
                                 title="Editar usuário"
+                                disabled={excluindoUid === usuario.uid}
                               >
                                 ✏️ Editar
                               </button>
@@ -736,8 +743,9 @@ export default function Usuarios() {
                                 className="btn-delete"
                                 onClick={() => handleDelete(usuario.uid)}
                                 title="Deletar usuário"
+                                disabled={excluindoUid === usuario.uid}
                               >
-                                🗑️ Deletar
+                                {excluindoUid === usuario.uid ? '⏳ Excluindo...' : '🗑️ Deletar'}
                               </button>
                             </>
                           )}

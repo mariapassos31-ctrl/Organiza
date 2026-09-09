@@ -35,6 +35,7 @@ export default function Escalas() {
   const [filterTipo, setFilterTipo] = useState('todos')
   const [filterStatus, setFilterStatus] = useState('todos')
   const [modalOpen, setModalOpen] = useState(false)
+  const [diaDetalhado, setDiaDetalhado] = useState(null)
   const [selecionadasParaExcluir, setSelecionadasParaExcluir] = useState([])
   const [filterTecnico, setFilterTecnico] = useState('')
 const [filterDataInicio, setFilterDataInicio] = useState('')
@@ -568,6 +569,11 @@ const limparFiltros = () => {
     return tecnico?.nome || 'Desconhecido'
   }
 
+  // Sobreaviso sempre aparece primeiro nas listagens de escalas do dia
+  const ordenarSobreavisoPrimeiro = (lista) => {
+    return [...lista].sort((a, b) => (b.tipo === 'sobreaviso') - (a.tipo === 'sobreaviso'))
+  }
+
   const renderCalendario = () => {
     const daysInMonth = getDaysInMonth(currentMonth)
     const firstDay = getFirstDayOfMonth(currentMonth)
@@ -580,16 +586,22 @@ const limparFiltros = () => {
 
     for (let day = 1; day <= daysInMonth; day++) {
       const dataAtual = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
-      const escalasDodia = escalasDoMes.filter(escala => {
+      const escalasDodia = ordenarSobreavisoPrimeiro(escalasDoMes.filter(escala => {
         const dataInicio = new Date(escala.dataInicio)
         const dataFim = new Date(escala.dataFim)
         dataFim.setDate(dataFim.getDate() + 1)
         return dataAtual >= dataInicio && dataAtual < dataFim
-      })
+      }))
 
       days.push(
         <div key={day} className="calendar-day">
-          <div className="day-number">{day}</div>
+          <div
+            className={`day-number ${escalasDodia.length > 0 ? 'day-number-clicavel' : ''}`}
+            onClick={() => escalasDodia.length > 0 && setDiaDetalhado({ data: dataAtual, escalas: escalasDodia })}
+            title={escalasDodia.length > 0 ? 'Ver todos os escalados do dia' : ''}
+          >
+            {day}
+          </div>
           <div className="day-escalas">
             {escalasDodia.map(escala => {
               const tipo = TIPOS_ESCALA.find(t => t.id === escala.tipo)
@@ -1154,6 +1166,41 @@ const limparFiltros = () => {
           {renderCalendario()}
         </div>
       </div>
+
+      {/* MODAL: TODOS OS ESCALADOS DO DIA */}
+      {diaDetalhado && (
+        <div className="modal-overlay" onClick={() => setDiaDetalhado(null)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>📅 Escalados em {diaDetalhado.data.toLocaleDateString('pt-BR')}</h3>
+              <button className="modal-close" onClick={() => setDiaDetalhado(null)}>✕</button>
+            </div>
+            <div className="dia-detalhado-lista">
+              {diaDetalhado.escalas.map(escala => {
+                const tipo = TIPOS_ESCALA.find(t => t.id === escala.tipo)
+                const equipe = EQUIPES.find(e => e.id === escala.equipe)
+                return (
+                  <div
+                    key={escala.id}
+                    className="dia-detalhado-item"
+                    onClick={() => { setDiaDetalhado(null); handleEdit(escala) }}
+                    title={podeEditarEscala(escala) ? 'Clique para editar' : 'Clique para ver detalhes'}
+                  >
+                    <span className="dia-detalhado-tipo" style={{ backgroundColor: tipo?.cor }}>{tipo?.label}</span>
+                    <span className="dia-detalhado-tecnico">{getNomeTecnico(escala.tecnicos[0])}</span>
+                    <span className="dia-detalhado-equipe">{equipe?.label || escala.equipe}</span>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="form-actions-modal">
+              <button type="button" className="btn-secondary" onClick={() => setDiaDetalhado(null)}>
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ESCALAS DETALHADAS COM BUSCA E FILTRO */}
       <div className="escalas-list">
