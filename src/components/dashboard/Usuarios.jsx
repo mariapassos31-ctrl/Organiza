@@ -2,54 +2,18 @@
 
 import { useState, useEffect } from 'react'
 import { useDashboardUser } from '../../context/DashboardUserContext'
+import {
+  EQUIPES,
+  PERFIS,
+  perfisColaboradorPorEquipe,
+  especialidadesPorEquipe,
+  labelEquipe,
+  corEquipe,
+  labelPerfil,
+} from '../../lib/equipesConfig'
 import '../../styles/Usuarios.css'
 
 const CUSTOM = '__custom__'
-
-// Equipes reais (Analista/Desenvolvedor são perfil, não equipe)
-const EQUIPES = [
-  { id: 'suporte', label: '🎧 Suporte', cor: '#3498db' },
-  { id: 'infraestrutura', label: '🔧 Infraestrutura', cor: '#e74c3c' },
-  { id: 'sistemas', label: '💻 Sistemas', cor: '#27ae60' },
-  { id: 'projetos', label: '📁 Projetos', cor: '#f39c12' },
-  { id: 'dev', label: '🧑‍💻 Dev', cor: '#9b59b6' },
-]
-
-// Perfis conhecidos pelo sistema. Admin também pode digitar um perfil
-// totalmente novo (ver opção "Outro" no formulário).
-const PERFIS = [
-  { id: 'tecnico', label: '👤 Técnico' },
-  { id: 'analista', label: '📊 Analista' },
-  { id: 'desenvolvedor', label: '🧑‍💻 Desenvolvedor' },
-  { id: 'gestor', label: '👨‍💼 Gestor' },
-  { id: 'admin', label: '🔐 Admin' },
-]
-
-// Times com perfil de colaborador exclusivo (fora daqui, Técnico/Analista
-// servem para suporte/infraestrutura/sistemas normalmente).
-const PERFIL_EXCLUSIVO_POR_EQUIPE = {
-  projetos: ['analista'],
-  dev: ['desenvolvedor'],
-}
-
-// Especialidades fixas por equipe. Equipes fora daqui não têm especialidade
-// (a não ser que o admin digite uma manualmente).
-const ESPECIALIDADES_POR_EQUIPE = {
-  infraestrutura: ['Analista Junior', 'Analista Pleno', 'Analista Senior'],
-  sistemas: ['PEP', 'TOTVS'],
-}
-
-function labelPerfil(roleId) {
-  return PERFIS.find(p => p.id === roleId)?.label || `👤 ${roleId}`
-}
-
-function labelEquipe(equipeId) {
-  return EQUIPES.find(e => e.id === equipeId)?.label || equipeId
-}
-
-function corEquipe(equipeId) {
-  return EQUIPES.find(e => e.id === equipeId)?.cor
-}
 
 export default function Usuarios() {
   const { user, userData } = useDashboardUser()
@@ -142,15 +106,11 @@ export default function Usuarios() {
   const perfisDisponiveis = (equipe) => {
     if (souAdmin) return [...PERFIS, { id: CUSTOM, label: '✏️ Outro (digitar)' }]
 
-    const exclusivos = PERFIL_EXCLUSIVO_POR_EQUIPE[equipe]
-    const semAdmin = PERFIS.filter(p => p.id !== 'admin')
-    if (exclusivos) {
-      return semAdmin.filter(p => p.id === 'gestor' || exclusivos.includes(p.id))
-    }
-    return semAdmin.filter(p => p.id !== 'desenvolvedor')
+    const permitidos = perfisColaboradorPorEquipe(equipe)
+    return PERFIS.filter(p => p.id === 'gestor' || permitidos.includes(p.id))
   }
 
-  const especialidadesDisponiveis = (equipe) => ESPECIALIDADES_POR_EQUIPE[equipe] || []
+  const especialidadesDisponiveis = (equipe) => especialidadesPorEquipe(equipe)
 
   const abrirEditar = (usuario) => {
     setUsuarioEditando(usuario)

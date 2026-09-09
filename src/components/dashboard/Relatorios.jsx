@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useDashboardUser } from '../../context/DashboardUserContext'
+import { EQUIPES } from '../../lib/equipesConfig'
 import '../../styles/Relatorios.css'
 
 const TIPOS_ESCALA = [
@@ -11,14 +12,6 @@ const TIPOS_ESCALA = [
   { id: 'sobreaviso', label: '🚨 Sobreaviso', cor: '#e74c3c' },
 ]
 const TIPOS_ESCALA_MAP = Object.fromEntries(TIPOS_ESCALA.map(t => [t.id, t]))
-
-const EQUIPES = [
-  { id: 'suporte', label: '🎧 Suporte' },
-  { id: 'infraestrutura', label: '🔧 Infraestrutura' },
-  { id: 'sistemas', label: '💻 Sistemas' },
-  { id: 'projetos', label: '📁 Projetos' },
-  { id: 'dev', label: '🧑‍💻 Dev' },
-]
 
 const STATUS_TROCA_LABEL = {
   pendente: 'Pendente',

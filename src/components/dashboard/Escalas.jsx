@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 
 import { useDashboardUser } from '../../context/DashboardUserContext'
+import { EQUIPES } from '../../lib/equipesConfig'
 import '../../styles/Escalas.css'
 
 function addDiasStr(dataStr, delta) {
@@ -56,13 +57,6 @@ const [filtrosAplicados, setFiltrosAplicados] = useState({
     { id: 'sobreaviso', label: '🚨 Sobreaviso', cor: '#e74c3c' }
   ]
 
-  const EQUIPES = [
-    { id: 'suporte', label: '🎧 Suporte' },
-    { id: 'infraestrutura', label: '🔧 Infraestrutura' },
-    { id: 'sistemas', label: '💻 Sistemas' },
-    { id: 'projetos', label: '📁 Projetos' },
-    { id: 'dev', label: '🧑‍💻 Dev' }
-  ]
 
   const [formData, setFormData] = useState({
     tipo: 'presencial',

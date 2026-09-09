@@ -1,20 +1,13 @@
 import { NextResponse } from 'next/server'
 import { query, equipeIdFromSlug } from '../../../../lib/db'
 import { auth } from '../../../../auth'
-
-const PERFIL_EXCLUSIVO_POR_EQUIPE = {
-  projetos: ['analista'],
-  dev: ['desenvolvedor'],
-}
+import { perfisColaboradorPorEquipe } from '../../../../lib/equipesConfig'
 
 function validarPerfilEquipe(role, equipe) {
   if (role === 'admin' || role === 'gestor') return null
-  const exclusivos = PERFIL_EXCLUSIVO_POR_EQUIPE[equipe]
-  if (exclusivos && !exclusivos.includes(role)) {
-    return `A equipe ${equipe} só aceita o perfil: ${exclusivos.join(', ')}`
-  }
-  if (role === 'desenvolvedor' && equipe !== 'dev') {
-    return 'O perfil Desenvolvedor é exclusivo da equipe Dev'
+  const permitidos = perfisColaboradorPorEquipe(equipe)
+  if (!permitidos.includes(role)) {
+    return `A equipe ${equipe} só aceita os perfis: ${permitidos.join(', ')}`
   }
   return null
 }
