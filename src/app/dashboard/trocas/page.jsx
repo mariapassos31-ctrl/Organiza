@@ -2,14 +2,14 @@
 
 import { useDashboardUser } from '../../../context/DashboardUserContext'
 import ProtectedRoute from '../../../components/ProtectedRoute'
-import MinhaAgenda from '../../../components/dashboard/MinhaAgenda'
+import Trocas from '../../../components/dashboard/Trocas'
 
-export default function AgendaPage() {
+export default function TrocasPage() {
   const { userData } = useDashboardUser()
 
   return (
     <ProtectedRoute userData={userData}>
-      <MinhaAgenda />
+      <Trocas />
     </ProtectedRoute>
   )
 }

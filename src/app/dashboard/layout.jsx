@@ -53,22 +53,26 @@ export default function DashboardLayout({ children }) {
       { label: '👥 Usuários', path: '/dashboard/usuarios' },
       { label: '📅 Escalas', path: '/dashboard/escalas' },
       { label: '📆 Agenda', path: '/dashboard/agenda' },
+      { label: '🔄 Trocas', path: '/dashboard/trocas' },
       { label: '📈 Relatórios', path: '/dashboard/relatorios' }
     ] : []),
 
-    // Gestor vê: Usuários, Escalas, Agenda, Relatórios
+    // Gestor vê: Usuários, Escalas, Agenda, Trocas, Relatórios
     ...(userData.role === 'gestor' ? [
       { label: '📊 Dashboard', path: '/dashboard/home' },
       { label: '👥 Usuários', path: '/dashboard/usuarios' },
       { label: '📅 Escalas', path: '/dashboard/escalas' },
       { label: '📆 Agenda', path: '/dashboard/agenda' },
+      { label: '🔄 Trocas', path: '/dashboard/trocas' },
       { label: '📈 Relatórios', path: '/dashboard/relatorios' }
     ] : []),
 
-    // Técnico/Analista vê: Escalas, Agenda
-    ...(userData.role === 'tecnico' || userData.role === 'analista' ? [
+    // Qualquer colaborador (técnico, analista, desenvolvedor, ou perfil livre)
+    // vê: Escalas, Agenda, Trocas
+    ...(userData.role !== 'admin' && userData.role !== 'gestor' ? [
       { label: '📅 Escalas', path: '/dashboard/escalas' },
-      { label: '📆 Agenda', path: '/dashboard/agenda' }
+      { label: '📆 Agenda', path: '/dashboard/agenda' },
+      { label: '🔄 Trocas', path: '/dashboard/trocas' }
     ] : [])
   ]
 

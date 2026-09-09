@@ -8,7 +8,7 @@ export async function GET(request) {
   const params = []
   let sql = `
     SELECT u.cd_usuario AS uid, t.nm_tecnico, t.ds_email, t.nr_telefone,
-           t.ds_especialidade, t.sn_disponivel, e.tp_equipe
+           t.ds_especialidade, t.sn_disponivel, e.tp_equipe, u.ds_matricula
     FROM tecnicos t
     JOIN usuarios u ON u.cd_usuario = t.cd_usuario
     LEFT JOIN equipes e ON e.cd_equipe = t.cd_equipe
@@ -30,6 +30,7 @@ export async function GET(request) {
     email: row.ds_email,
     telefone: row.nr_telefone != null ? String(row.nr_telefone) : '',
     especialidade: row.ds_especialidade,
+    matricula: row.ds_matricula || '',
     disponivel: row.sn_disponivel,
     equipe: row.tp_equipe || null,
   })))

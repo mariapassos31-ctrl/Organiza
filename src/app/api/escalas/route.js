@@ -42,6 +42,10 @@ function toApiShape(row) {
 }
 
 export async function GET() {
+  const session = await auth()
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  }
   const { rows } = await query(SELECT_ESCALAS)
   return NextResponse.json(rows.map(toApiShape))
 }
@@ -51,19 +55,33 @@ const session = await auth()
 if (!session?.user) {
   return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 }
-const { role, equipe: userEquipe } = session.user
-console.log('DEBUG POST:', { role, userEquipe, equipeEnviada: (await request.clone().json()).equipe })
+const { role, equipe: sessionEquipe } = session.user
 if (role !== 'admin' && role !== 'gestor') {
   return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
 }
-const body = await request.json()
-const { tipo, dataInicio, dataFim, tecnicos, equipe, descricao, status, criadoPorUid } = body
-if (role === 'gestor' && equipe !== userEquipe) {
-  return NextResponse.json(
-    { error: 'Você só pode criar escalas para sua equipe' },
-    { status: 403 }
+
+// Fallback: se a session não trouxer equipe, busca no banco
+let userEquipe = sessionEquipe
+if (role === 'gestor' && !userEquipe) {
+  const { rows } = await query(
+    `SELECT e.tp_equipe FROM usuarios u
+     JOIN equipes e ON e.cd_equipe = u.cd_equipe
+     WHERE u.cd_usuario = $1`,
+    [session.user.id]
   )
+  userEquipe = rows[0]?.tp_equipe || null
 }
+
+const body = await request.json()
+const { tipo, dataInicio, dataFim, tecnicos, descricao, status, criadoPorUid } = body
+
+// Gestor só pode criar escalas para a própria equipe; ignora o que vier no body
+const equipe = role === 'gestor' ? userEquipe : body.equipe
+
+if (tipo === 'sabado' && equipe !== 'suporte') {
+  return NextResponse.json({ error: 'Escala do tipo Sábado só pode ser criada para a equipe Suporte' }, { status: 400 })
+}
+
 const client = await getPool().connect()
 try {
 

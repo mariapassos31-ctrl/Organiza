@@ -4,13 +4,25 @@ import { useState, useEffect } from 'react'
 import { useDashboardUser } from '../../context/DashboardUserContext'
 import '../../styles/MinhaAgenda.css'
 
+const TIPOS_ESCALA = {
+  presencial: '🏢 Presencial',
+  homeoffice: '🏠 Home Office',
+  sabado: '📅 Escala Sábado',
+  sobreaviso: '🚨 Sobreaviso',
+}
+
 export default function MinhaAgenda() {
   const { user, userData } = useDashboardUser()
   const [usuarios, setUsuarios] = useState([])
-  const [escalas, setEscalas] = useState([])
-  const [escalasFiltradasCorretas, setEscalasFiltradasCorretas] = useState([])
+  const [escalasFiltradas, setEscalasFiltradas] = useState([])
   const [mesAtual, setMesAtual] = useState(new Date())
   const [loading, setLoading] = useState(true)
+  const [escalaSelecionada, setEscalaSelecionada] = useState(null)
+  const [mostrarFormTroca, setMostrarFormTroca] = useState(false)
+  const [tipoTroca, setTipoTroca] = useState('completa')
+  const [diaTroca, setDiaTroca] = useState('')
+  const [destinoTroca, setDestinoTroca] = useState('')
+  const [enviandoTroca, setEnviandoTroca] = useState(false)
 
   useEffect(() => {
     if (!user || !userData) {
@@ -33,40 +45,19 @@ export default function MinhaAgenda() {
 
         setUsuarios(usuariosData)
 
-        // FILTRO CORRETO POR ROLE
         let escalasCorretas = []
-
-        if (userData.role === 'tecnico' || userData.role === 'analista') {
-          // TÉCNICO/ANALISTA: vê APENAS suas escalas
-          escalasCorretas = escalasData.filter(e =>
-            Array.isArray(e.tecnicos) ? e.tecnicos.includes(user.uid) : e.tecnico === user.uid
-          )
-          console.log('🔧 Técnico logado:', userData.nome, 'Escalas:', escalasCorretas.length)
-        }
-        else if (userData.role === 'gestor') {
-          // GESTOR: vê escalas de TODOS os técnicos da sua equipe
-          escalasCorretas = escalasData.filter(escala => {
-            // Se tecnicos é array, verifica se algum técnico é da equipe
-            if (Array.isArray(escala.tecnicos)) {
-              return escala.tecnicos.some(tecnicoId => {
-                const tecnico = usuariosData.find(u => u.uid === tecnicoId)
-                return tecnico?.equipe === userData.equipe
-              })
-            }
-            // Fallback para campo tecnico singular
-            const tecnicoEscalado = usuariosData.find(u => u.uid === escala.tecnico)
-            return tecnicoEscalado?.equipe === userData.equipe
-          })
-          console.log('👔 Gestor logado:', userData.nome, 'Equipe:', userData.equipe, 'Escalas:', escalasCorretas.length)
-        }
-        else if (userData.role === 'admin') {
-          // ADMIN: vê TODAS as escalas
+        if (userData.role === 'admin') {
           escalasCorretas = escalasData
-          console.log('🔐 Admin logado:', userData.nome, 'Escalas:', escalasCorretas.length)
+        } else if (userData.role === 'gestor') {
+          // Gestor: escalas de toda a equipe
+          escalasCorretas = escalasData.filter(e => e.equipe === userData.equipe)
+        } else {
+          // Qualquer colaborador (técnico, analista, desenvolvedor, ou perfil
+          // livre): só a própria escala pessoal
+          escalasCorretas = escalasData.filter(e => e.tecnicos?.includes(user.uid))
         }
 
-        setEscalas(escalasData)
-        setEscalasFiltradasCorretas(escalasCorretas)
+        setEscalasFiltradas(escalasCorretas)
       } catch (error) {
         console.error('Erro ao carregar agenda:', error)
       } finally {
@@ -81,6 +72,63 @@ export default function MinhaAgenda() {
     }
   }, [user, userData])
 
+  const getNomeUsuario = (uid) => usuarios.find(u => u.uid === uid)?.nome || 'Desconhecido'
+
+  const souTecnico = userData?.role !== 'admin' && userData?.role !== 'gestor'
+
+  const colegasParaTroca = usuarios.filter(u =>
+    u.equipe === userData?.equipe &&
+    u.role !== 'admin' && u.role !== 'gestor' &&
+    u.uid !== user?.uid &&
+    u.ativo
+  )
+
+  const abrirEscala = (escala) => {
+    setEscalaSelecionada(escala)
+    setMostrarFormTroca(false)
+    setTipoTroca('completa')
+    setDiaTroca('')
+    setDestinoTroca('')
+  }
+
+  const fecharModal = () => {
+    setEscalaSelecionada(null)
+    setMostrarFormTroca(false)
+  }
+
+  const enviarSolicitacaoTroca = async () => {
+    if (!destinoTroca) {
+      alert('Selecione o colega com quem deseja trocar')
+      return
+    }
+    if (tipoTroca === 'dia' && !diaTroca) {
+      alert('Selecione o dia que deseja trocar')
+      return
+    }
+    setEnviandoTroca(true)
+    try {
+      const res = await fetch('/api/trocas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          escalaId: escalaSelecionada.id,
+          tecnicoDestinoUid: destinoTroca,
+          dia: tipoTroca === 'dia' ? diaTroca : undefined,
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao solicitar a troca')
+      }
+      alert('Solicitação de troca enviada! Acompanhe em "Trocas".')
+      fecharModal()
+    } catch (error) {
+      alert(error.message)
+    } finally {
+      setEnviandoTroca(false)
+    }
+  }
+
   // Gerar calendário do mês
   const gerarCalendario = () => {
     const ano = mesAtual.getFullYear()
@@ -91,7 +139,7 @@ export default function MinhaAgenda() {
     const diaInicio = primeiroDia.getDay()
 
     const dias = []
-    
+
     for (let i = 0; i < diaInicio; i++) {
       dias.push(null)
     }
@@ -103,21 +151,26 @@ export default function MinhaAgenda() {
     return dias
   }
 
-  const verificarSeEscalado = (data) => {
-    if (!data) return false
-    const dataStr = data.toISOString().split('T')[0]
-    return escalasFiltradasCorretas.some(escala => escala.data === dataStr)
-  }
-
   const obterEscalasDoDia = (data) => {
     if (!data) return []
-    const dataStr = data.toISOString().split('T')[0]
-    return escalasFiltradasCorretas.filter(escala => escala.data === dataStr)
+    return escalasFiltradas.filter(escala => {
+      const inicio = new Date(escala.dataInicio + 'T00:00:00')
+      const fim = new Date(escala.dataFim + 'T00:00:00')
+      return data >= inicio && data <= fim
+    })
   }
 
   const mudarMes = (direcao) => {
     setMesAtual(new Date(mesAtual.getFullYear(), mesAtual.getMonth() + direcao, 1))
   }
+
+  const hoje = new Date()
+  hoje.setHours(0, 0, 0, 0)
+
+  const escalasOrdenadas = [...escalasFiltradas].sort(
+    (a, b) => new Date(a.dataInicio) - new Date(b.dataInicio)
+  )
+  const proximaEscala = escalasOrdenadas.find(e => new Date(e.dataFim + 'T00:00:00') >= hoje)
 
   const diasCalendario = gerarCalendario()
   const nomesMeses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
@@ -132,11 +185,11 @@ export default function MinhaAgenda() {
       <div className="agenda-header">
         <h2>📅 Minha Agenda</h2>
         <p className="agenda-subtitle">
-          {userData?.role === 'tecnico' || userData?.role === 'analista' 
-            ? 'Visualize seus dias escalados'
+          {userData?.role === 'admin'
+            ? 'Todas as escalas'
             : userData?.role === 'gestor'
             ? `Escalas da equipe ${userData?.equipe?.toUpperCase()}`
-            : 'Todas as escalas'}
+            : 'Visualize seus dias escalados'}
         </p>
       </div>
 
@@ -144,13 +197,13 @@ export default function MinhaAgenda() {
       <div className="agenda-stats">
         <div className="stat-card">
           <span className="stat-label">Total de Escalas</span>
-          <span className="stat-number">{escalasFiltradasCorretas.length}</span>
+          <span className="stat-number">{escalasFiltradas.length}</span>
         </div>
         <div className="stat-card">
           <span className="stat-label">Próxima Escala</span>
           <span className="stat-number">
-            {escalasFiltradasCorretas.length > 0 
-              ? new Date(escalasFiltradasCorretas[0].data).toLocaleDateString('pt-BR')
+            {proximaEscala
+              ? new Date(proximaEscala.dataInicio + 'T00:00:00').toLocaleDateString('pt-BR')
               : 'Nenhuma'}
           </span>
         </div>
@@ -176,9 +229,9 @@ export default function MinhaAgenda() {
 
         <div className="calendario-grid">
           {diasCalendario.map((data, index) => {
-            const escalado = verificarSeEscalado(data)
             const escalasDodia = obterEscalasDoDia(data)
-            
+            const escalado = escalasDodia.length > 0
+
             return (
               <div
                 key={index}
@@ -191,8 +244,16 @@ export default function MinhaAgenda() {
                       <div className="dia-status">
                         <span className="badge-escalado">✓</span>
                         {escalasDodia.map((escala, i) => (
-                          <div key={i} className="escala-info">
-                            <small>{escala.turno || 'Turno'}</small>
+                          <div
+                            key={i}
+                            className="escala-info"
+                            onClick={() => abrirEscala(escala)}
+                            title="Clique para ver detalhes"
+                          >
+                            <span className="escala-info-nome">
+                              {(escala.tecnicos || []).map(uid => getNomeUsuario(uid)).join(', ') || 'Sem técnico'}
+                            </span>
+                            <span className="escala-info-tipo">{TIPOS_ESCALA[escala.tipo] || escala.tipo}</span>
                           </div>
                         ))}
                       </div>
@@ -208,45 +269,43 @@ export default function MinhaAgenda() {
       {/* LISTA DE ESCALAS */}
       <div className="escalas-lista">
         <h3>📋 Escalas</h3>
-        {escalasFiltradasCorretas.length > 0 ? (
+        {escalasOrdenadas.length > 0 ? (
           <div className="escalas-table-wrapper">
             <table className="escalas-table">
               <thead>
                 <tr>
-                  <th>Data</th>
-                  <th>Turno</th>
+                  <th>Período</th>
+                  <th>Tipo</th>
                   <th>Técnico</th>
                   <th>Equipe</th>
                   <th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {escalasFiltradasCorretas
-                  .sort((a, b) => new Date(a.data) - new Date(b.data))
-                  .map((escala, index) => {
-                    // Suporta tanto array (tecnicos) quanto string (tecnico)
-                    const tecnicoIds = Array.isArray(escala.tecnicos) ? escala.tecnicos : [escala.tecnico]
-                    const tecnicosPrimeiros = tecnicoIds.map(id => usuarios.find(u => u.uid === id)).filter(Boolean)
-                    const tecnico = tecnicosPrimeiros[0]
-                    
-                    const dataEscala = new Date(escala.data)
-                    const agora = new Date()
-                    const status = dataEscala >= agora ? 'Ativa' : 'Finalizada'
-
-                    return (
-                      <tr key={index}>
-                        <td>{dataEscala.toLocaleDateString('pt-BR')}</td>
-                        <td>{escala.turno || 'Não definido'}</td>
-                        <td className="nome-cell">{tecnico?.nome || 'Desconhecido'}</td>
-                        <td>{escala.equipe?.toUpperCase() || userData?.equipe?.toUpperCase()}</td>
-                        <td>
-                          <span className={`status-badge ${status === 'Ativa' ? 'ativa' : 'finalizada'}`}>
-                            {status}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
+                {escalasOrdenadas.map(escala => (
+                  <tr
+                    key={escala.id}
+                    className="escala-row-clicavel"
+                    onClick={() => abrirEscala(escala)}
+                    title="Clique para ver detalhes"
+                  >
+                    <td>
+                      {new Date(escala.dataInicio + 'T00:00:00').toLocaleDateString('pt-BR')}
+                      {' a '}
+                      {new Date(escala.dataFim + 'T00:00:00').toLocaleDateString('pt-BR')}
+                    </td>
+                    <td>{TIPOS_ESCALA[escala.tipo] || escala.tipo}</td>
+                    <td className="nome-cell">
+                      {(escala.tecnicos || []).map(uid => getNomeUsuario(uid)).join(', ') || 'Ninguém'}
+                    </td>
+                    <td>{escala.equipe?.toUpperCase()}</td>
+                    <td>
+                      <span className={`status-badge ${escala.status === 'ativa' ? 'ativa' : 'finalizada'}`}>
+                        {escala.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -256,6 +315,125 @@ export default function MinhaAgenda() {
           </div>
         )}
       </div>
+
+      {/* MODAL DE DETALHES (SOMENTE LEITURA) */}
+      {escalaSelecionada && (
+        <div className="modal-overlay" onClick={fecharModal}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Detalhes da Escala</h3>
+              <button className="modal-close" onClick={fecharModal}>✕</button>
+            </div>
+            <div className="escala-detalhe-modal">
+              <div className="escala-detalhe-linha">
+                <strong>Tipo</strong>
+                <span>{TIPOS_ESCALA[escalaSelecionada.tipo] || escalaSelecionada.tipo}</span>
+              </div>
+              <div className="escala-detalhe-linha">
+                <strong>Período</strong>
+                <span>
+                  {new Date(escalaSelecionada.dataInicio + 'T00:00:00').toLocaleDateString('pt-BR')}
+                  {' a '}
+                  {new Date(escalaSelecionada.dataFim + 'T00:00:00').toLocaleDateString('pt-BR')}
+                </span>
+              </div>
+              <div className="escala-detalhe-linha">
+                <strong>Equipe</strong>
+                <span>{escalaSelecionada.equipe?.toUpperCase()}</span>
+              </div>
+              <div className="escala-detalhe-linha">
+                <strong>Técnico(s)</strong>
+                <span>
+                  {(escalaSelecionada.tecnicos || []).map(uid => getNomeUsuario(uid)).join(', ') || 'Ninguém'}
+                </span>
+              </div>
+              <div className="escala-detalhe-linha">
+                <strong>Status</strong>
+                <span className={`status-badge ${escalaSelecionada.status === 'ativa' ? 'ativa' : 'finalizada'}`}>
+                  {escalaSelecionada.status}
+                </span>
+              </div>
+              {escalaSelecionada.descricao && (
+                <div className="escala-detalhe-linha escala-detalhe-descricao">
+                  <strong>Descrição</strong>
+                  <span>{escalaSelecionada.descricao}</span>
+                </div>
+              )}
+              {escalaSelecionada.criadoPor && (
+                <div className="escala-detalhe-linha">
+                  <strong>Criado por</strong>
+                  <span>{escalaSelecionada.criadoPor}</span>
+                </div>
+              )}
+            </div>
+
+            {souTecnico && mostrarFormTroca && (
+              <div className="troca-form">
+                <div className="escala-detalhe-linha">
+                  <strong>O que deseja trocar?</strong>
+                  <div className="troca-tipo-opcoes">
+                    <label>
+                      <input
+                        type="radio"
+                        name="tipoTroca"
+                        checked={tipoTroca === 'completa'}
+                        onChange={() => setTipoTroca('completa')}
+                      />
+                      Escala inteira
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        name="tipoTroca"
+                        checked={tipoTroca === 'dia'}
+                        onChange={() => setTipoTroca('dia')}
+                      />
+                      Só um dia
+                    </label>
+                  </div>
+                </div>
+                {tipoTroca === 'dia' && (
+                  <div className="escala-detalhe-linha">
+                    <strong>Qual dia?</strong>
+                    <input
+                      type="date"
+                      value={diaTroca}
+                      min={escalaSelecionada.dataInicio}
+                      max={escalaSelecionada.dataFim}
+                      onChange={(e) => setDiaTroca(e.target.value)}
+                    />
+                  </div>
+                )}
+                <div className="escala-detalhe-linha">
+                  <strong>Trocar com quem?</strong>
+                  <select value={destinoTroca} onChange={(e) => setDestinoTroca(e.target.value)}>
+                    <option value="">Selecione um colega...</option>
+                    {colegasParaTroca.map(colega => (
+                      <option key={colega.uid} value={colega.uid}>{colega.nome}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <div className="form-actions-modal">
+              {souTecnico && !mostrarFormTroca && (
+                <button type="button" className="btn-success" onClick={() => setMostrarFormTroca(true)}>
+                  🔄 Solicitar Troca
+                </button>
+              )}
+              {souTecnico && mostrarFormTroca && (
+                <button type="button" className="btn-success" disabled={enviandoTroca} onClick={enviarSolicitacaoTroca}>
+                  {enviandoTroca ? 'Enviando...' : 'Enviar Solicitação'}
+                </button>
+              )}
+              <button type="button" className="btn-secondary" onClick={mostrarFormTroca ? () => setMostrarFormTroca(false) : fecharModal}>
+                {mostrarFormTroca ? 'Voltar' : 'Fechar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

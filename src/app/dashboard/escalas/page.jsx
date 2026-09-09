@@ -8,7 +8,7 @@ export default function EscalasPage() {
   const { userData } = useDashboardUser()
 
   return (
-    <ProtectedRoute requiredRoles={['admin', 'gestor', 'tecnico', 'analista']} userData={userData}>
+    <ProtectedRoute userData={userData}>
       <Escalas />
     </ProtectedRoute>
   )

@@ -1,9 +1,55 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { registerUser } from '../../services/auth'
 import { useDashboardUser } from '../../context/DashboardUserContext'
 import '../../styles/Usuarios.css'
+
+const CUSTOM = '__custom__'
+
+// Equipes reais (Analista/Desenvolvedor são perfil, não equipe)
+const EQUIPES = [
+  { id: 'suporte', label: '🎧 Suporte', cor: '#3498db' },
+  { id: 'infraestrutura', label: '🔧 Infraestrutura', cor: '#e74c3c' },
+  { id: 'sistemas', label: '💻 Sistemas', cor: '#27ae60' },
+  { id: 'projetos', label: '📁 Projetos', cor: '#f39c12' },
+  { id: 'dev', label: '🧑‍💻 Dev', cor: '#9b59b6' },
+]
+
+// Perfis conhecidos pelo sistema. Admin também pode digitar um perfil
+// totalmente novo (ver opção "Outro" no formulário).
+const PERFIS = [
+  { id: 'tecnico', label: '👤 Técnico' },
+  { id: 'analista', label: '📊 Analista' },
+  { id: 'desenvolvedor', label: '🧑‍💻 Desenvolvedor' },
+  { id: 'gestor', label: '👨‍💼 Gestor' },
+  { id: 'admin', label: '🔐 Admin' },
+]
+
+// Times com perfil de colaborador exclusivo (fora daqui, Técnico/Analista
+// servem para suporte/infraestrutura/sistemas normalmente).
+const PERFIL_EXCLUSIVO_POR_EQUIPE = {
+  projetos: ['analista'],
+  dev: ['desenvolvedor'],
+}
+
+// Especialidades fixas por equipe. Equipes fora daqui não têm especialidade
+// (a não ser que o admin digite uma manualmente).
+const ESPECIALIDADES_POR_EQUIPE = {
+  infraestrutura: ['Analista Junior', 'Analista Pleno', 'Analista Senior'],
+  sistemas: ['PEP', 'TOTVS'],
+}
+
+function labelPerfil(roleId) {
+  return PERFIS.find(p => p.id === roleId)?.label || `👤 ${roleId}`
+}
+
+function labelEquipe(equipeId) {
+  return EQUIPES.find(e => e.id === equipeId)?.label || equipeId
+}
+
+function corEquipe(equipeId) {
+  return EQUIPES.find(e => e.id === equipeId)?.cor
+}
 
 export default function Usuarios() {
   const { user, userData } = useDashboardUser()
@@ -13,47 +59,48 @@ export default function Usuarios() {
   const [showFormEditar, setShowFormEditar] = useState(false)
   const [usuarioEditando, setUsuarioEditando] = useState(null)
   const [filtroEquipe, setFiltroEquipe] = useState('todos')
-  const [formCriar, setFormCriar] = useState({
+
+  const formVazioCriar = {
     nome: '',
     email: '',
     senha: '',
     confirmarSenha: '',
+    matricula: '',
     equipe: 'suporte',
-    role: 'tecnico'
-  })
+    role: 'tecnico',
+    roleCustom: '',
+    especialidade: '',
+    especialidadeCustom: '',
+  }
+  const [formCriar, setFormCriar] = useState(formVazioCriar)
   const [formEditar, setFormEditar] = useState({
     nome: '',
+    matricula: '',
     equipe: 'suporte',
-    role: 'tecnico'
+    role: 'tecnico',
+    roleCustom: '',
+    especialidade: '',
+    especialidadeCustom: '',
   })
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [criando, setCriando] = useState(false)
   const [editando, setEditando] = useState(false)
 
-  // ✅ APENAS EQUIPES REAIS (sem Analista)
-  const EQUIPES = [
-    { id: 'suporte', label: '🎧 Suporte', cor: '#3498db' },
-    { id: 'infraestrutura', label: '🔧 Infraestrutura', cor: '#e74c3c' },
-    { id: 'sistemas', label: '💻 Sistemas', cor: '#27ae60' }
-  ]
-
-  // ✅ PERFIS (Analista agora é perfil, não equipe)
-  const PERFIS = [
-    { id: 'tecnico', label: '👤 Técnico' },
-    { id: 'analista', label: '📊 Analista' },
-    { id: 'gestor', label: '👨‍💼 Gestor' },
-     { id: 'admin', label: '🔐 Admin' }
-  ]
+  const souAdmin = userData?.role === 'admin'
 
   useEffect(() => {
     if (userData) {
+      const equipeInicial = userData.equipe || 'suporte'
+      const perfis = perfisDisponiveis(equipeInicial)
       setFormCriar(prev => ({
         ...prev,
-        equipe: userData.equipe || 'suporte'
+        equipe: equipeInicial,
+        role: perfis.some(p => p.id === prev.role) ? prev.role : (perfis[0]?.id || prev.role),
       }))
     }
     carregarUsuarios()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userData])
 
   useEffect(() => {
@@ -80,9 +127,7 @@ export default function Usuarios() {
 
   const podecriarUsuario = () => {
     if (!userData) return false
-    if (userData.role === 'admin') return true
-    if (userData.role === 'gestor') return true
-    return false
+    return userData.role === 'admin' || userData.role === 'gestor'
   }
 
   const equipesDisponiveis = () => {
@@ -92,192 +137,195 @@ export default function Usuarios() {
     return []
   }
 
-  // ✅ APENAS ADMIN PODE PROMOVER PARA GESTOR
-  const perfisDisponiveis = () => {
-  if (userData?.role === 'admin') {
-    return PERFIS // Admin vê todos os perfis
+  // Perfis que fazem sentido pra equipe escolhida (fora do admin, que vê tudo + "Outro")
+  const perfisDisponiveis = (equipe) => {
+    if (souAdmin) return [...PERFIS, { id: CUSTOM, label: '✏️ Outro (digitar)' }]
+
+    const exclusivos = PERFIL_EXCLUSIVO_POR_EQUIPE[equipe]
+    const semAdmin = PERFIS.filter(p => p.id !== 'admin')
+    if (exclusivos) {
+      return semAdmin.filter(p => p.id === 'gestor' || exclusivos.includes(p.id))
+    }
+    return semAdmin.filter(p => p.id !== 'desenvolvedor')
   }
-  // Gestor vê apenas Técnico e Analista (não pode criar Admin)
-  return PERFIS.filter(p => p.id !== 'admin')
-}
+
+  const especialidadesDisponiveis = (equipe) => ESPECIALIDADES_POR_EQUIPE[equipe] || []
 
   const abrirEditar = (usuario) => {
     setUsuarioEditando(usuario)
+    const roleConhecido = PERFIS.some(p => p.id === usuario.role)
     setFormEditar({
       nome: usuario.nome,
-      email: usuario.email,
-      equipe: usuario.equipe,
-      role: usuario.role
+      matricula: usuario.matricula || '',
+      equipe: usuario.equipe || 'suporte',
+      role: roleConhecido ? usuario.role : CUSTOM,
+      roleCustom: roleConhecido ? '' : usuario.role,
+      especialidade: especialidadesDisponiveis(usuario.equipe).includes(usuario.especialidade) ? usuario.especialidade : (usuario.especialidade ? CUSTOM : ''),
+      especialidadeCustom: especialidadesDisponiveis(usuario.equipe).includes(usuario.especialidade) ? '' : (usuario.especialidade || ''),
     })
     setShowFormEditar(true)
   }
 
- const handleCriarUsuario = async (e) => {
-  e.preventDefault()
-  setError('')
-  setSuccess('')
-  setCriando(true)
+  const handleCriarUsuario = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    setCriando(true)
 
-  if (!formCriar.nome.trim()) {
-    setError('Nome é obrigatório')
-    setCriando(false)
-    return
-  }
-  if (!formCriar.email.trim()) {
-    setError('E-mail é obrigatório')
-    setCriando(false)
-    return
-  }
-  if (formCriar.senha.length < 6) {
-    setError('Senha deve ter no mínimo 6 caracteres')
-    setCriando(false)
-    return
-  }
-  if (formCriar.senha !== formCriar.confirmarSenha) {
-    setError('As senhas não conferem')
-    setCriando(false)
-    return
-  }
-
-  // ✅ VALIDAÇÃO: Apenas Admin pode criar Admin
-  if (formCriar.role === 'admin' && userData?.role !== 'admin') {
-    setError('❌ Apenas Admin pode criar contas de Administrador')
-    setCriando(false)
-    return
-  }
-
-  try {
-    const userCredential = await registerUser(formCriar.email, formCriar.senha, formCriar.nome)
-
-    // registerUser já cria o usuário no banco com role=tecnico/equipe=suporte;
-    // aqui ajustamos para o perfil/equipe escolhidos no formulário.
-    const equipeFinal = formCriar.role === 'admin' ? null : formCriar.equipe
-    const patchResponse = await fetch(`/api/usuarios/${encodeURIComponent(userCredential.uid)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        nome: formCriar.nome,
-        role: formCriar.role,
-        equipe: equipeFinal,
-      }),
-    })
-
-    if (!patchResponse.ok) {
-      const data = await patchResponse.json().catch(() => ({}))
-      throw new Error(data.error || 'Falha ao definir perfil/equipe do usuário')
+    if (!formCriar.nome.trim()) {
+      setError('Nome é obrigatório')
+      setCriando(false)
+      return
     }
-
-    await carregarUsuarios()
-
-    const nomeEquipe = formCriar.role === 'admin' ? 'Master' : EQUIPES.find(e => e.id === formCriar.equipe)?.label
-    const nomePerfil = PERFIS.find(p => p.id === formCriar.role)?.label
-    setSuccess(`✅ ${formCriar.nome} criado como ${nomePerfil}${formCriar.role === 'admin' ? '!' : ` de ${nomeEquipe}!`}`)
-    setFormCriar({
-      nome: '',
-      email: '',
-      senha: '',
-      confirmarSenha: '',
-      equipe: userData?.equipe || 'suporte',
-      role: 'tecnico'
-    })
-    setShowFormCriar(false)
-  } catch (err) {
-    console.error('❌ Erro:', err.message)
-    if (err.message.includes('email-already-in-use')) {
-      setError('❌ Este e-mail já está cadastrado')
-    } else if (err.message.includes('invalid-email')) {
-      setError('❌ E-mail inválido')
-    } else if (err.message.includes('weak-password')) {
-      setError('❌ Senha muito fraca')
-    } else {
-      setError(`❌ Erro: ${err.message}`)
+    if (!formCriar.email.trim()) {
+      setError('E-mail é obrigatório')
+      setCriando(false)
+      return
     }
-  } finally {
-    setCriando(false)
-  }
-}
-
-  const handleEditarUsuario = async (e) => {
-  e.preventDefault()
-  setError('')
-  setSuccess('')
-  setEditando(true)
-
-  if (!formEditar.nome.trim()) {
-    setError('Nome é obrigatório')
-    setEditando(false)
-    return
-  }
-
-  // ✅ VALIDAÇÃO: Apenas Admin pode alterar para Admin
-  if (formEditar.role === 'admin' && userData?.role !== 'admin') {
-    setError('❌ Apenas Admin pode promover para Administrador')
-    setEditando(false)
-    return
-  }
-
-  try {
-    const equipeFinal = formEditar.role === 'admin' ? null : formEditar.equipe
-
-    const response = await fetch(`/api/usuarios/${encodeURIComponent(usuarioEditando.uid)}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        nome: formEditar.nome,
-        role: formEditar.role,
-        equipe: equipeFinal,
-      }),
-    })
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}))
-      throw new Error(data.error || 'Falha ao editar usuário')
+    if (formCriar.senha.length < 6) {
+      setError('Senha deve ter no mínimo 6 caracteres')
+      setCriando(false)
+      return
     }
-
-    await carregarUsuarios()
-    setSuccess(`✅ ${formEditar.nome} atualizado com sucesso!`)
-    setShowFormEditar(false)
-    setUsuarioEditando(null)
-  } catch (err) {
-    setError(`❌ Erro ao editar: ${err.message}`)
-  } finally {
-    setEditando(false)
-  }
-}
- const handleDelete = async (uid) => {
-  if (!window.confirm('Tem certeza que deseja deletar este usuário?')) return
-
-  try {
-    if (user?.uid === uid) {
-      alert('Você não pode deletar sua própria conta!')
+    if (formCriar.senha !== formCriar.confirmarSenha) {
+      setError('As senhas não conferem')
+      setCriando(false)
       return
     }
 
-    // 1. Deletar do banco de dados
-    const response = await fetch(`/api/usuarios/${encodeURIComponent(uid)}`, {
-      method: 'DELETE',
-    })
+    const roleFinal = formCriar.role === CUSTOM ? formCriar.roleCustom.trim() : formCriar.role
+    if (!roleFinal) {
+      setError('Informe o perfil')
+      setCriando(false)
+      return
+    }
+    const especialidadeFinal = formCriar.especialidade === CUSTOM ? formCriar.especialidadeCustom.trim() : formCriar.especialidade
 
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}))
-      throw new Error(data.error || 'Falha ao deletar usuário')
+    if (roleFinal === 'admin' && userData?.role !== 'admin') {
+      setError('❌ Apenas Admin pode criar contas de Administrador')
+      setCriando(false)
+      return
     }
 
-    await carregarUsuarios()
+    try {
+      const response = await fetch('/api/usuarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nome: formCriar.nome,
+          email: formCriar.email,
+          senha: formCriar.senha,
+          role: roleFinal,
+          equipe: roleFinal === 'admin' ? null : formCriar.equipe,
+          matricula: formCriar.matricula || null,
+          especialidade: especialidadeFinal || null,
+        }),
+      })
 
-    setSuccess('✅ Usuário deletado com sucesso!')
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao criar usuário')
+      }
 
-    setTimeout(() => {
-      setSuccess('')
-    }, 3000)
-  } catch (error) {
-    console.error('Erro ao deletar usuário:', error)
-    setError('❌ Erro ao deletar usuário')
+      await carregarUsuarios()
+
+      const nomeEquipe = roleFinal === 'admin' ? 'Master' : labelEquipe(formCriar.equipe)
+      setSuccess(`✅ ${formCriar.nome} criado como ${labelPerfil(roleFinal)}${roleFinal === 'admin' ? '!' : ` de ${nomeEquipe}!`}`)
+      setFormCriar({ ...formVazioCriar, equipe: userData?.equipe || 'suporte' })
+      setShowFormCriar(false)
+    } catch (err) {
+      console.error('❌ Erro:', err.message)
+      if (err.message.includes('email-already-in-use')) {
+        setError('❌ Este e-mail já está cadastrado')
+      } else {
+        setError(`❌ Erro: ${err.message}`)
+      }
+    } finally {
+      setCriando(false)
+    }
   }
-}
 
-  // ✅ NÃO FILTRAR POR EQUIPE AQUI - O FILTRO JÁ ESTÁ EM usuariosVisiveis()
-const usuariosFiltrados = usuarios
+  const handleEditarUsuario = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    setEditando(true)
+
+    if (!formEditar.nome.trim()) {
+      setError('Nome é obrigatório')
+      setEditando(false)
+      return
+    }
+
+    const roleFinal = formEditar.role === CUSTOM ? formEditar.roleCustom.trim() : formEditar.role
+    if (!roleFinal) {
+      setError('Informe o perfil')
+      setEditando(false)
+      return
+    }
+    const especialidadeFinal = formEditar.especialidade === CUSTOM ? formEditar.especialidadeCustom.trim() : formEditar.especialidade
+
+    if (roleFinal === 'admin' && userData?.role !== 'admin') {
+      setError('❌ Apenas Admin pode promover para Administrador')
+      setEditando(false)
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/usuarios/${encodeURIComponent(usuarioEditando.uid)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nome: formEditar.nome,
+          role: roleFinal,
+          equipe: roleFinal === 'admin' ? null : formEditar.equipe,
+          matricula: formEditar.matricula || null,
+          especialidade: especialidadeFinal || null,
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao editar usuário')
+      }
+
+      await carregarUsuarios()
+      setSuccess(`✅ ${formEditar.nome} atualizado com sucesso!`)
+      setShowFormEditar(false)
+      setUsuarioEditando(null)
+    } catch (err) {
+      setError(`❌ Erro ao editar: ${err.message}`)
+    } finally {
+      setEditando(false)
+    }
+  }
+
+  const handleDelete = async (uid) => {
+    if (!window.confirm('Tem certeza que deseja deletar este usuário?')) return
+
+    try {
+      if (user?.uid === uid) {
+        alert('Você não pode deletar sua própria conta!')
+        return
+      }
+
+      const response = await fetch(`/api/usuarios/${encodeURIComponent(uid)}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao deletar usuário')
+      }
+
+      await carregarUsuarios()
+      setSuccess('✅ Usuário deletado com sucesso!')
+      setTimeout(() => setSuccess(''), 3000)
+    } catch (error) {
+      console.error('Erro ao deletar usuário:', error)
+      setError('❌ Erro ao deletar usuário')
+    }
+  }
 
   if (loading) {
     return <div className="usuarios-container"><p>Carregando usuários...</p></div>
@@ -285,31 +333,23 @@ const usuariosFiltrados = usuarios
 
   const podeEditar = podecriarUsuario()
 
-  // ✅ PROBLEMA 3: GESTORES VEEM APENAS OUTROS GESTORES + SUA EQUIPE
   const usuariosVisiveis = () => {
-  // Admin vê todos
-  if (userData?.role === 'admin') {
-    return usuariosFiltrados
+    if (userData?.role === 'admin') {
+      return usuarios
+    }
+    if (userData?.role === 'gestor') {
+      return usuarios.filter(u => {
+        if (u.equipe === userData.equipe && u.role !== 'admin' && u.role !== 'gestor') {
+          return true
+        }
+        if (u.role === 'gestor' && u.equipe === userData.equipe && u.uid !== userData.uid) {
+          return true
+        }
+        return false
+      })
+    }
+    return []
   }
-
-  // Gestor vê: Técnicos/Analistas de sua equipe + Outros Gestores da MESMA equipe
-  if (userData?.role === 'gestor') {
-    return usuariosFiltrados.filter(u => {
-      // Vê Técnicos e Analistas de sua equipe
-      if (u.equipe === userData.equipe && (u.role === 'tecnico' || u.role === 'analista')) {
-        return true
-      }
-      // Vê APENAS Gestores da MESMA equipe (não de outras equipes)
-      if (u.role === 'gestor' && u.equipe === userData.equipe && u.uid !== userData.uid) {
-        return true
-      }
-      return false
-    })
-  }
-
-  // Técnico/Analista não vê ninguém
-  return []
-}
 
   return (
     <div className="usuarios-container">
@@ -329,175 +369,296 @@ const usuariosFiltrados = usuarios
       {success && <p className="success-message">{success}</p>}
 
       {/* FORMULÁRIO CRIAR */}
-      {/* FORMULÁRIO CRIAR */}
-{podeEditar && showFormCriar && (
-  <form className="usuario-form" onSubmit={handleCriarUsuario}>
-    <h3>Criar Novo Usuário</h3>
-    <div className="form-row">
-      <div className="form-group">
-        <label>Nome Completo *</label>
-        <input
-          type="text"
-          value={formCriar.nome}
-          onChange={(e) => setFormCriar({...formCriar, nome: e.target.value})}
-          placeholder="João Silva"
-          required
-          disabled={criando}
-          autoComplete="off"
-        />
-      </div>
-      <div className="form-group">
-        <label>E-mail *</label>
-        <input
-          type="email"
-          value={formCriar.email}
-          onChange={(e) => setFormCriar({...formCriar, email: e.target.value})}
-          placeholder="joao@escala.com"
-          required
-          disabled={criando}
-          autoComplete="off"
-        />
-      </div>
-    </div>
-    <div className="form-row">
-      <div className="form-group">
-        <label>Senha *</label>
-        <input
-          type="password"
-          value={formCriar.senha}
-          onChange={(e) => setFormCriar({...formCriar, senha: e.target.value})}
-          placeholder="Mínimo 6 caracteres"
-          required
-          disabled={criando}
-          autoComplete="off"
-        />
-      </div>
-      <div className="form-group">
-        <label>Confirmar Senha *</label>
-        <input
-          type="password"
-          value={formCriar.confirmarSenha}
-          onChange={(e) => setFormCriar({...formCriar, confirmarSenha: e.target.value})}
-          placeholder="Confirme a senha"
-          required
-          disabled={criando}
-          autoComplete="off"
-        />
-      </div>
-    </div>
-    <div className="form-row">
-      <div className="form-group">
-        <label>Perfil *</label>
-        <select
-          value={formCriar.role}
-          onChange={(e) => setFormCriar({...formCriar, role: e.target.value})}
-          required
-          disabled={criando}
-        >
-          {perfisDisponiveis().map(perfil => (
-            <option key={perfil.id} value={perfil.id}>{perfil.label}</option>
-          ))}
-        </select>
-      </div>
+      {podeEditar && showFormCriar && (
+        <form className="usuario-form" onSubmit={handleCriarUsuario}>
+          <h3>Criar Novo Usuário</h3>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Nome Completo *</label>
+              <input
+                type="text"
+                value={formCriar.nome}
+                onChange={(e) => setFormCriar({...formCriar, nome: e.target.value})}
+                placeholder="João Silva"
+                required
+                disabled={criando}
+                autoComplete="off"
+              />
+            </div>
+            <div className="form-group">
+              <label>E-mail *</label>
+              <input
+                type="email"
+                value={formCriar.email}
+                onChange={(e) => setFormCriar({...formCriar, email: e.target.value})}
+                placeholder="joao@escala.com"
+                required
+                disabled={criando}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Senha *</label>
+              <input
+                type="password"
+                value={formCriar.senha}
+                onChange={(e) => setFormCriar({...formCriar, senha: e.target.value})}
+                placeholder="Mínimo 6 caracteres"
+                required
+                disabled={criando}
+                autoComplete="off"
+              />
+            </div>
+            <div className="form-group">
+              <label>Confirmar Senha *</label>
+              <input
+                type="password"
+                value={formCriar.confirmarSenha}
+                onChange={(e) => setFormCriar({...formCriar, confirmarSenha: e.target.value})}
+                placeholder="Confirme a senha"
+                required
+                disabled={criando}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Matrícula</label>
+              <input
+                type="text"
+                value={formCriar.matricula}
+                onChange={(e) => setFormCriar({...formCriar, matricula: e.target.value})}
+                placeholder="Ex: 00123"
+                disabled={criando}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Perfil *</label>
+              <select
+                value={formCriar.role}
+                onChange={(e) => setFormCriar({...formCriar, role: e.target.value})}
+                required
+                disabled={criando}
+              >
+                {perfisDisponiveis(formCriar.equipe).map(perfil => (
+                  <option key={perfil.id} value={perfil.id}>{perfil.label}</option>
+                ))}
+              </select>
+              {formCriar.role === CUSTOM && (
+                <input
+                  type="text"
+                  value={formCriar.roleCustom}
+                  onChange={(e) => setFormCriar({...formCriar, roleCustom: e.target.value})}
+                  placeholder="Digite o nome do perfil"
+                  className="campo-custom"
+                  disabled={criando}
+                />
+              )}
+            </div>
 
-      {/* ✅ MOSTRAR EQUIPE APENAS SE NÃO FOR ADMIN */}
-      {formCriar.role !== 'admin' && (
-        <div className="form-group">
-          <label>Equipe *</label>
-          <select
-            value={formCriar.equipe}
-            onChange={(e) => setFormCriar({...formCriar, equipe: e.target.value})}
-            required
-            disabled={criando}
-          >
-            {equipesDisponiveis().map(eq => (
-              <option key={eq.id} value={eq.id}>{eq.label}</option>
-            ))}
-          </select>
-        </div>
+            {formCriar.role !== 'admin' && (
+              <div className="form-group">
+                <label>Equipe *</label>
+                <select
+                  value={formCriar.equipe}
+                  onChange={(e) => {
+                    const novaEquipe = e.target.value
+                    const perfis = perfisDisponiveis(novaEquipe)
+                    setFormCriar({
+                      ...formCriar,
+                      equipe: novaEquipe,
+                      role: perfis.some(p => p.id === formCriar.role) ? formCriar.role : (perfis[0]?.id || formCriar.role),
+                      especialidade: '',
+                      especialidadeCustom: '',
+                    })
+                  }}
+                  required
+                  disabled={criando}
+                >
+                  {equipesDisponiveis().map(eq => (
+                    <option key={eq.id} value={eq.id}>{eq.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+          {formCriar.role !== 'admin' && (especialidadesDisponiveis(formCriar.equipe).length > 0 || souAdmin) && (
+            <div className="form-row">
+              <div className="form-group">
+                <label>Especialidade</label>
+                <select
+                  value={formCriar.especialidade}
+                  onChange={(e) => setFormCriar({...formCriar, especialidade: e.target.value})}
+                  disabled={criando}
+                >
+                  <option value="">— Sem especialidade —</option>
+                  {especialidadesDisponiveis(formCriar.equipe).map(esp => (
+                    <option key={esp} value={esp}>{esp}</option>
+                  ))}
+                  {souAdmin && <option value={CUSTOM}>✏️ Outro (digitar)</option>}
+                </select>
+                {formCriar.especialidade === CUSTOM && (
+                  <input
+                    type="text"
+                    value={formCriar.especialidadeCustom}
+                    onChange={(e) => setFormCriar({...formCriar, especialidadeCustom: e.target.value})}
+                    placeholder="Digite a especialidade"
+                    className="campo-custom"
+                    disabled={criando}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+          <div className="form-actions">
+            <button type="submit" className="btn-success" disabled={criando}>
+              {criando ? '⏳ Criando...' : '✅ Criar Usuário'}
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => setShowFormCriar(false)} disabled={criando}>
+              Cancelar
+            </button>
+          </div>
+        </form>
       )}
-    </div>
-    <div className="form-actions">
-      <button type="submit" className="btn-success" disabled={criando}>
-        {criando ? '⏳ Criando...' : '✅ Criar Usuário'}
-      </button>
-      <button type="button" className="btn-secondary" onClick={() => setShowFormCriar(false)} disabled={criando}>
-        Cancelar
-      </button>
-    </div>
-  </form>
-)}
 
       {/* FORMULÁRIO EDITAR */}
-      {/* FORMULÁRIO EDITAR */}
-{showFormEditar && usuarioEditando && (
-  <form className="usuario-form" onSubmit={handleEditarUsuario}>
-    <h3>Editar Usuário: {usuarioEditando.nome}</h3>
-    <div className="form-row">
-      <div className="form-group">
-        <label>Nome Completo *</label>
-        <input
-          type="text"
-          value={formEditar.nome}
-          onChange={(e) => setFormEditar({...formEditar, nome: e.target.value})}
-          placeholder="João Silva"
-          required
-          disabled={editando}
-          autoComplete="off"
-        />
-      </div>
-      <div className="form-group">
-        <label>E-mail (não editável)</label>
-        <input
-          type="email"
-          value={usuarioEditando.email}
-          disabled
-          style={{backgroundColor: '#f0f0f0', cursor: 'not-allowed'}}
-        />
-      </div>
-    </div>
-    <div className="form-row">
-      <div className="form-group">
-        <label>Perfil *</label>
-        <select
-          value={formEditar.role}
-          onChange={(e) => setFormEditar({...formEditar, role: e.target.value})}
-          required
-          disabled={editando}
-        >
-          {perfisDisponiveis().map(perfil => (
-            <option key={perfil.id} value={perfil.id}>{perfil.label}</option>
-          ))}
-        </select>
-      </div>
+      {showFormEditar && usuarioEditando && (
+        <form className="usuario-form" onSubmit={handleEditarUsuario}>
+          <h3>Editar Usuário: {usuarioEditando.nome}</h3>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Nome Completo *</label>
+              <input
+                type="text"
+                value={formEditar.nome}
+                onChange={(e) => setFormEditar({...formEditar, nome: e.target.value})}
+                placeholder="João Silva"
+                required
+                disabled={editando}
+                autoComplete="off"
+              />
+            </div>
+            <div className="form-group">
+              <label>E-mail (não editável)</label>
+              <input
+                type="email"
+                value={usuarioEditando.email}
+                disabled
+                style={{backgroundColor: '#f0f0f0', cursor: 'not-allowed'}}
+              />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Matrícula</label>
+              <input
+                type="text"
+                value={formEditar.matricula}
+                onChange={(e) => setFormEditar({...formEditar, matricula: e.target.value})}
+                placeholder="Ex: 00123"
+                disabled={editando}
+                autoComplete="off"
+              />
+            </div>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label>Perfil *</label>
+              <select
+                value={formEditar.role}
+                onChange={(e) => setFormEditar({...formEditar, role: e.target.value})}
+                required
+                disabled={editando}
+              >
+                {(!souAdmin && formEditar.role === CUSTOM
+                  ? [...perfisDisponiveis(formEditar.equipe), { id: CUSTOM, label: '✏️ Perfil personalizado' }]
+                  : perfisDisponiveis(formEditar.equipe)
+                ).map(perfil => (
+                  <option key={perfil.id} value={perfil.id}>{perfil.label}</option>
+                ))}
+              </select>
+              {formEditar.role === CUSTOM && (
+                <input
+                  type="text"
+                  value={formEditar.roleCustom}
+                  onChange={(e) => setFormEditar({...formEditar, roleCustom: e.target.value})}
+                  placeholder="Digite o nome do perfil"
+                  className="campo-custom"
+                  disabled={editando}
+                />
+              )}
+            </div>
 
-      {/* ✅ MOSTRAR EQUIPE APENAS SE NÃO FOR ADMIN */}
-      {formEditar.role !== 'admin' && (
-        <div className="form-group">
-          <label>Equipe *</label>
-          <select
-            value={formEditar.equipe}
-            onChange={(e) => setFormEditar({...formEditar, equipe: e.target.value})}
-            required
-            disabled={editando}
-          >
-            {equipesDisponiveis().map(eq => (
-              <option key={eq.id} value={eq.id}>{eq.label}</option>
-            ))}
-          </select>
-        </div>
+            {formEditar.role !== 'admin' && (
+              <div className="form-group">
+                <label>Equipe *</label>
+                <select
+                  value={formEditar.equipe}
+                  onChange={(e) => {
+                    const novaEquipe = e.target.value
+                    const perfis = perfisDisponiveis(novaEquipe)
+                    setFormEditar({
+                      ...formEditar,
+                      equipe: novaEquipe,
+                      role: perfis.some(p => p.id === formEditar.role) ? formEditar.role : (perfis[0]?.id || formEditar.role),
+                      especialidade: '',
+                      especialidadeCustom: '',
+                    })
+                  }}
+                  required
+                  disabled={editando}
+                >
+                  {equipesDisponiveis().map(eq => (
+                    <option key={eq.id} value={eq.id}>{eq.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+          {formEditar.role !== 'admin' && (especialidadesDisponiveis(formEditar.equipe).length > 0 || souAdmin || formEditar.especialidade === CUSTOM) && (
+            <div className="form-row">
+              <div className="form-group">
+                <label>Especialidade</label>
+                <select
+                  value={formEditar.especialidade}
+                  onChange={(e) => setFormEditar({...formEditar, especialidade: e.target.value})}
+                  disabled={editando}
+                >
+                  <option value="">— Sem especialidade —</option>
+                  {especialidadesDisponiveis(formEditar.equipe).map(esp => (
+                    <option key={esp} value={esp}>{esp}</option>
+                  ))}
+                  {(souAdmin || formEditar.especialidade === CUSTOM) && <option value={CUSTOM}>✏️ Outro (digitar)</option>}
+                </select>
+                {formEditar.especialidade === CUSTOM && (
+                  <input
+                    type="text"
+                    value={formEditar.especialidadeCustom}
+                    onChange={(e) => setFormEditar({...formEditar, especialidadeCustom: e.target.value})}
+                    placeholder="Digite a especialidade"
+                    className="campo-custom"
+                    disabled={editando}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+          <div className="form-actions">
+            <button type="submit" className="btn-success" disabled={editando}>
+              {editando ? '⏳ Salvando...' : '💾 Salvar Alterações'}
+            </button>
+            <button type="button" className="btn-secondary" onClick={() => {setShowFormEditar(false); setUsuarioEditando(null)}} disabled={editando}>
+              Cancelar
+            </button>
+          </div>
+        </form>
       )}
-    </div>
-    <div className="form-actions">
-      <button type="submit" className="btn-success" disabled={editando}>
-        {editando ? '⏳ Salvando...' : '💾 Salvar Alterações'}
-      </button>
-      <button type="button" className="btn-secondary" onClick={() => {setShowFormEditar(false); setUsuarioEditando(null)}} disabled={editando}>
-        Cancelar
-      </button>
-    </div>
-  </form>
-)}
       {/* TABELA DE USUÁRIOS */}
       <div className="usuarios-section">
         <div className="filtro-header">
@@ -523,7 +684,7 @@ const usuariosFiltrados = usuarios
           )}
         </div>
         <div className="usuarios-table-wrapper">
-          {usuariosVisiveis().length === 0 ? (
+          {usuariosVisiveis().filter(u => filtroEquipe === 'todos' || u.equipe === filtroEquipe).length === 0 ? (
             <p className="empty-state">Nenhum usuário para exibir</p>
           ) : (
             <table className="usuarios-table">
@@ -531,28 +692,34 @@ const usuariosFiltrados = usuarios
                 <tr>
                   <th>Nome</th>
                   <th>E-mail</th>
+                  <th>Matrícula</th>
                   <th>Equipe</th>
                   <th>Perfil</th>
+                  <th>Especialidade</th>
                   {podeEditar && <th>Ações</th>}
                 </tr>
               </thead>
               <tbody>
-                {usuariosVisiveis().map(usuario => (
+                {usuariosVisiveis().filter(u => filtroEquipe === 'todos' || u.equipe === filtroEquipe).map(usuario => (
                   <tr key={usuario.uid}>
                     <td className="nome-cell">
                       <strong>{usuario.nome}</strong>
                     </td>
                     <td>{usuario.email}</td>
+                    <td>{usuario.matricula || '-'}</td>
                     <td>
-                      <span className="equipe-badge" style={{background: EQUIPES.find(e => e.id === usuario.equipe)?.cor}}>
-                        {EQUIPES.find(e => e.id === usuario.equipe)?.label}
-                      </span>
+                      {usuario.equipe ? (
+                        <span className="equipe-badge" style={{background: corEquipe(usuario.equipe)}}>
+                          {labelEquipe(usuario.equipe)}
+                        </span>
+                      ) : '-'}
                     </td>
                     <td>
                       <span className={`role-badge ${usuario.role}`}>
-                        {PERFIS.find(p => p.id === usuario.role)?.label}
+                        {labelPerfil(usuario.role)}
                       </span>
                     </td>
+                    <td>{usuario.especialidade || '-'}</td>
                     {podeEditar && (
                       <td>
                         <div className="acoes">

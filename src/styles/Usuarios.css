@@ -105,6 +105,10 @@
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
+.campo-custom {
+  margin-top: 8px;
+}
+
 .form-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -243,6 +247,11 @@
 .role-badge.analista {
   background: #f0e6ff;
   color: #6f42c1;
+}
+
+.role-badge.desenvolvedor {
+  background: #e6f9f0;
+  color: #1e8a5e;
 }
 
 .acoes {

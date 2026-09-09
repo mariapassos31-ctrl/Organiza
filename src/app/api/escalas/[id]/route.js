@@ -8,8 +8,24 @@ const session = await auth()
 if (!session?.user) {
   return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 }
-const { role, equipe: userEquipe } = session.user
+const { role, equipe: sessionEquipe } = session.user
+if (role !== 'admin' && role !== 'gestor') {
+  return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
+}
 const { id } = await params
+
+// Fallback: se a session não trouxer equipe, busca no banco
+let userEquipe = sessionEquipe
+if (role === 'gestor' && !userEquipe) {
+  const { rows } = await query(
+    `SELECT e.tp_equipe FROM usuarios u
+     JOIN equipes e ON e.cd_equipe = u.cd_equipe
+     WHERE u.cd_usuario = $1`,
+    [session.user.id]
+  )
+  userEquipe = rows[0]?.tp_equipe || null
+}
+
 const client = await getPool().connect()
 try {
   const { rows: escalaRows } = await client.query(
@@ -36,6 +52,13 @@ try {
     return NextResponse.json(
       { error: 'Você não pode transferir escala para outra equipe' },
       { status: 403 }
+    )
+  }
+  if (tipo === 'sabado' && equipe !== 'suporte') {
+    await client.query('ROLLBACK')
+    return NextResponse.json(
+      { error: 'Escala do tipo Sábado só pode ser usada pela equipe Suporte' },
+      { status: 400 }
     )
   }
 
@@ -75,9 +98,25 @@ const session = await auth()
 if (!session?.user) {
   return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 }
-const { role, equipe: userEquipe } = session.user
+const { role, equipe: sessionEquipe } = session.user
+if (role !== 'admin' && role !== 'gestor') {
+  return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
+}
 try {
   const { id } = await params
+
+  // Fallback: se a session não trouxer equipe, busca no banco
+  let userEquipe = sessionEquipe
+  if (role === 'gestor' && !userEquipe) {
+    const { rows: userRows } = await query(
+      `SELECT e.tp_equipe FROM usuarios u
+       JOIN equipes e ON e.cd_equipe = u.cd_equipe
+       WHERE u.cd_usuario = $1`,
+      [session.user.id]
+    )
+    userEquipe = userRows[0]?.tp_equipe || null
+  }
+
   if (role === 'gestor') {
     const { rows } = await query(
       `SELECT eq.tp_equipe FROM escalas es
