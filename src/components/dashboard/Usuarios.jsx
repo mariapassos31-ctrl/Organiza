@@ -35,6 +35,10 @@ export default function Usuarios() {
     roleCustom: '',
     especialidade: '',
     especialidadeCustom: '',
+    horarioEntrada: '',
+    baia: '',
+    feriasInicio: '',
+    feriasFim: '',
   }
   const [formCriar, setFormCriar] = useState(formVazioCriar)
   const [formEditar, setFormEditar] = useState({
@@ -45,6 +49,10 @@ export default function Usuarios() {
     roleCustom: '',
     especialidade: '',
     especialidadeCustom: '',
+    horarioEntrada: '',
+    baia: '',
+    feriasInicio: '',
+    feriasFim: '',
   })
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -123,6 +131,10 @@ export default function Usuarios() {
       roleCustom: roleConhecido ? '' : usuario.role,
       especialidade: especialidadesDisponiveis(usuario.equipe).includes(usuario.especialidade) ? usuario.especialidade : (usuario.especialidade ? CUSTOM : ''),
       especialidadeCustom: especialidadesDisponiveis(usuario.equipe).includes(usuario.especialidade) ? '' : (usuario.especialidade || ''),
+      horarioEntrada: usuario.horarioEntrada || '',
+      baia: usuario.baia || '',
+      feriasInicio: usuario.feriasInicio || '',
+      feriasFim: usuario.feriasFim || '',
     })
     setShowFormEditar(true)
   }
@@ -180,6 +192,10 @@ export default function Usuarios() {
           equipe: roleFinal === 'admin' ? null : formCriar.equipe,
           matricula: formCriar.matricula || null,
           especialidade: especialidadeFinal || null,
+          horarioEntrada: formCriar.horarioEntrada || null,
+          baia: formCriar.baia || null,
+          feriasInicio: formCriar.feriasInicio || null,
+          feriasFim: formCriar.feriasFim || null,
         }),
       })
 
@@ -242,6 +258,10 @@ export default function Usuarios() {
           equipe: roleFinal === 'admin' ? null : formEditar.equipe,
           matricula: formEditar.matricula || null,
           especialidade: especialidadeFinal || null,
+          horarioEntrada: formEditar.horarioEntrada || null,
+          baia: formEditar.baia || null,
+          feriasInicio: formEditar.feriasInicio || null,
+          feriasFim: formEditar.feriasFim || null,
         }),
       })
 
@@ -336,8 +356,13 @@ export default function Usuarios() {
 
       {/* FORMULÁRIO CRIAR */}
       {podeEditar && showFormCriar && (
-        <form className="usuario-form" onSubmit={handleCriarUsuario}>
-          <h3>Criar Novo Usuário</h3>
+        <div className="modal-overlay" onClick={() => setShowFormCriar(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Criar Novo Usuário</h3>
+              <button className="modal-close" onClick={() => setShowFormCriar(false)}>✕</button>
+            </div>
+            <form className="usuario-form usuario-form-modal" onSubmit={handleCriarUsuario}>
           <div className="form-row">
             <div className="form-group">
               <label>Nome Completo *</label>
@@ -482,6 +507,52 @@ export default function Usuarios() {
               </div>
             </div>
           )}
+          {formCriar.role !== 'admin' && (
+            <div className="form-row">
+              <div className="form-group">
+                <label>Horário de Entrada</label>
+                <input
+                  type="time"
+                  value={formCriar.horarioEntrada}
+                  onChange={(e) => setFormCriar({...formCriar, horarioEntrada: e.target.value})}
+                  disabled={criando}
+                />
+              </div>
+              <div className="form-group">
+                <label>Baia</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={formCriar.baia}
+                  onChange={(e) => setFormCriar({...formCriar, baia: e.target.value})}
+                  placeholder="Ex: 3"
+                  disabled={criando}
+                />
+              </div>
+            </div>
+          )}
+          {formCriar.role !== 'admin' && (
+            <div className="form-row">
+              <div className="form-group">
+                <label>Férias - Início</label>
+                <input
+                  type="date"
+                  value={formCriar.feriasInicio}
+                  onChange={(e) => setFormCriar({...formCriar, feriasInicio: e.target.value})}
+                  disabled={criando}
+                />
+              </div>
+              <div className="form-group">
+                <label>Férias - Fim</label>
+                <input
+                  type="date"
+                  value={formCriar.feriasFim}
+                  onChange={(e) => setFormCriar({...formCriar, feriasFim: e.target.value})}
+                  disabled={criando}
+                />
+              </div>
+            </div>
+          )}
           <div className="form-actions">
             <button type="submit" className="btn-success" disabled={criando}>
               {criando ? '⏳ Criando...' : '✅ Criar Usuário'}
@@ -490,13 +561,20 @@ export default function Usuarios() {
               Cancelar
             </button>
           </div>
-        </form>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* FORMULÁRIO EDITAR */}
       {showFormEditar && usuarioEditando && (
-        <form className="usuario-form" onSubmit={handleEditarUsuario}>
-          <h3>Editar Usuário: {usuarioEditando.nome}</h3>
+        <div className="modal-overlay" onClick={() => { setShowFormEditar(false); setUsuarioEditando(null) }}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Editar Usuário: {usuarioEditando.nome}</h3>
+              <button className="modal-close" onClick={() => { setShowFormEditar(false); setUsuarioEditando(null) }}>✕</button>
+            </div>
+            <form className="usuario-form usuario-form-modal" onSubmit={handleEditarUsuario}>
           <div className="form-row">
             <div className="form-group">
               <label>Nome Completo *</label>
@@ -615,6 +693,52 @@ export default function Usuarios() {
               </div>
             </div>
           )}
+          {formEditar.role !== 'admin' && (
+            <div className="form-row">
+              <div className="form-group">
+                <label>Horário de Entrada</label>
+                <input
+                  type="time"
+                  value={formEditar.horarioEntrada}
+                  onChange={(e) => setFormEditar({...formEditar, horarioEntrada: e.target.value})}
+                  disabled={editando}
+                />
+              </div>
+              <div className="form-group">
+                <label>Baia</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={formEditar.baia}
+                  onChange={(e) => setFormEditar({...formEditar, baia: e.target.value})}
+                  placeholder="Ex: 3"
+                  disabled={editando}
+                />
+              </div>
+            </div>
+          )}
+          {formEditar.role !== 'admin' && (
+            <div className="form-row">
+              <div className="form-group">
+                <label>Férias - Início</label>
+                <input
+                  type="date"
+                  value={formEditar.feriasInicio}
+                  onChange={(e) => setFormEditar({...formEditar, feriasInicio: e.target.value})}
+                  disabled={editando}
+                />
+              </div>
+              <div className="form-group">
+                <label>Férias - Fim</label>
+                <input
+                  type="date"
+                  value={formEditar.feriasFim}
+                  onChange={(e) => setFormEditar({...formEditar, feriasFim: e.target.value})}
+                  disabled={editando}
+                />
+              </div>
+            </div>
+          )}
           <div className="form-actions">
             <button type="submit" className="btn-success" disabled={editando}>
               {editando ? '⏳ Salvando...' : '💾 Salvar Alterações'}
@@ -623,7 +747,9 @@ export default function Usuarios() {
               Cancelar
             </button>
           </div>
-        </form>
+            </form>
+          </div>
+        </div>
       )}
       {/* TABELA DE USUÁRIOS */}
       <div className="usuarios-section">
@@ -662,6 +788,9 @@ export default function Usuarios() {
                   <th>Equipe</th>
                   <th>Perfil</th>
                   <th>Especialidade</th>
+                  <th>Horário</th>
+                  <th>Baia</th>
+                  <th>Férias</th>
                   {podeEditar && <th>Ações</th>}
                 </tr>
               </thead>
@@ -686,6 +815,13 @@ export default function Usuarios() {
                       </span>
                     </td>
                     <td>{usuario.especialidade || '-'}</td>
+                    <td>{usuario.horarioEntrada || '-'}</td>
+                    <td>{usuario.baia || '-'}</td>
+                    <td>
+                      {usuario.feriasInicio && usuario.feriasFim
+                        ? `${new Date(usuario.feriasInicio + 'T00:00:00').toLocaleDateString('pt-BR')} a ${new Date(usuario.feriasFim + 'T00:00:00').toLocaleDateString('pt-BR')}`
+                        : '-'}
+                    </td>
                     {podeEditar && (
                       <td>
                         <div className="acoes">

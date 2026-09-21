@@ -1,86 +1,184 @@
 .login-container {
+  position: relative;
   display: flex;
   justify-content: center;
   align-items: center;
-  height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  min-height: 100vh;
+  padding: 20px;
+  overflow: hidden;
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-dark) 100%);
+}
+
+.login-container::before,
+.login-container::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.login-container::before {
+  width: 480px;
+  height: 480px;
+  top: -180px;
+  left: -140px;
+}
+
+.login-container::after {
+  width: 360px;
+  height: 360px;
+  bottom: -160px;
+  right: -100px;
 }
 
 .login-box {
+  position: relative;
+  z-index: 1;
   background: white;
-  padding: 40px;
-  border-radius: 10px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  padding: 44px 40px;
+  border-radius: 16px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
   width: 100%;
   max-width: 400px;
 }
 
+.login-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 30px;
+}
+
+.login-brand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-light) 100%);
+  color: white;
+}
+
 .login-box h1 {
   text-align: center;
-  color: #333;
-  margin-bottom: 30px;
-  font-size: 28px;
+  color: var(--brand-text);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.login-subtitle {
+  text-align: center;
+  color: var(--brand-text-muted);
+  font-size: 13px;
+  margin-top: -4px;
 }
 
 .login-box form {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 16px;
+}
+
+.login-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.login-field-icon {
+  position: absolute;
+  left: 14px;
+  display: flex;
+  color: var(--brand-text-muted);
+  pointer-events: none;
 }
 
 .login-box input {
-  padding: 12px;
-  border: 1px solid #ddd;
-  border-radius: 5px;
+  width: 100%;
+  padding: 13px 14px 13px 42px;
+  border: 1.5px solid #e5e5e5;
+  border-radius: 8px;
   font-size: 14px;
-  transition: border-color 0.3s;
+  color: var(--brand-text);
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .login-box input:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px var(--brand-primary-soft);
 }
 
-.login-box button {
-  padding: 12px;
-  background: #667eea;
+.login-field-toggle {
+  position: absolute;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  padding: 4px;
+  color: var(--brand-text-muted);
+  cursor: pointer;
+}
+
+.login-field-toggle:hover {
+  color: var(--brand-primary);
+}
+
+.login-box button[type='submit'] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 13px;
+  background: var(--brand-primary);
   color: white;
   border: none;
-  border-radius: 5px;
-  font-size: 16px;
-  font-weight: bold;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background 0.3s;
+  transition: background 0.2s, transform 0.1s;
 }
 
-.login-box button:hover {
-  background: #764ba2;
+.login-box button[type='submit']:hover:not(:disabled) {
+  background: var(--brand-primary-dark);
 }
 
-.login-box button:disabled {
-  background: #ccc;
+.login-box button[type='submit']:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.login-box button[type='submit']:disabled {
+  background: #c9c9c9;
   cursor: not-allowed;
 }
 
+.login-spinner {
+  animation: login-spin 0.8s linear infinite;
+}
+
+@keyframes login-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .error {
-  color: #e74c3c;
-  font-size: 14px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fdecea;
+  color: #c0392b;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
 }
 
-.register-link {
-  text-align: center;
-  margin-top: 20px;
-  color: #666;
-  font-size: 14px;
-}
-
-.register-link a {
-  color: #667eea;
-  text-decoration: none;
-  font-weight: bold;
-}
-
-.register-link a:hover {
-  text-decoration: underline;
+@media (max-width: 480px) {
+  .login-box {
+    padding: 32px 24px;
+  }
 }

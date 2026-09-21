@@ -4,67 +4,76 @@ import { auth } from '../../../../auth'
 
 
 export async function PATCH(request, { params }) {
-const session = await auth()
-if (!session?.user) {
-  return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
-}
-const { role, equipe: sessionEquipe } = session.user
-if (role !== 'admin' && role !== 'gestor') {
-  return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
-}
-const { id } = await params
+  const session = await auth()
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
+  }
+  const { role, equipe: sessionEquipe } = session.user
+  if (role !== 'admin' && role !== 'gestor') {
+    return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
+  }
+  const { id } = await params
 
-// Fallback: se a session não trouxer equipe, busca no banco
-let userEquipe = sessionEquipe
-if (role === 'gestor' && !userEquipe) {
-  const { rows } = await query(
-    `SELECT e.tp_equipe FROM usuarios u
-     JOIN equipes e ON e.cd_equipe = u.cd_equipe
-     WHERE u.cd_usuario = $1`,
-    [session.user.id]
-  )
-  userEquipe = rows[0]?.tp_equipe || null
-}
+  // Fallback: se a session não trouxer equipe, busca no banco
+  let userEquipe = sessionEquipe
+  if (role === 'gestor' && !userEquipe) {
+    const { rows } = await query(
+      `SELECT e.tp_equipe FROM usuarios u
+       JOIN equipes e ON e.cd_equipe = u.cd_equipe
+       WHERE u.cd_usuario = $1`,
+      [session.user.id]
+    )
+    userEquipe = rows[0]?.tp_equipe || null
+  }
 
-const client = await getPool().connect()
-try {
-  const { rows: escalaRows } = await client.query(
+  // Validações que só leem dados usam o helper simples — a transação só é
+  // aberta depois, quando já se sabe que a escrita vai de fato acontecer.
+  const { rows: escalaRows } = await query(
     `SELECT eq.tp_equipe FROM escalas es
      JOIN equipes eq ON eq.cd_equipe = es.cd_equipe
      WHERE es.cd_escala = $1`,
     [id]
   )
   if (escalaRows.length === 0) {
-    await client.query('ROLLBACK')
     return NextResponse.json({ error: 'Escala não encontrada' }, { status: 404 })
   }
   if (role === 'gestor' && escalaRows[0].tp_equipe !== userEquipe) {
-    await client.query('ROLLBACK')
     return NextResponse.json(
       { error: 'Você só pode editar escalas da sua equipe' },
       { status: 403 }
     )
   }
+
   const body = await request.json()
   const { tipo, dataInicio, dataFim, tecnicos, equipe, descricao, status } = body
+
+  if (!tipo || !dataInicio || !dataFim || !equipe) {
+    return NextResponse.json({ error: 'Tipo, período e equipe são obrigatórios' }, { status: 400 })
+  }
+  if (dataFim < dataInicio) {
+    return NextResponse.json({ error: 'A data final não pode ser antes da data inicial' }, { status: 400 })
+  }
   if (role === 'gestor' && equipe !== userEquipe) {
-    await client.query('ROLLBACK')
     return NextResponse.json(
       { error: 'Você não pode transferir escala para outra equipe' },
       { status: 403 }
     )
   }
   if (tipo === 'sabado' && equipe !== 'suporte') {
-    await client.query('ROLLBACK')
     return NextResponse.json(
       { error: 'Escala do tipo Sábado só pode ser usada pela equipe Suporte' },
       { status: 400 }
     )
   }
 
-    await client.query('BEGIN')
+  const equipeId = await equipeIdFromSlug(equipe)
+  if (!equipeId) {
+    return NextResponse.json({ error: 'Equipe não encontrada' }, { status: 404 })
+  }
 
-    const equipeId = await equipeIdFromSlug(equipe)
+  const client = await getPool().connect()
+  try {
+    await client.query('BEGIN')
 
     await client.query(
       `UPDATE escalas
@@ -75,7 +84,9 @@ try {
 
     await client.query('DELETE FROM escala_tecnicos WHERE cd_escala = $1', [id])
 
-    const tecnicoIds = await tecnicoIdsFromUids(Array.isArray(tecnicos) ? tecnicos : [])
+    // Escopado pela equipe da escala: um uid de outra equipe é ignorado em
+    // vez de ser injetado aqui.
+    const tecnicoIds = await tecnicoIdsFromUids(Array.isArray(tecnicos) ? tecnicos : [], equipeId)
     for (const cdTecnico of tecnicoIds) {
       await client.query(
         'INSERT INTO escala_tecnicos (cd_escala, cd_tecnico) VALUES ($1, $2)',

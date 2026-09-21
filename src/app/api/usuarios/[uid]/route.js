@@ -12,6 +12,36 @@ function validarPerfilEquipe(role, equipe) {
   return null
 }
 
+// Uma baia comporta no máximo 2 ocupantes fixos (a "dupla"). cdUsuarioAtual
+// é excluído da contagem (permite salvar sem "brigar" com o próprio registro).
+async function validarBaiaDisponivel(equipeId, baia, cdUsuarioAtual) {
+  if (baia === null || baia === undefined || baia === '') return null
+  const numero = Number(baia)
+  if (!Number.isInteger(numero) || numero < 1) {
+    return 'Número da baia inválido'
+  }
+  const { rows } = await query(
+    `SELECT cd_usuario FROM tecnicos
+     WHERE cd_equipe = $1 AND nr_baia = $2 AND sn_ativo = true AND cd_usuario IS DISTINCT FROM $3`,
+    [equipeId, numero, cdUsuarioAtual]
+  )
+  if (rows.length >= 2) {
+    return `A baia ${numero} já tem 2 ocupantes`
+  }
+  return null
+}
+
+function validarPeriodoFerias(feriasInicio, feriasFim) {
+  if (!feriasInicio && !feriasFim) return null
+  if (!feriasInicio || !feriasFim) {
+    return 'Informe início e fim das férias'
+  }
+  if (feriasFim < feriasInicio) {
+    return 'O fim das férias não pode ser antes do início'
+  }
+  return null
+}
+
 export async function PATCH(request, { params }) {
   const session = await auth()
   if (!session?.user) {
@@ -26,7 +56,7 @@ export async function PATCH(request, { params }) {
     const { uid } = await params
     const cdUsuario = Number(uid)
     const body = await request.json()
-    const { nome, role, matricula, especialidade } = body
+    const { nome, role, matricula, especialidade, horarioEntrada, baia, feriasInicio, feriasFim } = body
     let { equipe } = body
 
     const { rows: alvoRows } = await query(
@@ -62,6 +92,17 @@ export async function PATCH(request, { params }) {
 
     const equipeId = role === 'admin' ? null : await equipeIdFromSlug(equipe)
 
+    if (role !== 'admin' && role !== 'gestor') {
+      const erroBaia = await validarBaiaDisponivel(equipeId, baia, cdUsuario)
+      if (erroBaia) {
+        return NextResponse.json({ error: erroBaia }, { status: 400 })
+      }
+      const erroFerias = validarPeriodoFerias(feriasInicio, feriasFim)
+      if (erroFerias) {
+        return NextResponse.json({ error: erroFerias }, { status: 400 })
+      }
+    }
+
     const { rows } = await query(
       `UPDATE usuarios
        SET nm_usuario = $1, tp_role = $2, cd_equipe = $3, ds_matricula = $4
@@ -76,13 +117,17 @@ export async function PATCH(request, { params }) {
 
     if (role !== 'admin' && role !== 'gestor') {
       await query(
-        `INSERT INTO tecnicos (cd_usuario, nm_tecnico, cd_equipe, ds_especialidade)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO tecnicos (cd_usuario, nm_tecnico, cd_equipe, ds_especialidade, hr_entrada, nr_baia, dt_ferias_inicio, dt_ferias_fim)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          ON CONFLICT (cd_usuario) DO UPDATE
            SET nm_tecnico = EXCLUDED.nm_tecnico,
                cd_equipe = EXCLUDED.cd_equipe,
-               ds_especialidade = EXCLUDED.ds_especialidade`,
-        [cdUsuario, nome, equipeId, especialidade || null]
+               ds_especialidade = EXCLUDED.ds_especialidade,
+               hr_entrada = EXCLUDED.hr_entrada,
+               nr_baia = EXCLUDED.nr_baia,
+               dt_ferias_inicio = EXCLUDED.dt_ferias_inicio,
+               dt_ferias_fim = EXCLUDED.dt_ferias_fim`,
+        [cdUsuario, nome, equipeId, especialidade || null, horarioEntrada || null, baia || null, feriasInicio || null, feriasFim || null]
       )
     } else {
       await query('DELETE FROM tecnicos WHERE cd_usuario = $1', [cdUsuario])

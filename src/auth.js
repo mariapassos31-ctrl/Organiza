@@ -4,6 +4,13 @@ import bcrypt from 'bcryptjs'
 import { authConfig } from './auth.config'
 import { query } from './lib/db'
 
+// Hash "de mentira", calculado uma vez, pra comparar contra ele quando o
+// e-mail não existe — sem isso, um e-mail inexistente responde na hora
+// (nunca chama bcrypt.compare) enquanto um e-mail real demora o tempo do
+// bcrypt, e essa diferença de tempo dá pra descobrir quais e-mails têm
+// conta no sistema só medindo a resposta do login.
+const HASH_FANTASMA = bcrypt.hashSync('senha-que-nunca-existe', 10)
+
 export const { handlers, signIn, signOut, auth } = NextAuth({
   ...authConfig,
   providers: [
@@ -25,10 +32,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           [email]
         )
         const row = rows[0]
-        if (!row || !row.ds_senha_hash) return null
 
-        const senhaValida = await bcrypt.compare(password, row.ds_senha_hash)
-        if (!senhaValida) return null
+        const senhaValida = await bcrypt.compare(password, row?.ds_senha_hash || HASH_FANTASMA)
+        if (!row || !row.ds_senha_hash || !senhaValida) return null
 
         return {
           id: String(row.cd_usuario),

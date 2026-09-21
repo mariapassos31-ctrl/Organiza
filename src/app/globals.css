@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Paleta oficial da empresa — ponto único de verdade pras cores da marca.
+   Trocar aqui reflete em qualquer componente que use essas variáveis. */
+:root {
+  --brand-primary: #6b2c42;
+  --brand-primary-rgb: 107, 44, 66;
+  --brand-primary-dark: #4b1f2e;
+  --brand-primary-light: #894a60;
+  --brand-primary-soft: #f4e9ec;
+  --brand-text: #2c2c2c;
+  --brand-text-muted: #6b6b6b;
+}
+
 * {
   margin: 0;
   padding: 0;

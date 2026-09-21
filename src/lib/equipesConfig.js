@@ -42,6 +42,7 @@ const PERFIS_COLABORADOR_POR_EQUIPE = {
 
 // Só precisa entrar aqui uma equipe que tem especialidade fixa.
 const ESPECIALIDADES_POR_EQUIPE = {
+  suporte: ['Manutenção', 'Redes', 'Sistemas N1', 'Sistemas N2'],
   infraestrutura: ['Analista Junior', 'Analista Pleno', 'Analista Senior'],
   sistemas: ['PEP', 'TOTVS'],
 }

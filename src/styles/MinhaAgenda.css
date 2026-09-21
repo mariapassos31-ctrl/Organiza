@@ -36,7 +36,7 @@
   border-radius: 6px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   text-align: center;
-  border-left: 3px solid #667eea;
+  border-left: 3px solid var(--brand-primary);
 }
 
 .stat-label {
@@ -52,7 +52,7 @@
   display: block;
   font-size: 21px;
   font-weight: bold;
-  color: #667eea;
+  color: var(--brand-primary);
 }
 
 .calendario-wrapper {
@@ -86,7 +86,7 @@
 .dia-semana-header {
   text-align: center;
   font-weight: bold;
-  color: #667eea;
+  color: var(--brand-primary);
   padding: 4px;
   font-size: 10px;
 }
@@ -304,7 +304,7 @@
 }
 
 .escala-row-clicavel:hover {
-  background: #eef1fd;
+  background: var(--brand-primary-soft);
 }
 
 .nome-cell {

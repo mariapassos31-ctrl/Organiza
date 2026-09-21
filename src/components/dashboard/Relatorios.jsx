@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Calendar, CheckCircle2, Users, UserCheck, Clock, Repeat, Inbox } from 'lucide-react'
 import { useDashboardUser } from '../../context/DashboardUserContext'
 import { EQUIPES } from '../../lib/equipesConfig'
 import '../../styles/Relatorios.css'
@@ -118,6 +119,13 @@ export default function Relatorios() {
     URL.revokeObjectURL(url)
   }
 
+  const EstadoVazio = ({ texto }) => (
+    <div className="empty">
+      <Inbox size={28} />
+      <p>{texto}</p>
+    </div>
+  )
+
   if (loading) {
     return <div className="relatorios-container"><p className="empty">Carregando relatórios...</p></div>
   }
@@ -166,37 +174,55 @@ export default function Relatorios() {
       </div>
 
       <div className="metricas-grid">
-        <div className="metrica-card">
+        <div className="metrica-card" style={{ borderLeftColor: 'var(--brand-primary)' }}>
+          <div className="metrica-icone" style={{ background: 'var(--brand-primary-soft)', color: 'var(--brand-primary)' }}>
+            <Calendar size={18} />
+          </div>
           <h3>Total de Escalas</h3>
-          <p className="numero" style={{ color: '#667eea' }}>{totalEscalas}</p>
+          <p className="numero" style={{ color: 'var(--brand-primary)' }}>{totalEscalas}</p>
           <span className="label">No período filtrado</span>
         </div>
 
-        <div className="metrica-card">
+        <div className="metrica-card" style={{ borderLeftColor: '#27ae60' }}>
+          <div className="metrica-icone" style={{ background: '#e8f8ef', color: '#27ae60' }}>
+            <CheckCircle2 size={18} />
+          </div>
           <h3>Escalas Ativas</h3>
           <p className="numero" style={{ color: '#27ae60' }}>{escalasAtivas}</p>
           <span className="label">Em operação</span>
         </div>
 
-        <div className="metrica-card">
+        <div className="metrica-card" style={{ borderLeftColor: 'var(--brand-primary)' }}>
+          <div className="metrica-icone" style={{ background: 'var(--brand-primary-soft)', color: 'var(--brand-primary)' }}>
+            <Users size={18} />
+          </div>
           <h3>Total de Técnicos</h3>
-          <p className="numero" style={{ color: '#667eea' }}>{totalTecnicos}</p>
+          <p className="numero" style={{ color: 'var(--brand-primary)' }}>{totalTecnicos}</p>
           <span className="label">Profissionais cadastrados</span>
         </div>
 
-        <div className="metrica-card">
+        <div className="metrica-card" style={{ borderLeftColor: '#27ae60' }}>
+          <div className="metrica-icone" style={{ background: '#e8f8ef', color: '#27ae60' }}>
+            <UserCheck size={18} />
+          </div>
           <h3>Técnicos Disponíveis</h3>
           <p className="numero" style={{ color: '#27ae60' }}>{tecnicosDisponiveis}</p>
           <span className="label">Prontos para escala</span>
         </div>
 
-        <div className="metrica-card">
+        <div className="metrica-card" style={{ borderLeftColor: '#f39c12' }}>
+          <div className="metrica-icone" style={{ background: '#fff4e0', color: '#f39c12' }}>
+            <Clock size={18} />
+          </div>
           <h3>Trocas Pendentes</h3>
           <p className="numero" style={{ color: '#f39c12' }}>{trocasPendentes}</p>
           <span className="label">Aguardando resposta</span>
         </div>
 
-        <div className="metrica-card">
+        <div className="metrica-card" style={{ borderLeftColor: '#27ae60' }}>
+          <div className="metrica-icone" style={{ background: '#e8f8ef', color: '#27ae60' }}>
+            <Repeat size={18} />
+          </div>
           <h3>Trocas Aceitas</h3>
           <p className="numero" style={{ color: '#27ae60' }}>{trocasAceitas}</p>
           <span className="label">Realizadas com sucesso</span>
@@ -207,14 +233,14 @@ export default function Relatorios() {
         <div className="relatorio-section">
           <h3>👥 Escalas por Técnico</h3>
           {distribuicaoTecnico.length === 0 ? (
-            <p className="empty">Nenhuma escala no período filtrado</p>
+            <EstadoVazio texto="Nenhuma escala no período filtrado" />
           ) : (
             <div className="barras-lista">
               {distribuicaoTecnico.map(d => (
                 <div key={d.nome} className="barra-item">
                   <span className="barra-label">{d.nome}</span>
                   <div className="barra-trilha">
-                    <div className="barra-preenchimento" style={{ width: `${(d.total / maxPorTecnico) * 100}%`, background: '#667eea' }} />
+                    <div className="barra-preenchimento" style={{ width: `${(d.total / maxPorTecnico) * 100}%`, background: 'var(--brand-primary)' }} />
                   </div>
                   <span className="barra-valor">{d.total}</span>
                 </div>
@@ -226,7 +252,7 @@ export default function Relatorios() {
         <div className="relatorio-section">
           <h3>🗂️ Escalas por Tipo</h3>
           {totalEscalas === 0 ? (
-            <p className="empty">Nenhuma escala no período filtrado</p>
+            <EstadoVazio texto="Nenhuma escala no período filtrado" />
           ) : (
             <div className="barras-lista">
               {distribuicaoTipo.map(t => (
@@ -246,98 +272,104 @@ export default function Relatorios() {
       <div className="relatorio-section">
         <h3>🔄 Trocas Recentes</h3>
         {trocas.length === 0 ? (
-          <p className="empty">Nenhuma troca registrada</p>
+          <EstadoVazio texto="Nenhuma troca registrada" />
         ) : (
-          <table className="relatorio-table">
-            <thead>
-              <tr>
-                <th>Solicitante</th>
-                <th>Destino</th>
-                <th>Tipo</th>
-                <th>Equipe</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {trocas.slice(0, 5).map(troca => (
-                <tr key={troca.id}>
-                  <td>{troca.solicitanteNome}</td>
-                  <td>{troca.destinoNome || '-'}</td>
-                  <td>{troca.dia ? 'Um dia' : 'Escala inteira'}</td>
-                  <td>{troca.equipe?.toUpperCase()}</td>
-                  <td><span className={`status troca-${troca.status}`}>{STATUS_TROCA_LABEL[troca.status] || troca.status}</span></td>
+          <div className="relatorio-table-wrapper">
+            <table className="relatorio-table">
+              <thead>
+                <tr>
+                  <th>Solicitante</th>
+                  <th>Destino</th>
+                  <th>Tipo</th>
+                  <th>Equipe</th>
+                  <th>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {trocas.slice(0, 5).map(troca => (
+                  <tr key={troca.id}>
+                    <td>{troca.solicitanteNome}</td>
+                    <td>{troca.destinoNome || '-'}</td>
+                    <td>{troca.dia ? 'Um dia' : 'Escala inteira'}</td>
+                    <td>{troca.equipe?.toUpperCase()}</td>
+                    <td><span className={`status troca-${troca.status}`}>{STATUS_TROCA_LABEL[troca.status] || troca.status}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       <div className="relatorio-section">
         <h3>📅 Escalas Recentes</h3>
         {escalasRecentes.length === 0 ? (
-          <p className="empty">Nenhuma escala cadastrada</p>
+          <EstadoVazio texto="Nenhuma escala cadastrada" />
         ) : (
-          <table className="relatorio-table">
-            <thead>
-              <tr>
-                <th>Tipo</th>
-                <th>Período</th>
-                <th>Equipe</th>
-                <th>Técnico(s)</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {escalasRecentes.map(escala => (
-                <tr key={escala.id}>
-                  <td>{TIPOS_ESCALA_MAP[escala.tipo]?.label || escala.tipo}</td>
-                  <td>
-                    {new Date(escala.dataInicio + 'T00:00:00').toLocaleDateString('pt-BR')}
-                    {' a '}
-                    {new Date(escala.dataFim + 'T00:00:00').toLocaleDateString('pt-BR')}
-                  </td>
-                  <td>{escala.equipe?.toUpperCase() || '-'}</td>
-                  <td>{(escala.tecnicos || []).map(uid => getNomeTecnico(uid)).join(', ') || '-'}</td>
-                  <td><span className={`status ${escala.status}`}>{escala.status}</span></td>
+          <div className="relatorio-table-wrapper">
+            <table className="relatorio-table">
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Período</th>
+                  <th>Equipe</th>
+                  <th>Técnico(s)</th>
+                  <th>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {escalasRecentes.map(escala => (
+                  <tr key={escala.id}>
+                    <td>{TIPOS_ESCALA_MAP[escala.tipo]?.label || escala.tipo}</td>
+                    <td>
+                      {new Date(escala.dataInicio + 'T00:00:00').toLocaleDateString('pt-BR')}
+                      {' a '}
+                      {new Date(escala.dataFim + 'T00:00:00').toLocaleDateString('pt-BR')}
+                    </td>
+                    <td>{escala.equipe?.toUpperCase() || '-'}</td>
+                    <td>{(escala.tecnicos || []).map(uid => getNomeTecnico(uid)).join(', ') || '-'}</td>
+                    <td><span className={`status ${escala.status}`}>{escala.status}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
 
       <div className="relatorio-section">
         <h3>🧑‍💻 Técnicos Cadastrados</h3>
         {tecnicosFiltrados.length === 0 ? (
-          <p className="empty">Nenhum técnico cadastrado</p>
+          <EstadoVazio texto="Nenhum técnico cadastrado" />
         ) : (
-          <table className="relatorio-table">
-            <thead>
-              <tr>
-                <th>Nome</th>
-                <th>E-mail</th>
-                <th>Equipe</th>
-                <th>Especialidade</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tecnicosFiltrados.map(tecnico => (
-                <tr key={tecnico.id}>
-                  <td>{tecnico.nome}</td>
-                  <td>{tecnico.email}</td>
-                  <td>{tecnico.equipe?.toUpperCase() || '-'}</td>
-                  <td>{tecnico.especialidade || '-'}</td>
-                  <td>
-                    <span className={`disponibilidade ${tecnico.disponivel ? 'disponivel' : 'indisponivel'}`}>
-                      {tecnico.disponivel ? 'Disponível' : 'Indisponível'}
-                    </span>
-                  </td>
+          <div className="relatorio-table-wrapper">
+            <table className="relatorio-table">
+              <thead>
+                <tr>
+                  <th>Nome</th>
+                  <th>E-mail</th>
+                  <th>Equipe</th>
+                  <th>Especialidade</th>
+                  <th>Status</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {tecnicosFiltrados.map(tecnico => (
+                  <tr key={tecnico.id}>
+                    <td>{tecnico.nome}</td>
+                    <td>{tecnico.email}</td>
+                    <td>{tecnico.equipe?.toUpperCase() || '-'}</td>
+                    <td>{tecnico.especialidade || '-'}</td>
+                    <td>
+                      <span className={`disponibilidade ${tecnico.disponivel ? 'disponivel' : 'indisponivel'}`}>
+                        {tecnico.disponivel ? 'Disponível' : 'Indisponível'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

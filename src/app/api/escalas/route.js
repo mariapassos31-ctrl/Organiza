@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { query, getPool, equipeIdFromSlug, tecnicoIdsFromUids } from '../../../lib/db'
+import { query } from '../../../lib/db'
 import { auth } from '../../../auth'
 
 const SELECT_ESCALAS = `
@@ -50,68 +50,8 @@ export async function GET() {
   return NextResponse.json(rows.map(toApiShape))
 }
 
-export async function POST(request) {
-const session = await auth()
-if (!session?.user) {
-  return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
-}
-const { role, equipe: sessionEquipe } = session.user
-if (role !== 'admin' && role !== 'gestor') {
-  return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
-}
-
-// Fallback: se a session não trouxer equipe, busca no banco
-let userEquipe = sessionEquipe
-if (role === 'gestor' && !userEquipe) {
-  const { rows } = await query(
-    `SELECT e.tp_equipe FROM usuarios u
-     JOIN equipes e ON e.cd_equipe = u.cd_equipe
-     WHERE u.cd_usuario = $1`,
-    [session.user.id]
-  )
-  userEquipe = rows[0]?.tp_equipe || null
-}
-
-const body = await request.json()
-const { tipo, dataInicio, dataFim, tecnicos, descricao, status, criadoPorUid } = body
-
-// Gestor só pode criar escalas para a própria equipe; ignora o que vier no body
-const equipe = role === 'gestor' ? userEquipe : body.equipe
-
-if (tipo === 'sabado' && equipe !== 'suporte') {
-  return NextResponse.json({ error: 'Escala do tipo Sábado só pode ser criada para a equipe Suporte' }, { status: 400 })
-}
-
-const client = await getPool().connect()
-try {
-
-    await client.query('BEGIN')
-
-    const equipeId = await equipeIdFromSlug(equipe)
-    const criadoPorId = criadoPorUid ? Number(criadoPorUid) : null
-
-    const { rows } = await client.query(
-      `INSERT INTO escalas (tp_escala, cd_equipe, dt_inicio, dt_fim, ds_descricao, tp_status, cd_usuario_criador)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING cd_escala`,
-      [tipo, equipeId, dataInicio, dataFim, descricao || null, status || 'ativa', criadoPorId]
-    )
-    const escalaId = rows[0].cd_escala
-
-    const tecnicoIds = await tecnicoIdsFromUids(Array.isArray(tecnicos) ? tecnicos : [])
-    for (const cdTecnico of tecnicoIds) {
-      await client.query(
-        'INSERT INTO escala_tecnicos (cd_escala, cd_tecnico) VALUES ($1, $2)',
-        [escalaId, cdTecnico]
-      )
-    }
-
-    await client.query('COMMIT')
-    return NextResponse.json({ id: String(escalaId) }, { status: 201 })
-  } catch (error) {
-    await client.query('ROLLBACK')
-    return NextResponse.json({ error: error.message }, { status: 400 })
-  } finally {
-    client.release()
-  }
-}
+// A criação de escalas hoje passa inteiramente por /api/escalas/auto (o
+// assistente "Nova Escala"). Não existe mais formulário manual chamando
+// POST aqui — esse handler foi removido porque tinha validação fraca
+// (aceitava técnico de outra equipe, confiava em criadoPorUid vindo do
+// cliente) e ficaria como uma porta destrancada sem uso real.

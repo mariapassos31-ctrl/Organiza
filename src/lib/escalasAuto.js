@@ -1,30 +1,11 @@
 import 'server-only'
 import { query, equipeIdFromSlug } from './db'
+import { addDays, getSabados, indiceContinuacao, construirBlocosRodizio, construirBlocosHibrido } from './escalasRodizio'
+import { construirBlocosHomeOfficePar } from './escalasHomeOfficePar'
 
 const TIPOS_VALIDOS = ['presencial', 'homeoffice', 'sabado', 'sobreaviso']
 
-export function addDays(dateStr, delta) {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  const dt = new Date(y, m - 1, d)
-  dt.setDate(dt.getDate() + delta)
-  const yy = dt.getFullYear()
-  const mm = String(dt.getMonth() + 1).padStart(2, '0')
-  const dd = String(dt.getDate()).padStart(2, '0')
-  return `${yy}-${mm}-${dd}`
-}
-
-// "Escala Sábado" é um plantão semanal de 1 dia, não um bloco contínuo:
-// aqui listamos só as datas de sábado dentro do período.
-function getSabados(dataInicio, dataFim) {
-  const sabados = []
-  let cursor = dataInicio
-  while (cursor <= dataFim) {
-    const [y, m, d] = cursor.split('-').map(Number)
-    if (new Date(y, m - 1, d).getDay() === 6) sabados.push(cursor)
-    cursor = addDays(cursor, 1)
-  }
-  return sabados
-}
+export { addDays, getSabados }
 
 export async function resolverEquipeGestor(sessionUser) {
   if (sessionUser.equipe) return sessionUser.equipe
@@ -37,9 +18,14 @@ export async function resolverEquipeGestor(sessionUser) {
   return rows[0]?.tp_equipe || null
 }
 
+// Cada participante carrega seu período de férias (feriasInicio/feriasFim,
+// se houver) — quem está de férias num dia específico é pulado nesse dia
+// pelos motores de rotação, sem precisar tirá-lo da lista inteira.
 async function carregarParticipantes(equipeId, tecnicoUids) {
   const { rows: tecnicosEquipe } = await query(
-    `SELECT u.cd_usuario, t.cd_tecnico, t.nm_tecnico
+    `SELECT u.cd_usuario, t.cd_tecnico, t.nm_tecnico, t.ds_especialidade, t.hr_entrada, t.nr_baia,
+            to_char(t.dt_ferias_inicio, 'YYYY-MM-DD') AS dt_ferias_inicio,
+            to_char(t.dt_ferias_fim, 'YYYY-MM-DD') AS dt_ferias_fim
      FROM tecnicos t
      JOIN usuarios u ON u.cd_usuario = t.cd_usuario
      WHERE t.sn_ativo = true AND t.cd_equipe = $1
@@ -47,7 +33,36 @@ async function carregarParticipantes(equipeId, tecnicoUids) {
     [equipeId]
   )
   const selecionados = new Set(tecnicoUids.map(String))
-  return tecnicosEquipe.filter(t => selecionados.has(String(t.cd_usuario)))
+  return tecnicosEquipe
+    .filter(t => selecionados.has(String(t.cd_usuario)))
+    .map(t => ({
+      cd_usuario: t.cd_usuario,
+      cd_tecnico: t.cd_tecnico,
+      nm_tecnico: t.nm_tecnico,
+      especialidade: t.ds_especialidade || null,
+      horarioEntrada: t.hr_entrada ? String(t.hr_entrada).slice(0, 5) : null,
+      baiaId: t.nr_baia ?? null,
+      feriasInicio: t.dt_ferias_inicio || null,
+      feriasFim: t.dt_ferias_fim || null,
+    }))
+}
+
+// Soma quantos dias cada técnico já ficou em home office nessa equipe até
+// agora, pra uma geração nova continuar o rodízio justo em vez de resetar.
+async function buscarContagensHomeOffice(equipeId, tecnicoUids) {
+  const { rows } = await query(
+    `SELECT u.cd_usuario, COALESCE(SUM(es.dt_fim - es.dt_inicio + 1), 0) AS dias
+     FROM escalas es
+     JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
+     JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
+     JOIN usuarios u ON u.cd_usuario = t.cd_usuario
+     WHERE es.cd_equipe = $1 AND es.tp_escala = 'homeoffice' AND u.cd_usuario = ANY($2::int[])
+     GROUP BY u.cd_usuario`,
+    [equipeId, tecnicoUids.map(Number)]
+  )
+  const contagens = {}
+  for (const r of rows) contagens[String(r.cd_usuario)] = Number(r.dias)
+  return contagens
 }
 
 // Modo "rodízio" — usado para tipos de dono único por vez (Sábado,
@@ -132,40 +147,11 @@ export async function montarPlanoAuto({ role, userEquipe, body }) {
     [equipeId, tipo]
   )
   const ultimoUid = ultimaRows[0]?.cd_usuario ? String(ultimaRows[0].cd_usuario) : null
-  const posicaoUltimo = participantes.findIndex(p => String(p.cd_usuario) === ultimoUid)
-  let indice = posicaoUltimo === -1 ? 0 : (posicaoUltimo + 1) % participantes.length
+  const indiceInicial = indiceContinuacao(participantes, ultimoUid)
 
-  const blocos = []
-  const pushBloco = (dtInicio, dtFim) => {
-    const p = participantes[indice % participantes.length]
-    blocos.push({ dtInicio, dtFim, cdTecnico: p.cd_tecnico, tecnicoUid: String(p.cd_usuario), tecnicoNome: p.nm_tecnico, tipo })
-  }
+  const { blocos, avisos } = construirBlocosRodizio({ participantes, tipo, dataInicio, dataFim, bloco, indiceInicial, sabados })
 
-  if (ehSabado) {
-    for (let i = 0; i < sabados.length; i += bloco) {
-      const grupo = sabados.slice(i, i + bloco)
-      const p = participantes[indice % participantes.length]
-      for (const dia of grupo) {
-        blocos.push({ dtInicio: dia, dtFim: dia, cdTecnico: p.cd_tecnico, tecnicoUid: String(p.cd_usuario), tecnicoNome: p.nm_tecnico, tipo })
-      }
-      indice++
-    }
-  } else if (participantes.length === 1) {
-    // Só 1 técnico: não há para quem revezar, então o período inteiro é dele
-    // numa única escala contínua.
-    pushBloco(dataInicio, dataFim)
-  } else {
-    let cursor = dataInicio
-    while (cursor <= dataFim) {
-      const fimCandidato = addDays(cursor, bloco - 1)
-      const fimReal = fimCandidato < dataFim ? fimCandidato : dataFim
-      pushBloco(cursor, fimReal)
-      indice++
-      cursor = addDays(fimReal, 1)
-    }
-  }
-
-  return { equipeId, equipe, blocos }
+  return { equipeId, equipe, blocos, avisos }
 }
 
 // Modo "híbrido" (Presencial + Home Office divididos): a cada dia de
@@ -174,7 +160,7 @@ export async function montarPlanoAuto({ role, userEquipe, body }) {
 // de trabalho = nº de técnicos), todo mundo passou pela mesma quantidade
 // de dias de cada tipo.
 export async function montarPlanoHibrido({ role, userEquipe, body }) {
-  const { dataInicio, dataFim, tecnicoUids, diasTrabalho, percentualHomeOffice } = body
+  const { dataInicio, dataFim, tecnicoUids, diasTrabalho, percentualHomeOffice, quantidadeHomeOffice } = body
   const equipe = role === 'gestor' ? userEquipe : body.equipe
 
   if (!equipe || !dataInicio || !dataFim) {
@@ -189,9 +175,23 @@ export async function montarPlanoHibrido({ role, userEquipe, body }) {
   if (!Array.isArray(diasTrabalho) || diasTrabalho.length === 0) {
     return { error: 'Defina ao menos um dia de trabalho na semana', status: 400 }
   }
-  const percentual = Number(percentualHomeOffice)
-  if (!Number.isFinite(percentual) || percentual < 0 || percentual > 100) {
-    return { error: 'A porcentagem de home office precisa estar entre 0 e 100', status: 400 }
+
+  // Modo "quantidade fixa": todo dia, exatamente K pessoas em home office
+  // (respeitando especialidade/horário de entrada/dupla de baia). Modo
+  // "percentual": divisão proporcional simples (comportamento original).
+  const usandoQuantidadeFixa = quantidadeHomeOffice !== undefined && quantidadeHomeOffice !== null && quantidadeHomeOffice !== ''
+  let percentual = null
+  let quantidade = null
+  if (usandoQuantidadeFixa) {
+    quantidade = Number(quantidadeHomeOffice)
+    if (!Number.isInteger(quantidade) || quantidade < 1) {
+      return { error: 'A quantidade de pessoas em home office precisa ser um número inteiro maior que zero', status: 400 }
+    }
+  } else {
+    percentual = Number(percentualHomeOffice)
+    if (!Number.isFinite(percentual) || percentual < 0 || percentual > 100) {
+      return { error: 'A porcentagem de home office precisa estar entre 0 e 100', status: 400 }
+    }
   }
 
   const equipeId = await equipeIdFromSlug(equipe)
@@ -205,49 +205,33 @@ export async function montarPlanoHibrido({ role, userEquipe, body }) {
     return { error: 'Nenhum dos técnicos selecionados pertence a esta equipe', status: 400 }
   }
 
-  const diasTrabalhoSet = new Set(diasTrabalho.map(Number))
-  const diasUteis = []
-  let cursor = dataInicio
-  while (cursor <= dataFim) {
-    const [y, m, d] = cursor.split('-').map(Number)
-    if (diasTrabalhoSet.has(new Date(y, m - 1, d).getDay())) diasUteis.push(cursor)
-    cursor = addDays(cursor, 1)
-  }
-  if (diasUteis.length === 0) {
-    return { error: 'Não há nenhum dia de trabalho dentro do período selecionado', status: 400 }
-  }
-
-  const k = Math.round((n * percentual) / 100)
-
-  const blocos = []
-  for (let t = 0; t < n; t++) {
-    const p = participantes[t]
-    let atual = null
-    const fechar = () => {
-      if (!atual) return
-      blocos.push({
-        dtInicio: atual.dtInicio,
-        dtFim: atual.dtFim,
-        cdTecnico: p.cd_tecnico,
-        tecnicoUid: String(p.cd_usuario),
-        tecnicoNome: p.nm_tecnico,
-        tipo: atual.tipo,
-      })
-      atual = null
-    }
-    for (let i = 0; i < diasUteis.length; i++) {
-      const dia = diasUteis[i]
-      const emHomeOffice = (((t - i) % n) + n) % n < k
-      const tipoDoDia = emHomeOffice ? 'homeoffice' : 'presencial'
-      const contiguo = atual && addDays(atual.dtFim, 1) === dia
-      if (atual && atual.tipo === tipoDoDia && contiguo) {
-        atual.dtFim = dia
-      } else {
-        fechar()
-        atual = { tipo: tipoDoDia, dtInicio: dia, dtFim: dia }
+  let blocos, avisos
+  if (usandoQuantidadeFixa) {
+    const elegiveis = participantes.filter(p => p.horarioEntrada !== '07:00')
+    if (elegiveis.length < quantidade) {
+      return {
+        error: `Só há ${elegiveis.length} técnico(s) elegível(is) para home office (excluindo quem entra às 07:00), mas a quantidade pedida é ${quantidade}`,
+        status: 400,
       }
     }
-    fechar()
+    const contagensIniciais = await buscarContagensHomeOffice(equipeId, participantes.map(p => p.cd_usuario))
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio,
+      dataFim,
+      diasTrabalho,
+      quantidadeHomeOffice: quantidade,
+      contagensIniciais,
+    })
+    blocos = resultado.blocos
+    avisos = resultado.avisos
+  } else {
+    blocos = construirBlocosHibrido({ participantes, dataInicio, dataFim, diasTrabalho, percentualHomeOffice: percentual })
+    avisos = []
+  }
+
+  if (blocos.length === 0) {
+    return { error: 'Não há nenhum dia de trabalho dentro do período selecionado', status: 400 }
   }
 
   for (const p of participantes) {
@@ -265,7 +249,7 @@ export async function montarPlanoHibrido({ role, userEquipe, body }) {
     }
   }
 
-  return { equipeId, equipe, blocos }
+  return { equipeId, equipe, blocos, avisos }
 }
 
 // Recebe uma lista de blocos já decididos (ex: prévia editada manualmente

@@ -7,7 +7,7 @@
 
 .dashboard-sidebar {
   width: 250px;
-  background: #2c3e50;
+  background: var(--brand-primary-dark);
   color: white;
   padding: 20px;
   overflow-y: auto;
@@ -19,7 +19,7 @@
 
 .sidebar-header {
   margin-bottom: 30px;
-  border-bottom: 2px solid #34495e;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.15);
   padding-bottom: 15px;
   flex-shrink: 0;
 }
@@ -32,7 +32,7 @@
 .user-info {
   margin: 0;
   font-size: 12px;
-  color: #bdc3c7;
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .sidebar-menu {
@@ -45,7 +45,7 @@
 
 .menu-item {
   padding: 12px 15px;
-  background: #34495e;
+  background: rgba(255, 255, 255, 0.08);
   color: white;
   text-decoration: none;
   border-radius: 5px;
@@ -61,7 +61,7 @@
 }
 
 .menu-item:hover {
-  background: #3d5a73;
+  background: var(--brand-primary);
   transform: translateX(5px);
 }
 

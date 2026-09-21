@@ -29,6 +29,7 @@ export async function POST(request) {
         tecnicoNome: b.tecnicoNome,
         tipo: b.tipo,
       })),
+      avisos: plano.avisos || [],
     })
   } catch (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

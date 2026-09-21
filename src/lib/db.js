@@ -29,15 +29,21 @@ export async function equipeIdFromSlug(slug) {
 }
 
 // Resolve usuario ids (uid = cd_usuario as string, vindos do front-end)
-// para cd_tecnico, via o vínculo tecnicos.cd_usuario.
-export async function tecnicoIdsFromUids(uids) {
+// para cd_tecnico, via o vínculo tecnicos.cd_usuario. Quando `equipeId` é
+// informado, só resolve técnicos DAQUELA equipe — sem isso, um uid de outra
+// equipe poderia ser injetado numa escala que não é a dele.
+export async function tecnicoIdsFromUids(uids, equipeId = null) {
   if (!uids || uids.length === 0) return []
   const usuarioIds = uids.map(Number).filter(n => !Number.isNaN(n))
   if (usuarioIds.length === 0) return []
 
-  const { rows } = await query(
-    'SELECT cd_tecnico FROM tecnicos WHERE cd_usuario = ANY($1::int[])',
-    [usuarioIds]
-  )
+  const params = [usuarioIds]
+  let sql = 'SELECT cd_tecnico FROM tecnicos WHERE cd_usuario = ANY($1::int[])'
+  if (equipeId) {
+    params.push(equipeId)
+    sql += ` AND cd_equipe = $${params.length}`
+  }
+
+  const { rows } = await query(sql, params)
   return rows.map(r => r.cd_tecnico)
 }
