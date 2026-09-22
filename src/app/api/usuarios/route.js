@@ -33,6 +33,15 @@ function toApiShape(row, viewer) {
     especialidade: podeVerDetalhes ? (row.ds_especialidade || '') : '',
     horarioEntrada: podeVerDetalhes && row.hr_entrada ? String(row.hr_entrada).slice(0, 5) : '',
     baia: row.nr_baia != null ? String(row.nr_baia) : '',
+    baiaFixa: Boolean(row.sn_baia_fixa),
+    elegivelHomeOffice: row.sn_elegivel_home_office !== false,
+    // Sinalizadores específicos — visíveis pra todo mundo porque o mapa da
+    // sala/calendário compartilhado depende deles pra qualquer colega que
+    // olhar, não só admin/gestor. "Supervisor" é quem está na baia especial
+    // 0 (não depende de especialidade — é só colocar a pessoa na baia).
+    ehSupervisor: row.nr_baia === 0,
+    ehAprendiz: row.ds_especialidade === 'Aprendiz',
+    diaCurso: row.nr_dia_curso ?? null,
     feriasInicio: podeVerDetalhes ? (row.dt_ferias_inicio || '') : '',
     feriasFim: podeVerDetalhes ? (row.dt_ferias_fim || '') : '',
     ativo: row.sn_ativo,
@@ -42,7 +51,8 @@ function toApiShape(row, viewer) {
 
 const SELECT_USUARIOS = `
   SELECT u.cd_usuario, u.nm_usuario, u.ds_email, u.tp_role, u.ds_matricula,
-         u.sn_ativo, u.dt_criacao, e.tp_equipe, t.ds_especialidade, t.hr_entrada, t.nr_baia,
+         u.sn_ativo, u.dt_criacao, e.tp_equipe, t.ds_especialidade, t.hr_entrada, t.nr_baia, t.sn_baia_fixa,
+         t.sn_elegivel_home_office, t.nr_dia_curso,
          to_char(t.dt_ferias_inicio, 'YYYY-MM-DD') AS dt_ferias_inicio,
          to_char(t.dt_ferias_fim, 'YYYY-MM-DD') AS dt_ferias_fim
   FROM usuarios u
@@ -61,12 +71,23 @@ function validarPeriodoFerias(feriasInicio, feriasFim) {
   return null
 }
 
-// Uma baia comporta no máximo 2 ocupantes fixos (a "dupla"). cdUsuarioAtual
-// é excluído da contagem (permite salvar sem "brigar" com o próprio registro).
+function validarDiaCurso(diaCurso) {
+  if (diaCurso === null || diaCurso === undefined || diaCurso === '') return null
+  const numero = Number(diaCurso)
+  if (!Number.isInteger(numero) || numero < 0 || numero > 6) {
+    return 'Dia do curso inválido'
+  }
+  return null
+}
+
+// Uma baia comporta no máximo 2 ocupantes fixos (a "dupla") — exceto a baia
+// 0, que é a vaga especial do Supervisor e só comporta 1 pessoa por vez.
+// cdUsuarioAtual é excluído da contagem (permite salvar sem "brigar" com o
+// próprio registro).
 async function validarBaiaDisponivel(equipeId, baia, cdUsuarioAtual) {
   if (baia === null || baia === undefined || baia === '') return null
   const numero = Number(baia)
-  if (!Number.isInteger(numero) || numero < 1) {
+  if (!Number.isInteger(numero) || numero < 0) {
     return 'Número da baia inválido'
   }
   const { rows } = await query(
@@ -74,8 +95,9 @@ async function validarBaiaDisponivel(equipeId, baia, cdUsuarioAtual) {
      WHERE cd_equipe = $1 AND nr_baia = $2 AND sn_ativo = true AND cd_usuario IS DISTINCT FROM $3`,
     [equipeId, numero, cdUsuarioAtual]
   )
-  if (rows.length >= 2) {
-    return `A baia ${numero} já tem 2 ocupantes`
+  const limite = numero === 0 ? 1 : 2
+  if (rows.length >= limite) {
+    return numero === 0 ? 'Já existe um Supervisor cadastrado' : `A baia ${numero} já tem 2 ocupantes`
   }
   return null
 }
@@ -114,7 +136,7 @@ export async function POST(request) {
 
   try {
     const body = await request.json()
-    const { nome, email, senha, role, matricula, especialidade, horarioEntrada, baia, feriasInicio, feriasFim } = body
+    const { nome, email, senha, role, matricula, especialidade, horarioEntrada, baia, baiaFixa, elegivelHomeOffice, diaCurso, feriasInicio, feriasFim } = body
     let { equipe } = body
 
     if (!nome || !email || !senha || !role) {
@@ -141,7 +163,7 @@ export async function POST(request) {
 
     const equipeId = role === 'admin' ? null : await equipeIdFromSlug(equipe)
 
-    if (role !== 'admin' && role !== 'gestor') {
+    if (role !== 'admin') {
       const erroBaia = await validarBaiaDisponivel(equipeId, baia, null)
       if (erroBaia) {
         return NextResponse.json({ error: erroBaia }, { status: 400 })
@@ -149,6 +171,10 @@ export async function POST(request) {
       const erroFerias = validarPeriodoFerias(feriasInicio, feriasFim)
       if (erroFerias) {
         return NextResponse.json({ error: erroFerias }, { status: 400 })
+      }
+      const erroDiaCurso = validarDiaCurso(diaCurso)
+      if (erroDiaCurso) {
+        return NextResponse.json({ error: erroDiaCurso }, { status: 400 })
       }
     }
 
@@ -162,10 +188,10 @@ export async function POST(request) {
     )
     const cdUsuario = rows[0].cd_usuario
 
-    if (role !== 'admin' && role !== 'gestor') {
+    if (role !== 'admin') {
       await query(
-        `INSERT INTO tecnicos (cd_usuario, nm_tecnico, ds_email, cd_equipe, ds_especialidade, hr_entrada, nr_baia, dt_ferias_inicio, dt_ferias_fim)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO tecnicos (cd_usuario, nm_tecnico, ds_email, cd_equipe, ds_especialidade, hr_entrada, nr_baia, sn_baia_fixa, sn_elegivel_home_office, nr_dia_curso, dt_ferias_inicio, dt_ferias_fim)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          ON CONFLICT (cd_usuario) DO UPDATE
            SET nm_tecnico = EXCLUDED.nm_tecnico,
                ds_email = EXCLUDED.ds_email,
@@ -173,9 +199,12 @@ export async function POST(request) {
                ds_especialidade = EXCLUDED.ds_especialidade,
                hr_entrada = EXCLUDED.hr_entrada,
                nr_baia = EXCLUDED.nr_baia,
+               sn_baia_fixa = EXCLUDED.sn_baia_fixa,
+               sn_elegivel_home_office = EXCLUDED.sn_elegivel_home_office,
+               nr_dia_curso = EXCLUDED.nr_dia_curso,
                dt_ferias_inicio = EXCLUDED.dt_ferias_inicio,
                dt_ferias_fim = EXCLUDED.dt_ferias_fim`,
-        [cdUsuario, nome, email, equipeId, especialidade || null, horarioEntrada || null, baia || null, feriasInicio || null, feriasFim || null]
+        [cdUsuario, nome, email, equipeId, especialidade || null, horarioEntrada || null, baia || null, Boolean(baiaFixa) || Number(baia) === 0, elegivelHomeOffice !== false, diaCurso === '' || diaCurso === undefined ? null : diaCurso, feriasInicio || null, feriasFim || null]
       )
     }
 

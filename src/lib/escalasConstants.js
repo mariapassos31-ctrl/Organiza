@@ -10,6 +10,20 @@ export const TIPOS_ESCALA = [
 
 export const TIPO_HIBRIDO = { id: 'hibrido', label: '🏢🏠 Presencial + Home Office', cor: '#8e44ad' }
 
+// "Curso" não é um tipo gravado no banco — é um dia fixo na semana (por
+// aprendiz) em que a escala presencial normal é exibida como curso em vez
+// disso. Não entra em TIPOS_ESCALA de propósito, pra não aparecer como
+// opção ao criar/editar uma escala de verdade.
+export const TIPO_CURSO = { id: 'curso', label: '🎓 Curso', cor: '#9b59b6' }
+
+// Aprendiz com dia de curso configurado (diaCurso: 0=domingo..6=sábado) e
+// a data caindo nesse dia da semana → está no curso, não presencial.
+export function estaEmDiaCurso(usuario, data) {
+  if (!usuario || usuario.especialidade !== 'Aprendiz') return false
+  if (usuario.diaCurso === null || usuario.diaCurso === undefined || usuario.diaCurso === '') return false
+  return data.getDay() === Number(usuario.diaCurso)
+}
+
 export const DURACAO_PRESETS = {
   sabado: [{ label: '1 sábado', value: 1 }, { label: '2 sábados', value: 2 }, { label: '4 sábados', value: 4 }],
   padrao: [{ label: '1 dia', value: 1 }, { label: '1 semana', value: 7 }, { label: '15 dias', value: 15 }, { label: '1 mês', value: 30 }],

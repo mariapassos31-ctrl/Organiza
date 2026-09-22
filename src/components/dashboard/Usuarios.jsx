@@ -11,6 +11,7 @@ import {
   corEquipe,
   labelPerfil,
 } from '../../lib/equipesConfig'
+import { DIAS_SEMANA } from '../../lib/escalasConstants'
 import '../../styles/Usuarios.css'
 
 const CUSTOM = '__custom__'
@@ -37,6 +38,9 @@ export default function Usuarios() {
     especialidadeCustom: '',
     horarioEntrada: '',
     baia: '',
+    baiaFixa: false,
+    elegivelHomeOffice: true,
+    diaCurso: '',
     feriasInicio: '',
     feriasFim: '',
   }
@@ -51,6 +55,9 @@ export default function Usuarios() {
     especialidadeCustom: '',
     horarioEntrada: '',
     baia: '',
+    baiaFixa: false,
+    elegivelHomeOffice: true,
+    diaCurso: '',
     feriasInicio: '',
     feriasFim: '',
   })
@@ -120,6 +127,15 @@ export default function Usuarios() {
 
   const especialidadesDisponiveis = (equipe) => especialidadesPorEquipe(equipe)
 
+  // Valida o período de férias antes mesmo de tentar salvar, pra dar
+  // feedback imediato em vez de só descobrir o erro depois do envio.
+  const validarFerias = (inicio, fim) => {
+    if (!inicio && !fim) return null
+    if (!inicio || !fim) return '❌ Preencha as duas datas de férias (início e fim), ou deixe as duas em branco'
+    if (fim < inicio) return '❌ A data de fim das férias não pode ser antes da data de início'
+    return null
+  }
+
   const abrirEditar = (usuario) => {
     setUsuarioEditando(usuario)
     const roleConhecido = PERFIS.some(p => p.id === usuario.role)
@@ -133,6 +149,9 @@ export default function Usuarios() {
       especialidadeCustom: especialidadesDisponiveis(usuario.equipe).includes(usuario.especialidade) ? '' : (usuario.especialidade || ''),
       horarioEntrada: usuario.horarioEntrada || '',
       baia: usuario.baia || '',
+      baiaFixa: Boolean(usuario.baiaFixa),
+      elegivelHomeOffice: usuario.elegivelHomeOffice !== false,
+      diaCurso: usuario.diaCurso ?? '',
       feriasInicio: usuario.feriasInicio || '',
       feriasFim: usuario.feriasFim || '',
     })
@@ -180,6 +199,13 @@ export default function Usuarios() {
       return
     }
 
+    const erroFerias = validarFerias(formCriar.feriasInicio, formCriar.feriasFim)
+    if (erroFerias) {
+      setError(erroFerias)
+      setCriando(false)
+      return
+    }
+
     try {
       const response = await fetch('/api/usuarios', {
         method: 'POST',
@@ -194,6 +220,9 @@ export default function Usuarios() {
           especialidade: especialidadeFinal || null,
           horarioEntrada: formCriar.horarioEntrada || null,
           baia: formCriar.baia || null,
+          baiaFixa: formCriar.baiaFixa,
+          elegivelHomeOffice: formCriar.elegivelHomeOffice,
+          diaCurso: formCriar.diaCurso === '' ? null : formCriar.diaCurso,
           feriasInicio: formCriar.feriasInicio || null,
           feriasFim: formCriar.feriasFim || null,
         }),
@@ -248,6 +277,13 @@ export default function Usuarios() {
       return
     }
 
+    const erroFerias = validarFerias(formEditar.feriasInicio, formEditar.feriasFim)
+    if (erroFerias) {
+      setError(erroFerias)
+      setEditando(false)
+      return
+    }
+
     try {
       const response = await fetch(`/api/usuarios/${encodeURIComponent(usuarioEditando.uid)}`, {
         method: 'PATCH',
@@ -260,6 +296,9 @@ export default function Usuarios() {
           especialidade: especialidadeFinal || null,
           horarioEntrada: formEditar.horarioEntrada || null,
           baia: formEditar.baia || null,
+          baiaFixa: formEditar.baiaFixa,
+          elegivelHomeOffice: formEditar.elegivelHomeOffice,
+          diaCurso: formEditar.diaCurso === '' ? null : formEditar.diaCurso,
           feriasInicio: formEditar.feriasInicio || null,
           feriasFim: formEditar.feriasFim || null,
         }),
@@ -318,6 +357,10 @@ export default function Usuarios() {
   }
 
   const podeEditar = podecriarUsuario()
+  // Editando a própria conta: trava perfil/equipe (não dá pra se
+  // rebaixar/mudar de equipe sozinho), mas libera os outros campos —
+  // matrícula, especialidade, horário, baia, férias.
+  const editandoAMimMesmo = usuarioEditando?.uid === userData?.uid
 
   const usuariosVisiveis = () => {
     if (userData?.role === 'admin') {
@@ -362,6 +405,8 @@ export default function Usuarios() {
               <h3>Criar Novo Usuário</h3>
               <button className="modal-close" onClick={() => setShowFormCriar(false)}>✕</button>
             </div>
+            {error && <p className="error-message" style={{ margin: '0 20px' }}>{error}</p>}
+            {success && <p className="success-message" style={{ margin: '0 20px' }}>{success}</p>}
             <form className="usuario-form usuario-form-modal" onSubmit={handleCriarUsuario}>
           <div className="form-row">
             <div className="form-group">
@@ -505,6 +550,21 @@ export default function Usuarios() {
                   />
                 )}
               </div>
+              {formCriar.especialidade === 'Aprendiz' && (
+                <div className="form-group">
+                  <label>Dia do curso</label>
+                  <select
+                    value={formCriar.diaCurso}
+                    onChange={(e) => setFormCriar({...formCriar, diaCurso: e.target.value})}
+                    disabled={criando}
+                  >
+                    <option value="">— Sem dia de curso —</option>
+                    {DIAS_SEMANA.map(d => (
+                      <option key={d.id} value={d.id}>{d.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           )}
           {formCriar.role !== 'admin' && (
@@ -520,14 +580,47 @@ export default function Usuarios() {
               </div>
               <div className="form-group">
                 <label>Baia</label>
-                <input
-                  type="number"
-                  min="1"
+                <select
                   value={formCriar.baia}
                   onChange={(e) => setFormCriar({...formCriar, baia: e.target.value})}
-                  placeholder="Ex: 3"
                   disabled={criando}
-                />
+                >
+                  <option value="">— Sem baia —</option>
+                  <option value="0">⭐ Supervisor (baia especial)</option>
+                  {Array.from({ length: 9 }, (_, i) => i + 1).map(n => (
+                    <option key={n} value={n}>Baia {n}</option>
+                  ))}
+                </select>
+                {formCriar.baia === '0' ? (
+                  <p className="campo-nota">É a baia especial do Supervisor: fica fixo automaticamente e nunca entra no rodízio de escala.</p>
+                ) : (
+                  <>
+                    <label className="campo-toggle">
+                      <span className="toggle-switch">
+                        <input
+                          type="checkbox"
+                          checked={formCriar.baiaFixa}
+                          onChange={(e) => setFormCriar({...formCriar, baiaFixa: e.target.checked})}
+                          disabled={criando}
+                        />
+                        <span className="toggle-switch-slider"></span>
+                      </span>
+                      <span>Baia fixa (sempre volta pra ela quando presencial)</span>
+                    </label>
+                    <label className="campo-toggle">
+                      <span className="toggle-switch">
+                        <input
+                          type="checkbox"
+                          checked={!formCriar.elegivelHomeOffice}
+                          onChange={(e) => setFormCriar({...formCriar, elegivelHomeOffice: !e.target.checked})}
+                          disabled={criando}
+                        />
+                        <span className="toggle-switch-slider"></span>
+                      </span>
+                      <span>Home office suspenso</span>
+                    </label>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -549,12 +642,18 @@ export default function Usuarios() {
                   value={formCriar.feriasFim}
                   onChange={(e) => setFormCriar({...formCriar, feriasFim: e.target.value})}
                   disabled={criando}
+                  style={validarFerias(formCriar.feriasInicio, formCriar.feriasFim) ? { borderColor: '#c0392b' } : {}}
                 />
               </div>
+              {validarFerias(formCriar.feriasInicio, formCriar.feriasFim) && (
+                <p className="error-message" style={{ gridColumn: '1 / -1', margin: 0 }}>
+                  {validarFerias(formCriar.feriasInicio, formCriar.feriasFim)}
+                </p>
+              )}
             </div>
           )}
           <div className="form-actions">
-            <button type="submit" className="btn-success" disabled={criando}>
+            <button type="submit" className="btn-success" disabled={criando || Boolean(validarFerias(formCriar.feriasInicio, formCriar.feriasFim))}>
               {criando ? '⏳ Criando...' : '✅ Criar Usuário'}
             </button>
             <button type="button" className="btn-secondary" onClick={() => setShowFormCriar(false)} disabled={criando}>
@@ -574,6 +673,8 @@ export default function Usuarios() {
               <h3>Editar Usuário: {usuarioEditando.nome}</h3>
               <button className="modal-close" onClick={() => { setShowFormEditar(false); setUsuarioEditando(null) }}>✕</button>
             </div>
+            {error && <p className="error-message" style={{ margin: '0 20px' }}>{error}</p>}
+            {success && <p className="success-message" style={{ margin: '0 20px' }}>{success}</p>}
             <form className="usuario-form usuario-form-modal" onSubmit={handleEditarUsuario}>
           <div className="form-row">
             <div className="form-group">
@@ -611,6 +712,11 @@ export default function Usuarios() {
               />
             </div>
           </div>
+          {editandoAMimMesmo && (
+            <p className="error-message" style={{ margin: '0 20px 15px', background: '#fff3cd', color: '#856404', borderLeft: '4px solid #f39c12' }}>
+              ⚠️ Você está editando a própria conta — perfil e equipe ficam travados (só um admin pode mudar isso).
+            </p>
+          )}
           <div className="form-row">
             <div className="form-group">
               <label>Perfil *</label>
@@ -618,7 +724,7 @@ export default function Usuarios() {
                 value={formEditar.role}
                 onChange={(e) => setFormEditar({...formEditar, role: e.target.value})}
                 required
-                disabled={editando}
+                disabled={editando || editandoAMimMesmo}
               >
                 {(!souAdmin && formEditar.role === CUSTOM
                   ? [...perfisDisponiveis(formEditar.equipe), { id: CUSTOM, label: '✏️ Perfil personalizado' }]
@@ -634,7 +740,7 @@ export default function Usuarios() {
                   onChange={(e) => setFormEditar({...formEditar, roleCustom: e.target.value})}
                   placeholder="Digite o nome do perfil"
                   className="campo-custom"
-                  disabled={editando}
+                  disabled={editando || editandoAMimMesmo}
                 />
               )}
             </div>
@@ -656,7 +762,7 @@ export default function Usuarios() {
                     })
                   }}
                   required
-                  disabled={editando}
+                  disabled={editando || editandoAMimMesmo}
                 >
                   {equipesDisponiveis().map(eq => (
                     <option key={eq.id} value={eq.id}>{eq.label}</option>
@@ -691,6 +797,21 @@ export default function Usuarios() {
                   />
                 )}
               </div>
+              {formEditar.especialidade === 'Aprendiz' && (
+                <div className="form-group">
+                  <label>Dia do curso</label>
+                  <select
+                    value={formEditar.diaCurso}
+                    onChange={(e) => setFormEditar({...formEditar, diaCurso: e.target.value})}
+                    disabled={editando}
+                  >
+                    <option value="">— Sem dia de curso —</option>
+                    {DIAS_SEMANA.map(d => (
+                      <option key={d.id} value={d.id}>{d.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           )}
           {formEditar.role !== 'admin' && (
@@ -706,14 +827,47 @@ export default function Usuarios() {
               </div>
               <div className="form-group">
                 <label>Baia</label>
-                <input
-                  type="number"
-                  min="1"
+                <select
                   value={formEditar.baia}
                   onChange={(e) => setFormEditar({...formEditar, baia: e.target.value})}
-                  placeholder="Ex: 3"
                   disabled={editando}
-                />
+                >
+                  <option value="">— Sem baia —</option>
+                  <option value="0">⭐ Supervisor (baia especial)</option>
+                  {Array.from({ length: 9 }, (_, i) => i + 1).map(n => (
+                    <option key={n} value={n}>Baia {n}</option>
+                  ))}
+                </select>
+                {formEditar.baia === '0' ? (
+                  <p className="campo-nota">É a baia especial do Supervisor: fica fixo automaticamente e nunca entra no rodízio de escala.</p>
+                ) : (
+                  <>
+                    <label className="campo-toggle">
+                      <span className="toggle-switch">
+                        <input
+                          type="checkbox"
+                          checked={formEditar.baiaFixa}
+                          onChange={(e) => setFormEditar({...formEditar, baiaFixa: e.target.checked})}
+                          disabled={editando}
+                        />
+                        <span className="toggle-switch-slider"></span>
+                      </span>
+                      <span>Baia fixa (sempre volta pra ela quando presencial)</span>
+                    </label>
+                    <label className="campo-toggle">
+                      <span className="toggle-switch">
+                        <input
+                          type="checkbox"
+                          checked={!formEditar.elegivelHomeOffice}
+                          onChange={(e) => setFormEditar({...formEditar, elegivelHomeOffice: !e.target.checked})}
+                          disabled={editando}
+                        />
+                        <span className="toggle-switch-slider"></span>
+                      </span>
+                      <span>Home office suspenso</span>
+                    </label>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -735,12 +889,18 @@ export default function Usuarios() {
                   value={formEditar.feriasFim}
                   onChange={(e) => setFormEditar({...formEditar, feriasFim: e.target.value})}
                   disabled={editando}
+                  style={validarFerias(formEditar.feriasInicio, formEditar.feriasFim) ? { borderColor: '#c0392b' } : {}}
                 />
               </div>
+              {validarFerias(formEditar.feriasInicio, formEditar.feriasFim) && (
+                <p className="error-message" style={{ gridColumn: '1 / -1', margin: 0 }}>
+                  {validarFerias(formEditar.feriasInicio, formEditar.feriasFim)}
+                </p>
+              )}
             </div>
           )}
           <div className="form-actions">
-            <button type="submit" className="btn-success" disabled={editando}>
+            <button type="submit" className="btn-success" disabled={editando || Boolean(validarFerias(formEditar.feriasInicio, formEditar.feriasFim))}>
               {editando ? '⏳ Salvando...' : '💾 Salvar Alterações'}
             </button>
             <button type="button" className="btn-secondary" onClick={() => {setShowFormEditar(false); setUsuarioEditando(null)}} disabled={editando}>
@@ -825,24 +985,28 @@ export default function Usuarios() {
                     {podeEditar && (
                       <td>
                         <div className="acoes">
-                          {usuario.role !== 'admin' && usuario.uid !== userData.uid && (
+                          {usuario.role !== 'admin' && (
                             <>
-                              <button
-                                className="btn-editar"
-                                onClick={() => abrirEditar(usuario)}
-                                title="Editar usuário"
-                                disabled={excluindoUid === usuario.uid}
-                              >
-                                ✏️ Editar
-                              </button>
-                              <button
-                                className="btn-delete"
-                                onClick={() => handleDelete(usuario.uid)}
-                                title="Deletar usuário"
-                                disabled={excluindoUid === usuario.uid}
-                              >
-                                {excluindoUid === usuario.uid ? '⏳ Excluindo...' : '🗑️ Deletar'}
-                              </button>
+                              {(usuario.uid !== userData.uid || userData.role === 'gestor') && (
+                                <button
+                                  className="btn-editar"
+                                  onClick={() => abrirEditar(usuario)}
+                                  title="Editar usuário"
+                                  disabled={excluindoUid === usuario.uid}
+                                >
+                                  ✏️ Editar
+                                </button>
+                              )}
+                              {usuario.uid !== userData.uid && (
+                                <button
+                                  className="btn-delete"
+                                  onClick={() => handleDelete(usuario.uid)}
+                                  title="Deletar usuário"
+                                  disabled={excluindoUid === usuario.uid}
+                                >
+                                  {excluindoUid === usuario.uid ? '⏳ Excluindo...' : '🗑️ Deletar'}
+                                </button>
+                              )}
                             </>
                           )}
                         </div>

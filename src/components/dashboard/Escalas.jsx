@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 
 import { useDashboardUser } from '../../context/DashboardUserContext'
 import { EQUIPES } from '../../lib/equipesConfig'
-import { TIPOS_ESCALA } from '../../lib/escalasConstants'
+import { TIPOS_ESCALA, ordenarSobreavisoPrimeiro } from '../../lib/escalasConstants'
 import CalendarioEscalas from './escalas/CalendarioEscalas'
 import DiaDetalhadoModal from './escalas/DiaDetalhadoModal'
 import EscalaEditModal from './escalas/EscalaEditModal'
@@ -20,9 +20,17 @@ export default function Escalas() {
   const [editingId, setEditingId] = useState(null)
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [filterEquipe, setFilterEquipe] = useState('todas')
+  const [filterTecnico, setFilterTecnico] = useState('todos')
   const [modalOpen, setModalOpen] = useState(false)
   const [diaDetalhado, setDiaDetalhado] = useState(null)
   const [autoModalOpen, setAutoModalOpen] = useState(false)
+  const [mostrarListaDetalhada, setMostrarListaDetalhada] = useState(false)
+  const [mostrarFormTroca, setMostrarFormTroca] = useState(false)
+  const [tipoTroca, setTipoTroca] = useState('completa')
+  const [diaTroca, setDiaTroca] = useState('')
+  const [destinoTroca, setDestinoTroca] = useState('')
+  const [enviandoTroca, setEnviandoTroca] = useState(false)
+  const [escalaOferecidaId, setEscalaOferecidaId] = useState('')
 
   const [formData, setFormData] = useState({
     tipo: 'presencial',
@@ -65,7 +73,7 @@ export default function Escalas() {
   }
 
   const carregarTecnicosEquipe = (equipe) => {
-    return usuarios.filter(u => u.equipe === equipe && u.role !== 'admin' && u.role !== 'gestor')
+    return usuarios.filter(u => u.equipe === equipe && u.role !== 'admin' && u.role !== 'gestor' && u.baia !== '0')
   }
 
   const podeEditar = userData?.role === 'admin' || userData?.role === 'gestor'
@@ -78,9 +86,123 @@ export default function Escalas() {
 
   const canEditCurrent = modalOpen && editingId ? podeEditarEscala(formData) : false
 
-  const escalasFiltradasPorEquipe = filterEquipe === 'todas'
+  const souTecnico = userData?.role !== 'admin' && userData?.role !== 'gestor'
+  const ehMinhaEscala = modalOpen && (formData.tecnicos || []).includes(userData?.uid)
+  const podeSolicitarTroca = souTecnico && ehMinhaEscala && !canEditCurrent
+
+  const colegasParaTroca = usuarios.filter(u =>
+    u.equipe === userData?.equipe &&
+    u.role !== 'admin' && u.role !== 'gestor' &&
+    u.uid !== userData?.uid &&
+    u.ativo
+  )
+
+  // Escala de um colega (não minha, não editável por mim) — dá pra propor
+  // trocar uma escala minha por essa, em vez de só entregar a minha.
+  const donoDaEscalaAberta = usuarios.find(u => u.uid === formData.tecnicos?.[0])
+  const podePropinTroca = Boolean(
+    souTecnico && modalOpen && !ehMinhaEscala && !canEditCurrent &&
+    donoDaEscalaAberta &&
+    colegasParaTroca.some(c => c.uid === donoDaEscalaAberta.uid)
+  )
+
+  const minhasEscalasParaOferecer = escalas
+    .filter(e => (e.tecnicos || []).includes(userData?.uid) && e.id !== editingId)
+    .sort((a, b) => a.dataInicio.localeCompare(b.dataInicio))
+
+  const nomeTipoEscala = (tipoId) => TIPOS_ESCALA.find(t => t.id === tipoId)?.label || tipoId
+
+  const enviarPropostaTroca = async () => {
+    if (!escalaOferecidaId) {
+      alert('Selecione qual das suas escalas você quer oferecer em troca')
+      return
+    }
+    setEnviandoTroca(true)
+    try {
+      const response = await fetch('/api/trocas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          escalaId: escalaOferecidaId,
+          tecnicoDestinoUid: donoDaEscalaAberta?.uid,
+          escalaSolicitadaId: editingId,
+        }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao propor a troca')
+      }
+      alert('Proposta de troca enviada! Acompanhe em "Trocas".')
+      handleCancel()
+    } catch (error) {
+      alert(error.message)
+    } finally {
+      setEnviandoTroca(false)
+    }
+  }
+
+  const enviarSolicitacaoTroca = async () => {
+    if (!destinoTroca) {
+      alert('Selecione o colega com quem deseja trocar')
+      return
+    }
+    if (tipoTroca === 'dia' && !diaTroca) {
+      alert('Selecione o dia que deseja trocar')
+      return
+    }
+    setEnviandoTroca(true)
+    try {
+      const response = await fetch('/api/trocas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          escalaId: editingId,
+          tecnicoDestinoUid: destinoTroca,
+          dia: tipoTroca === 'dia' ? diaTroca : undefined,
+        }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao solicitar a troca')
+      }
+      alert('Solicitação de troca enviada! Acompanhe em "Trocas".')
+      handleCancel()
+    } catch (error) {
+      alert(error.message)
+    } finally {
+      setEnviandoTroca(false)
+    }
+  }
+
+  const escalasFiltradasPorEquipe = (filterEquipe === 'todas'
     ? escalas
     : escalas.filter(e => e.equipe === filterEquipe)
+  ).filter(e => filterTecnico === 'todos' || e.tecnicos.includes(filterTecnico))
+
+  const tecnicosParaFiltro = usuarios
+    .filter(u =>
+      (u.role === 'tecnico' || u.role === 'analista') &&
+      (filterEquipe === 'todas' || u.equipe === filterEquipe)
+    )
+    .sort((a, b) => a.nome.localeCompare(b.nome))
+
+  const escalasDoDia = (data) => ordenarSobreavisoPrimeiro(escalasFiltradasPorEquipe.filter(escala => {
+    const dataInicio = new Date(escala.dataInicio)
+    const dataFim = new Date(escala.dataFim)
+    dataFim.setDate(dataFim.getDate() + 1)
+    return data >= dataInicio && data < dataFim
+  }))
+
+  // Setinhas do modal do dia: troca a data e recalcula quem está escalado,
+  // sem precisar fechar e clicar de novo no calendário.
+  const navegarDiaDetalhado = (delta) => {
+    setDiaDetalhado((atual) => {
+      if (!atual) return atual
+      const novaData = new Date(atual.data)
+      novaData.setDate(novaData.getDate() + delta)
+      return { data: novaData, escalas: escalasDoDia(novaData) }
+    })
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -128,6 +250,11 @@ export default function Escalas() {
     setFormData(escala)
     setEditingId(escala.id)
     setModalOpen(true)
+    setMostrarFormTroca(false)
+    setTipoTroca('completa')
+    setDiaTroca('')
+    setDestinoTroca('')
+    setEscalaOferecidaId('')
   }
 
   const handleDelete = async (id) => {
@@ -169,6 +296,7 @@ export default function Escalas() {
       descricao: '',
       status: 'ativa'
     })
+    setMostrarFormTroca(false)
   }
 
   const getNomeTecnico = (uid) => {
@@ -196,23 +324,39 @@ export default function Escalas() {
         )}
       </div>
 
-      <div className="escalas-filters">
-        <label>Filtrar por Equipe:</label>
-        <select value={filterEquipe} onChange={(e) => setFilterEquipe(e.target.value)}>
-          <option value="todas">📊 Todas as Equipes</option>
-          {EQUIPES.map(eq => (
-            <option key={eq.id} value={eq.id}>{eq.label}</option>
-          ))}
-        </select>
-      </div>
+      <div className="escalas-toolbar">
+        <div className="escalas-filters">
+          <label>Filtrar por Equipe:</label>
+          <select
+            value={filterEquipe}
+            onChange={(e) => {
+              setFilterEquipe(e.target.value)
+              setFilterTecnico('todos')
+            }}
+          >
+            <option value="todas">📊 Todas as Equipes</option>
+            {EQUIPES.map(eq => (
+              <option key={eq.id} value={eq.id}>{eq.label}</option>
+            ))}
+          </select>
 
-      <div className="escalas-legenda">
-        {TIPOS_ESCALA.map(tipo => (
-          <div key={tipo.id} className="legenda-item">
-            <div className="legenda-cor" style={{ backgroundColor: tipo.cor }}></div>
-            <span>{tipo.label}</span>
-          </div>
-        ))}
+          <label>Filtrar por Técnico/Analista:</label>
+          <select value={filterTecnico} onChange={(e) => setFilterTecnico(e.target.value)}>
+            <option value="todos">👥 Todos</option>
+            {tecnicosParaFiltro.map(t => (
+              <option key={t.uid} value={t.uid}>{t.nome}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="escalas-legenda">
+          {TIPOS_ESCALA.map(tipo => (
+            <div key={tipo.id} className="legenda-item">
+              <div className="legenda-cor" style={{ backgroundColor: tipo.cor }}></div>
+              <span>{tipo.label}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <EscalaEditModal
@@ -226,6 +370,25 @@ export default function Escalas() {
         onSubmit={handleSubmit}
         onDelete={() => handleDelete(editingId)}
         onCancel={handleCancel}
+        podeSolicitarTroca={podeSolicitarTroca}
+        colegasParaTroca={colegasParaTroca}
+        mostrarFormTroca={mostrarFormTroca}
+        onAbrirFormTroca={() => setMostrarFormTroca(true)}
+        onFecharFormTroca={() => setMostrarFormTroca(false)}
+        tipoTroca={tipoTroca}
+        setTipoTroca={setTipoTroca}
+        diaTroca={diaTroca}
+        setDiaTroca={setDiaTroca}
+        destinoTroca={destinoTroca}
+        setDestinoTroca={setDestinoTroca}
+        enviandoTroca={enviandoTroca}
+        onEnviarTroca={enviarSolicitacaoTroca}
+        podePropinTroca={podePropinTroca}
+        minhasEscalasParaOferecer={minhasEscalasParaOferecer}
+        nomeTipoEscala={nomeTipoEscala}
+        escalaOferecidaId={escalaOferecidaId}
+        setEscalaOferecidaId={setEscalaOferecidaId}
+        onEnviarPropostaTroca={enviarPropostaTroca}
       />
 
       {autoModalOpen && (
@@ -245,26 +408,44 @@ export default function Escalas() {
         podeEditarEscala={podeEditarEscala}
         onEditarEscala={handleEdit}
         onDiaClick={setDiaDetalhado}
+        usuarios={usuarios}
       />
 
       <DiaDetalhadoModal
         diaDetalhado={diaDetalhado}
         onClose={() => setDiaDetalhado(null)}
+        onNavegarDia={navegarDiaDetalhado}
         podeEditarEscala={podeEditarEscala}
         onEditarEscala={handleEdit}
         getNomeTecnico={getNomeTecnico}
         usuarios={usuarios}
       />
 
-      <EscalasListaDetalhada
-        escalas={escalasFiltradasPorEquipe}
-        usuarios={usuarios}
-        getNomeTecnico={getNomeTecnico}
-        podeEditarEscala={podeEditarEscala}
-        onEditarEscala={handleEdit}
-        onDeletarEscala={handleDelete}
-        onAtualizarEscalas={carregarEscalas}
-      />
+      <div className="escalas-lista-detalhada-toggle">
+        <label className="campo-toggle">
+          <span className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={mostrarListaDetalhada}
+              onChange={(e) => setMostrarListaDetalhada(e.target.checked)}
+            />
+            <span className="toggle-switch-slider"></span>
+          </span>
+          <span>Ver escalas detalhadas</span>
+        </label>
+      </div>
+
+      {mostrarListaDetalhada && (
+        <EscalasListaDetalhada
+          escalas={escalasFiltradasPorEquipe}
+          usuarios={usuarios}
+          getNomeTecnico={getNomeTecnico}
+          podeEditarEscala={podeEditarEscala}
+          onEditarEscala={handleEdit}
+          onDeletarEscala={handleDelete}
+          onAtualizarEscalas={carregarEscalas}
+        />
+      )}
     </div>
   )
 }

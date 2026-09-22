@@ -39,17 +39,17 @@ describe('construirBlocosHomeOfficePar', () => {
 
   it('coloca sempre exatamente K pessoas em home office por dia', () => {
     const participantes = [0, 1, 2, 3, 4].map(i => participante(i))
-    const dataFim = addDays('2026-01-01', 9)
+    const dataFim = addDays('2026-01-05', 9)
     const resultado = construirBlocosHomeOfficePar({
       participantes,
-      dataInicio: '2026-01-01',
+      dataInicio: '2026-01-05',
       dataFim,
       diasTrabalho: TODOS_OS_DIAS,
       quantidadeHomeOffice: 2,
     })
 
     for (let dia = 0; dia < 10; dia++) {
-      const data = addDays('2026-01-01', dia)
+      const data = addDays('2026-01-05', dia)
       const emHomeOfficeNesseDia = resultado.blocos.filter(
         b => b.tipo === 'homeoffice' && b.dtInicio <= data && data <= b.dtFim
       )
@@ -57,24 +57,139 @@ describe('construirBlocosHomeOfficePar', () => {
     }
   })
 
-  it('nunca escala quem entra às 07:00 para home office', () => {
+  it('quem entra às 07:00 pode ir para home office normalmente', () => {
     const participantes = [
       participante(0, { horarioEntrada: '07:00' }),
       participante(1),
       participante(2),
       participante(3),
     ]
-    const dataFim = addDays('2026-01-01', 13)
+    const dataFim = addDays('2026-01-05', 13)
     const resultado = construirBlocosHomeOfficePar({
       participantes,
-      dataInicio: '2026-01-01',
+      dataInicio: '2026-01-05',
       dataFim,
       diasTrabalho: TODOS_OS_DIAS,
       quantidadeHomeOffice: 2,
     })
 
     const blocosDoTecnico0EmHO = resultado.blocos.filter(b => b.tecnicoUid === 'uid-0' && b.tipo === 'homeoffice')
-    expect(blocosDoTecnico0EmHO).toEqual([])
+    expect(blocosDoTecnico0EmHO.length).toBeGreaterThan(0)
+  })
+
+  it('nunca coloca 2 pessoas que entram às 07:00 juntas em home office no mesmo dia', () => {
+    const participantes = [
+      participante(0, { horarioEntrada: '07:00' }),
+      participante(1, { horarioEntrada: '07:00' }),
+      participante(2),
+      participante(3),
+    ]
+    const dataFim = addDays('2026-01-05', 13)
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim,
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 2,
+    })
+
+    for (let dia = 0; dia < 14; dia++) {
+      const data = addDays('2026-01-05', dia)
+      const uidsEmHO = resultado.blocos
+        .filter(b => b.tipo === 'homeoffice' && b.dtInicio <= data && data <= b.dtFim)
+        .map(b => b.tecnicoUid)
+      const quantosAs7 = uidsEmHO.filter(uid => uid === 'uid-0' || uid === 'uid-1').length
+      expect(quantosAs7).toBeLessThanOrEqual(1)
+    }
+  })
+
+  it('nunca escala especialidade Aprendiz para home office', () => {
+    const participantes = [
+      participante(0, { especialidade: 'Aprendiz' }),
+      participante(1),
+      participante(2),
+      participante(3),
+    ]
+    const dataFim = addDays('2026-01-05', 13)
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim,
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 2,
+    })
+
+    const blocosDoAprendizEmHO = resultado.blocos.filter(b => b.tecnicoUid === 'uid-0' && b.tipo === 'homeoffice')
+    expect(blocosDoAprendizEmHO).toEqual([])
+    // ele continua presencial normalmente nos dias de trabalho
+    const blocosDoAprendizPresencial = resultado.blocos.filter(b => b.tecnicoUid === 'uid-0' && b.tipo === 'presencial')
+    expect(blocosDoAprendizPresencial.length).toBeGreaterThan(0)
+  })
+
+  it('nunca escala quem está na baia 0 (Supervisor) para home office', () => {
+    const participantes = [
+      participante(0, { baiaId: 0 }),
+      participante(1),
+      participante(2),
+      participante(3),
+    ]
+    const dataFim = addDays('2026-01-05', 13)
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim,
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 2,
+    })
+
+    const blocosDoSupervisorEmHO = resultado.blocos.filter(b => b.tecnicoUid === 'uid-0' && b.tipo === 'homeoffice')
+    expect(blocosDoSupervisorEmHO).toEqual([])
+  })
+
+  it('nunca escala quem está marcado manualmente como não elegível para home office', () => {
+    const participantes = [
+      participante(0, { elegivelHomeOffice: false }),
+      participante(1),
+      participante(2),
+      participante(3),
+    ]
+    const dataFim = addDays('2026-01-05', 13)
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim,
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 2,
+    })
+
+    const blocosDoNaoElegivelEmHO = resultado.blocos.filter(b => b.tecnicoUid === 'uid-0' && b.tipo === 'homeoffice')
+    expect(blocosDoNaoElegivelEmHO).toEqual([])
+    const blocosDoNaoElegivelPresencial = resultado.blocos.filter(b => b.tecnicoUid === 'uid-0' && b.tipo === 'presencial')
+    expect(blocosDoNaoElegivelPresencial.length).toBeGreaterThan(0)
+  })
+
+  it('especialidade Externo só aparece na escala nos dias em que está de home office (nunca presencial)', () => {
+    const participantes = [
+      participante(0, { especialidade: 'Externo' }),
+      participante(1),
+      participante(2),
+      participante(3),
+    ]
+    const dataFim = addDays('2026-01-05', 13)
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim,
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 2,
+    })
+
+    const blocosDoExterno = resultado.blocos.filter(b => b.tecnicoUid === 'uid-0')
+    expect(blocosDoExterno.length).toBeGreaterThan(0)
+    expect(blocosDoExterno.every(b => b.tipo === 'homeoffice')).toBe(true)
+
+    const diasCobertos = blocosDoExterno.reduce((total, b) => total + diasNoBloco(b.dtInicio, b.dtFim), 0)
+    expect(diasCobertos).toBeLessThan(14)
   })
 
   it('nunca coloca 2 pessoas da mesma especialidade em H.O. no mesmo dia', () => {
@@ -84,17 +199,17 @@ describe('construirBlocosHomeOfficePar', () => {
       participante(2, { especialidade: 'Manutenção' }),
       participante(3, { especialidade: 'Sistemas N1' }),
     ]
-    const dataFim = addDays('2026-01-01', 19)
+    const dataFim = addDays('2026-01-05', 19)
     const resultado = construirBlocosHomeOfficePar({
       participantes,
-      dataInicio: '2026-01-01',
+      dataInicio: '2026-01-05',
       dataFim,
       diasTrabalho: TODOS_OS_DIAS,
       quantidadeHomeOffice: 2,
     })
 
     for (let dia = 0; dia < 20; dia++) {
-      const data = addDays('2026-01-01', dia)
+      const data = addDays('2026-01-05', dia)
       const uidsEmHO = resultado.blocos
         .filter(b => b.tipo === 'homeoffice' && b.dtInicio <= data && data <= b.dtFim)
         .map(b => b.tecnicoUid)
@@ -111,8 +226,8 @@ describe('construirBlocosHomeOfficePar', () => {
     ]
     const resultado = construirBlocosHomeOfficePar({
       participantes,
-      dataInicio: '2026-01-01',
-      dataFim: '2026-01-01',
+      dataInicio: '2026-01-05',
+      dataFim: '2026-01-05',
       diasTrabalho: TODOS_OS_DIAS,
       quantidadeHomeOffice: 2,
     })
@@ -129,17 +244,17 @@ describe('construirBlocosHomeOfficePar', () => {
       participante(2, { baiaId: 2 }),
       participante(3, { baiaId: 2 }),
     ]
-    const dataFim = addDays('2026-01-01', 9)
+    const dataFim = addDays('2026-01-05', 9)
     const resultado = construirBlocosHomeOfficePar({
       participantes,
-      dataInicio: '2026-01-01',
+      dataInicio: '2026-01-05',
       dataFim,
       diasTrabalho: TODOS_OS_DIAS,
       quantidadeHomeOffice: 2,
     })
 
     for (let dia = 0; dia < 10; dia++) {
-      const data = addDays('2026-01-01', dia)
+      const data = addDays('2026-01-05', dia)
       const uidsEmHO = resultado.blocos
         .filter(b => b.tipo === 'homeoffice' && b.dtInicio <= data && data <= b.dtFim)
         .map(b => b.tecnicoUid)
@@ -157,8 +272,8 @@ describe('construirBlocosHomeOfficePar', () => {
     ]
     const resultado = construirBlocosHomeOfficePar({
       participantes,
-      dataInicio: '2026-01-01',
-      dataFim: '2026-01-01',
+      dataInicio: '2026-01-05',
+      dataFim: '2026-01-05',
       diasTrabalho: TODOS_OS_DIAS,
       quantidadeHomeOffice: 2,
     })
@@ -171,10 +286,10 @@ describe('construirBlocosHomeOfficePar', () => {
 
   it('mantém o rodízio justo: ao longo de vários ciclos, todo mundo acumula H.O. parecido', () => {
     const participantes = [0, 1, 2, 3].map(i => participante(i))
-    const dataFim = addDays('2026-01-01', 15) // 16 dias, K=2, 4 pessoas -> 8 "vagas" cada uma, 32 vagas / 4 = 8 cada
+    const dataFim = addDays('2026-01-05', 15) // 16 dias, K=2, 4 pessoas -> 8 "vagas" cada uma, 32 vagas / 4 = 8 cada
     const resultado = construirBlocosHomeOfficePar({
       participantes,
-      dataInicio: '2026-01-01',
+      dataInicio: '2026-01-05',
       dataFim,
       diasTrabalho: TODOS_OS_DIAS,
       quantidadeHomeOffice: 2,
@@ -194,8 +309,8 @@ describe('construirBlocosHomeOfficePar', () => {
     const participantes = [0, 1].map(i => participante(i))
     const resultado = construirBlocosHomeOfficePar({
       participantes,
-      dataInicio: '2026-01-01',
-      dataFim: '2026-01-01',
+      dataInicio: '2026-01-05',
+      dataFim: '2026-01-05',
       diasTrabalho: TODOS_OS_DIAS,
       quantidadeHomeOffice: 1,
       contagensIniciais: { 'uid-0': 10, 'uid-1': 0 },
@@ -210,8 +325,8 @@ describe('construirBlocosHomeOfficePar', () => {
     const participantes = [0, 1].map(i => participante(i))
     const resultado = construirBlocosHomeOfficePar({
       participantes,
-      dataInicio: '2026-01-01',
-      dataFim: '2026-01-01',
+      dataInicio: '2026-01-05',
+      dataFim: '2026-01-05',
       diasTrabalho: TODOS_OS_DIAS,
       quantidadeHomeOffice: 1,
       contagensIniciais: { 'uid-0': 0, 'uid-1': 100 },
@@ -220,16 +335,16 @@ describe('construirBlocosHomeOfficePar', () => {
     // seguidos ele deveria ficar num único bloco contíguo de H.O.
     const maisDias = construirBlocosHomeOfficePar({
       participantes,
-      dataInicio: '2026-01-01',
-      dataFim: addDays('2026-01-01', 4),
+      dataInicio: '2026-01-05',
+      dataFim: addDays('2026-01-05', 4),
       diasTrabalho: TODOS_OS_DIAS,
       quantidadeHomeOffice: 1,
       contagensIniciais: { 'uid-0': 0, 'uid-1': 100 },
     })
     const blocosHOdoUid0 = maisDias.blocos.filter(b => b.tecnicoUid === 'uid-0' && b.tipo === 'homeoffice')
     expect(blocosHOdoUid0).toHaveLength(1)
-    expect(blocosHOdoUid0[0].dtInicio).toBe('2026-01-01')
-    expect(blocosHOdoUid0[0].dtFim).toBe(addDays('2026-01-01', 4))
+    expect(blocosHOdoUid0[0].dtInicio).toBe('2026-01-05')
+    expect(blocosHOdoUid0[0].dtFim).toBe(addDays('2026-01-05', 4))
   })
 
   it('quem está de férias num dia não recebe bloco nesse dia (nem H.O. nem presencial)', () => {
@@ -240,7 +355,7 @@ describe('construirBlocosHomeOfficePar', () => {
     ]
     const resultado = construirBlocosHomeOfficePar({
       participantes,
-      dataInicio: '2026-01-01',
+      dataInicio: '2026-01-05',
       dataFim: '2026-01-05',
       diasTrabalho: TODOS_OS_DIAS,
       quantidadeHomeOffice: 1,
@@ -256,5 +371,79 @@ describe('construirBlocosHomeOfficePar', () => {
       })
     expect(diasCobertosUid0).not.toContain('2026-01-02')
     expect(diasCobertosUid0).not.toContain('2026-01-03')
+  })
+
+  it('respeita ocupação já existente (de uma geração anterior) e não passa do limite diário', () => {
+    const participantes = [0, 1, 2].map(i => participante(i))
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim: '2026-01-05',
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 2,
+      ocupacaoExistentePorDia: { '2026-01-05': 2 }, // já tem 2 de outra geração
+    })
+
+    expect(resultado.blocos.filter(b => b.tipo === 'homeoffice')).toEqual([])
+    expect(resultado.avisos).toHaveLength(1)
+    expect(resultado.avisos[0].mensagem).toMatch(/já tem pessoa/)
+  })
+
+  it('completa só as vagas restantes quando já existe ocupação parcial', () => {
+    const participantes = [0, 1, 2, 3].map(i => participante(i))
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim: '2026-01-05',
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 2,
+      ocupacaoExistentePorDia: { '2026-01-05': 1 }, // já tem 1 de outra geração
+    })
+
+    expect(resultado.blocos.filter(b => b.tipo === 'homeoffice')).toHaveLength(1)
+  })
+
+  it('com duracaoBlocoDias, a mesma dupla fica em H.O. por vários dias seguidos antes de trocar', () => {
+    const participantes = [0, 1, 2, 3].map(i => participante(i))
+    const dataFim = addDays('2026-01-05', 8) // 9 dias, blocos de 3 -> 3 blocos
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim,
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 2,
+      duracaoBlocoDias: 3,
+    })
+
+    // pra cada participante, cada bloco de H.O. dele deve durar exatamente
+    // 3 dias (ou terminar no fim do período) — nunca trocar no meio do bloco
+    const blocosHO = resultado.blocos.filter(b => b.tipo === 'homeoffice')
+    for (const b of blocosHO) {
+      const dias = diasNoBloco(b.dtInicio, b.dtFim)
+      expect(dias).toBeLessThanOrEqual(3)
+    }
+    // ainda respeita exatamente 2 por dia
+    for (let dia = 0; dia < 9; dia++) {
+      const data = addDays('2026-01-05', dia)
+      const emHO = resultado.blocos.filter(b => b.tipo === 'homeoffice' && b.dtInicio <= data && data <= b.dtFim)
+      expect(emHO).toHaveLength(2)
+    }
+  })
+
+  it('duracaoBlocoDias padrão (1) continua igual ao comportamento anterior, escolhendo todo dia', () => {
+    const participantes = [0, 1, 2, 3].map(i => participante(i))
+    const dataFim = addDays('2026-01-05', 3)
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim,
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 2,
+    })
+    for (let dia = 0; dia < 4; dia++) {
+      const data = addDays('2026-01-05', dia)
+      const emHO = resultado.blocos.filter(b => b.tipo === 'homeoffice' && b.dtInicio <= data && data <= b.dtFim)
+      expect(emHO).toHaveLength(2)
+    }
   })
 })

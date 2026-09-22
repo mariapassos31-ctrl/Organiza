@@ -6,6 +6,7 @@ import {
   construirBlocosRodizio,
   construirBlocosHibrido,
 } from './escalasRodizio'
+import { ehFeriado } from './feriados'
 
 function diasNoBloco(dtInicio, dtFim) {
   const [y1, m1, d1] = dtInicio.split('-').map(Number)
@@ -222,11 +223,12 @@ describe('construirBlocosHibrido', () => {
     const n = 4
     const k = 2 // 50%
     // 2 ciclos completos de n dias úteis (todos os dias da semana contam como úteis aqui)
+    // começa em 01-02 (não 01-01) pra não esbarrar no feriado de Ano Novo
     const diasUteis = 2 * n
-    const dataFim = addDays('2026-01-01', diasUteis - 1)
+    const dataFim = addDays('2026-01-02', diasUteis - 1)
     const blocos = construirBlocosHibrido({
       participantes: participantes(n),
-      dataInicio: '2026-01-01',
+      dataInicio: '2026-01-02',
       dataFim,
       diasTrabalho: [0, 1, 2, 3, 4, 5, 6],
       percentualHomeOffice: (k / n) * 100,
@@ -263,7 +265,7 @@ describe('construirBlocosHibrido', () => {
       while (cursor <= '2026-01-15') {
         const [y, m, d] = cursor.split('-').map(Number)
         const dow = new Date(y, m - 1, d).getDay()
-        if ([1, 2, 3, 4, 5].includes(dow)) count++
+        if ([1, 2, 3, 4, 5].includes(dow) && !ehFeriado(cursor)) count++
         cursor = addDays(cursor, 1)
       }
       expect(totalDias).toBe(count)

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { query, equipeIdFromSlug } from '../../../../lib/db'
 import { auth } from '../../../../auth'
 import { perfisColaboradorPorEquipe } from '../../../../lib/equipesConfig'
+import { recalcularHomeOfficeEquipe } from '../../../../lib/escalasAuto'
 
 function validarPerfilEquipe(role, equipe) {
   if (role === 'admin' || role === 'gestor') return null
@@ -12,12 +13,14 @@ function validarPerfilEquipe(role, equipe) {
   return null
 }
 
-// Uma baia comporta no máximo 2 ocupantes fixos (a "dupla"). cdUsuarioAtual
-// é excluído da contagem (permite salvar sem "brigar" com o próprio registro).
+// Uma baia comporta no máximo 2 ocupantes fixos (a "dupla") — exceto a baia
+// 0, que é a vaga especial do Supervisor e só comporta 1 pessoa por vez.
+// cdUsuarioAtual é excluído da contagem (permite salvar sem "brigar" com o
+// próprio registro).
 async function validarBaiaDisponivel(equipeId, baia, cdUsuarioAtual) {
   if (baia === null || baia === undefined || baia === '') return null
   const numero = Number(baia)
-  if (!Number.isInteger(numero) || numero < 1) {
+  if (!Number.isInteger(numero) || numero < 0) {
     return 'Número da baia inválido'
   }
   const { rows } = await query(
@@ -25,8 +28,9 @@ async function validarBaiaDisponivel(equipeId, baia, cdUsuarioAtual) {
      WHERE cd_equipe = $1 AND nr_baia = $2 AND sn_ativo = true AND cd_usuario IS DISTINCT FROM $3`,
     [equipeId, numero, cdUsuarioAtual]
   )
-  if (rows.length >= 2) {
-    return `A baia ${numero} já tem 2 ocupantes`
+  const limite = numero === 0 ? 1 : 2
+  if (rows.length >= limite) {
+    return numero === 0 ? 'Já existe um Supervisor cadastrado' : `A baia ${numero} já tem 2 ocupantes`
   }
   return null
 }
@@ -38,6 +42,15 @@ function validarPeriodoFerias(feriasInicio, feriasFim) {
   }
   if (feriasFim < feriasInicio) {
     return 'O fim das férias não pode ser antes do início'
+  }
+  return null
+}
+
+function validarDiaCurso(diaCurso) {
+  if (diaCurso === null || diaCurso === undefined || diaCurso === '') return null
+  const numero = Number(diaCurso)
+  if (!Number.isInteger(numero) || numero < 0 || numero > 6) {
+    return 'Dia do curso inválido'
   }
   return null
 }
@@ -56,7 +69,7 @@ export async function PATCH(request, { params }) {
     const { uid } = await params
     const cdUsuario = Number(uid)
     const body = await request.json()
-    const { nome, role, matricula, especialidade, horarioEntrada, baia, feriasInicio, feriasFim } = body
+    const { nome, role, matricula, especialidade, horarioEntrada, baia, baiaFixa, elegivelHomeOffice, diaCurso, feriasInicio, feriasFim } = body
     let { equipe } = body
 
     const { rows: alvoRows } = await query(
@@ -69,6 +82,13 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 })
     }
     const alvo = alvoRows[0]
+
+    // Editando a própria conta: não pode mudar o próprio perfil (evita se
+    // rebaixar/travar sem querer — só um admin edita o perfil de outra
+    // pessoa). Os demais campos (baia, especialidade, etc.) continuam livres.
+    if (String(cdUsuario) === String(session.user.id) && role !== alvo.tp_role) {
+      return NextResponse.json({ error: 'Você não pode mudar o seu próprio perfil' }, { status: 403 })
+    }
 
     if (minhaRole === 'gestor') {
       if (alvo.tp_role === 'admin') {
@@ -92,7 +112,7 @@ export async function PATCH(request, { params }) {
 
     const equipeId = role === 'admin' ? null : await equipeIdFromSlug(equipe)
 
-    if (role !== 'admin' && role !== 'gestor') {
+    if (role !== 'admin') {
       const erroBaia = await validarBaiaDisponivel(equipeId, baia, cdUsuario)
       if (erroBaia) {
         return NextResponse.json({ error: erroBaia }, { status: 400 })
@@ -100,6 +120,10 @@ export async function PATCH(request, { params }) {
       const erroFerias = validarPeriodoFerias(feriasInicio, feriasFim)
       if (erroFerias) {
         return NextResponse.json({ error: erroFerias }, { status: 400 })
+      }
+      const erroDiaCurso = validarDiaCurso(diaCurso)
+      if (erroDiaCurso) {
+        return NextResponse.json({ error: erroDiaCurso }, { status: 400 })
       }
     }
 
@@ -115,20 +139,31 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ error: 'Usuário não encontrado' }, { status: 404 })
     }
 
-    if (role !== 'admin' && role !== 'gestor') {
+    if (role !== 'admin') {
       await query(
-        `INSERT INTO tecnicos (cd_usuario, nm_tecnico, cd_equipe, ds_especialidade, hr_entrada, nr_baia, dt_ferias_inicio, dt_ferias_fim)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO tecnicos (cd_usuario, nm_tecnico, cd_equipe, ds_especialidade, hr_entrada, nr_baia, sn_baia_fixa, sn_elegivel_home_office, nr_dia_curso, dt_ferias_inicio, dt_ferias_fim)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          ON CONFLICT (cd_usuario) DO UPDATE
            SET nm_tecnico = EXCLUDED.nm_tecnico,
                cd_equipe = EXCLUDED.cd_equipe,
                ds_especialidade = EXCLUDED.ds_especialidade,
                hr_entrada = EXCLUDED.hr_entrada,
                nr_baia = EXCLUDED.nr_baia,
+               sn_baia_fixa = EXCLUDED.sn_baia_fixa,
+               sn_elegivel_home_office = EXCLUDED.sn_elegivel_home_office,
+               nr_dia_curso = EXCLUDED.nr_dia_curso,
                dt_ferias_inicio = EXCLUDED.dt_ferias_inicio,
                dt_ferias_fim = EXCLUDED.dt_ferias_fim`,
-        [cdUsuario, nome, equipeId, especialidade || null, horarioEntrada || null, baia || null, feriasInicio || null, feriasFim || null]
+        [cdUsuario, nome, equipeId, especialidade || null, horarioEntrada || null, baia || null, Boolean(baiaFixa) || Number(baia) === 0, elegivelHomeOffice !== false, diaCurso === '' || diaCurso === undefined ? null : diaCurso, feriasInicio || null, feriasFim || null]
       )
+
+      // Suspendeu o home office dela: refaz o rodízio de home office da
+      // equipe inteira dali pra frente — ela sai (vira presencial) e outros
+      // técnicos elegíveis são puxados pra completar a quantidade por dia de
+      // novo, sem deixar a escala "furada".
+      if (elegivelHomeOffice === false && equipeId) {
+        await recalcularHomeOfficeEquipe(equipeId)
+      }
     } else {
       await query('DELETE FROM tecnicos WHERE cd_usuario = $1', [cdUsuario])
     }

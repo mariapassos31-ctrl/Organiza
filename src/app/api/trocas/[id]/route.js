@@ -38,7 +38,7 @@ export async function PATCH(request, { params }) {
   let troca
   try {
     const { rows } = await query(
-      `SELECT te.cd_troca_escala, te.cd_escala, te.tp_status,
+      `SELECT te.cd_troca_escala, te.cd_escala, te.tp_status, te.cd_escala_solicitada,
               te.cd_tecnico_solicitante, te.cd_tecnico_destino,
               to_char(te.dt_dia, 'YYYY-MM-DD') AS dt_dia,
               es.cd_equipe, es.tp_escala, es.ds_descricao, es.tp_status AS escala_tp_status,
@@ -115,6 +115,15 @@ export async function PATCH(request, { params }) {
       await criarEscalaSegmento(client, troca, dia, dia, troca.cd_tecnico_destino)
       await criarEscalaSegmento(client, troca, addDays(dia, 1), fim, troca.cd_tecnico_solicitante)
       await client.query('UPDATE escalas SET dt_fim = $1 WHERE cd_escala = $2', [addDays(dia, -1), troca.cd_escala])
+    }
+
+    // Troca mútua: a escala que o solicitante pediu do destino vai inteira
+    // pro solicitante (sempre em bloco completo, sem recorte por dia).
+    if (troca.cd_escala_solicitada) {
+      await client.query(
+        'UPDATE escala_tecnicos SET cd_tecnico = $1 WHERE cd_escala = $2 AND cd_tecnico = $3',
+        [troca.cd_tecnico_solicitante, troca.cd_escala_solicitada, troca.cd_tecnico_destino]
+      )
     }
 
     await client.query('COMMIT')

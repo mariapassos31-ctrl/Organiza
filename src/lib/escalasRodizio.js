@@ -1,6 +1,8 @@
 // Lógica pura de geração de escalas (sem acesso a banco de dados), separada
 // de escalasAuto.js para poder ser testada isoladamente.
 
+import { ehFeriado } from './feriados'
+
 export function addDays(dateStr, delta) {
   const [y, m, d] = dateStr.split('-').map(Number)
   const dt = new Date(y, m - 1, d)
@@ -12,13 +14,14 @@ export function addDays(dateStr, delta) {
 }
 
 // "Escala Sábado" é um plantão semanal de 1 dia, não um bloco contínuo:
-// aqui listamos só as datas de sábado dentro do período.
+// aqui listamos só as datas de sábado dentro do período (a empresa não abre
+// em feriado, então um sábado que cai em feriado não entra na lista).
 export function getSabados(dataInicio, dataFim) {
   const sabados = []
   let cursor = dataInicio
   while (cursor <= dataFim) {
     const [y, m, d] = cursor.split('-').map(Number)
-    if (new Date(y, m - 1, d).getDay() === 6) sabados.push(cursor)
+    if (new Date(y, m - 1, d).getDay() === 6 && !ehFeriado(cursor)) sabados.push(cursor)
     cursor = addDays(cursor, 1)
   }
   return sabados
@@ -126,7 +129,7 @@ export function construirBlocosHibrido({ participantes, dataInicio, dataFim, dia
   let cursor = dataInicio
   while (cursor <= dataFim) {
     const [y, m, d] = cursor.split('-').map(Number)
-    if (diasTrabalhoSet.has(new Date(y, m - 1, d).getDay())) diasUteis.push(cursor)
+    if (diasTrabalhoSet.has(new Date(y, m - 1, d).getDay()) && !ehFeriado(cursor)) diasUteis.push(cursor)
     cursor = addDays(cursor, 1)
   }
   if (diasUteis.length === 0) return []

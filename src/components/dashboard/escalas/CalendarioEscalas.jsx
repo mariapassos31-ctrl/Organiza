@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { TIPOS_ESCALA, ordenarSobreavisoPrimeiro } from '../../../lib/escalasConstants'
+import { useState, useEffect } from 'react'
+import { TIPOS_ESCALA, TIPO_CURSO, ordenarSobreavisoPrimeiro, estaEmDiaCurso } from '../../../lib/escalasConstants'
+import { nomeFeriado } from '../../../lib/feriados'
 
 function getDaysInMonth(date) {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
@@ -19,8 +20,17 @@ export default function CalendarioEscalas({
   podeEditarEscala,
   onEditarEscala,
   onDiaClick,
+  usuarios,
 }) {
   const [anoInput, setAnoInput] = useState(currentMonth.getFullYear().toString())
+
+  // O campo de ano tem estado próprio (pra digitar livremente sem travar a
+  // cada tecla), mas precisa acompanhar currentMonth quando o mês muda por
+  // outro caminho (setas ← →, virando o ano) — senão fica mostrando o ano
+  // antigo mesmo com o calendário já certo.
+  useEffect(() => {
+    setAnoInput(currentMonth.getFullYear().toString())
+  }, [currentMonth])
 
   const getEscalasDoMes = () => {
     const ano = currentMonth.getFullYear()
@@ -49,25 +59,43 @@ export default function CalendarioEscalas({
 
     for (let day = 1; day <= daysInMonth; day++) {
       const dataAtual = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
+      const dataISO = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      const feriado = nomeFeriado(dataISO)
       const escalasDodia = ordenarSobreavisoPrimeiro(escalasDoMes.filter(escala => {
         const dataInicio = new Date(escala.dataInicio)
         const dataFim = new Date(escala.dataFim)
         dataFim.setDate(dataFim.getDate() + 1)
         return dataAtual >= dataInicio && dataAtual < dataFim
       }))
+      // Quando o dia tem gente de home office, esconde os presenciais no
+      // calendário (são a maioria, viram poluição visual) — a lupa continua
+      // mostrando todo mundo. Dia sem home office (outras equipes/modos)
+      // mostra tudo normalmente, senão ficaria em branco.
+      const temHomeOfficeNoDia = escalasDodia.some(e => e.tipo === 'homeoffice')
+      const escalasParaExibir = temHomeOfficeNoDia
+        ? escalasDodia.filter(e => e.tipo !== 'presencial')
+        : escalasDodia
 
       days.push(
-        <div key={day} className="calendar-day">
+        <div key={day} className={`calendar-day ${feriado ? 'calendar-day-feriado' : ''}`}>
           <div
             className={`day-number ${escalasDodia.length > 0 ? 'day-number-clicavel' : ''}`}
             onClick={() => escalasDodia.length > 0 && onDiaClick({ data: dataAtual, escalas: escalasDodia })}
             title={escalasDodia.length > 0 ? 'Ver todos os escalados do dia' : ''}
           >
             {day}
+            {escalasDodia.length > 0 && <span className="day-number-icone">🔍</span>}
           </div>
+          {feriado && (
+            <div className="dia-feriado-badge" title={feriado}>
+              🎉 Feriado<br />{feriado}
+            </div>
+          )}
           <div className="day-escalas">
-            {escalasDodia.map(escala => {
-              const tipo = TIPOS_ESCALA.find(t => t.id === escala.tipo)
+            {escalasParaExibir.map(escala => {
+              const tecnico = (usuarios || []).find(u => u.uid === escala.tecnicos[0])
+              const emCurso = escala.tipo === 'presencial' && estaEmDiaCurso(tecnico, dataAtual)
+              const tipo = emCurso ? TIPO_CURSO : TIPOS_ESCALA.find(t => t.id === escala.tipo)
               const nomeTecnico = getNomeTecnico(escala.tecnicos[0])
               return (
                 <div
@@ -121,11 +149,15 @@ export default function CalendarioEscalas({
             value={anoInput}
             onChange={(e) => {
               const valor = e.target.value
+              if (valor !== '' && !/^\d{0,4}$/.test(valor)) return
               setAnoInput(valor)
-              if (valor === '') return
-              const ano = parseInt(valor)
-              if (!isNaN(ano) && valor.length <= 4) {
-                onMonthChange(new Date(ano, currentMonth.getMonth()))
+              // Só troca de fato o calendário com o ano completo (4 dígitos) —
+              // trocar a cada dígito digitado atropela a digitação (e o
+              // Date() do JS trata ano de 1-2 dígitos como 19XX, o que
+              // bagunça tudo no meio da digitação).
+              if (valor.length === 4) {
+                const ano = parseInt(valor, 10)
+                if (!isNaN(ano)) onMonthChange(new Date(ano, currentMonth.getMonth()))
               }
             }}
             onBlur={() => {

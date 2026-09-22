@@ -14,6 +14,25 @@ export default function EscalaEditModal({
   onSubmit,
   onDelete,
   onCancel,
+  podeSolicitarTroca,
+  colegasParaTroca,
+  mostrarFormTroca,
+  onAbrirFormTroca,
+  onFecharFormTroca,
+  tipoTroca,
+  setTipoTroca,
+  diaTroca,
+  setDiaTroca,
+  destinoTroca,
+  setDestinoTroca,
+  enviandoTroca,
+  onEnviarTroca,
+  podePropinTroca,
+  minhasEscalasParaOferecer,
+  nomeTipoEscala,
+  escalaOferecidaId,
+  setEscalaOferecidaId,
+  onEnviarPropostaTroca,
 }) {
   if (!open) return null
 
@@ -122,6 +141,78 @@ export default function EscalaEditModal({
               disabled={!canEdit}
             />
           </div>
+
+          {podeSolicitarTroca && mostrarFormTroca && (
+            <div className="troca-form">
+              <div className="form-group">
+                <label>O que deseja trocar?</label>
+                <div className="troca-tipo-opcoes">
+                  <label>
+                    <input
+                      type="radio"
+                      name="tipoTroca"
+                      checked={tipoTroca === 'completa'}
+                      onChange={() => setTipoTroca('completa')}
+                    />
+                    Escala inteira
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      name="tipoTroca"
+                      checked={tipoTroca === 'dia'}
+                      onChange={() => setTipoTroca('dia')}
+                    />
+                    Só um dia
+                  </label>
+                </div>
+              </div>
+              {tipoTroca === 'dia' && (
+                <div className="form-group">
+                  <label>Qual dia?</label>
+                  <input
+                    type="date"
+                    value={diaTroca}
+                    min={formData.dataInicio}
+                    max={formData.dataFim}
+                    onChange={(e) => setDiaTroca(e.target.value)}
+                  />
+                </div>
+              )}
+              <div className="form-group">
+                <label>Trocar com quem?</label>
+                <select value={destinoTroca} onChange={(e) => setDestinoTroca(e.target.value)}>
+                  <option value="">Selecione um colega...</option>
+                  {colegasParaTroca.map(colega => (
+                    <option key={colega.uid} value={colega.uid}>{colega.nome}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {podePropinTroca && mostrarFormTroca && (
+            <div className="troca-form">
+              <p className="troca-explicacao">
+                Essa escala é do(a) <strong>{getNomeTecnico(formData.tecnicos[0])}</strong>. Escolha qual das suas escalas você oferece em troca — se ele(a) aceitar, vocês trocam de escala.
+              </p>
+              <div className="form-group">
+                <label>Qual das suas escalas você oferece?</label>
+                <select value={escalaOferecidaId} onChange={(e) => setEscalaOferecidaId(e.target.value)}>
+                  <option value="">Selecione uma escala sua...</option>
+                  {minhasEscalasParaOferecer.map(e => (
+                    <option key={e.id} value={e.id}>
+                      {nomeTipoEscala(e.tipo)} · {e.dataInicio} a {e.dataFim}
+                    </option>
+                  ))}
+                </select>
+                {minhasEscalasParaOferecer.length === 0 && (
+                  <small className="auto-campo-alerta">Você não tem nenhuma escala pra oferecer em troca.</small>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="form-actions-modal">
             {canEdit && (
               <button type="submit" className="btn-success">
@@ -133,8 +224,32 @@ export default function EscalaEditModal({
                 🗑️ Deletar
               </button>
             )}
-            <button type="button" className="btn-secondary" onClick={onCancel}>
-              {canEdit ? 'Cancelar' : 'Fechar'}
+            {podeSolicitarTroca && !mostrarFormTroca && (
+              <button type="button" className="btn-success" onClick={onAbrirFormTroca}>
+                🔄 Solicitar Troca
+              </button>
+            )}
+            {podeSolicitarTroca && mostrarFormTroca && (
+              <button type="button" className="btn-success" disabled={enviandoTroca} onClick={onEnviarTroca}>
+                {enviandoTroca ? 'Enviando...' : 'Enviar Solicitação'}
+              </button>
+            )}
+            {podePropinTroca && !mostrarFormTroca && (
+              <button type="button" className="btn-success" onClick={onAbrirFormTroca}>
+                🔄 Propor Troca
+              </button>
+            )}
+            {podePropinTroca && mostrarFormTroca && (
+              <button type="button" className="btn-success" disabled={enviandoTroca} onClick={onEnviarPropostaTroca}>
+                {enviandoTroca ? 'Enviando...' : 'Enviar Proposta'}
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={mostrarFormTroca ? onFecharFormTroca : onCancel}
+            >
+              {mostrarFormTroca ? 'Voltar' : canEdit ? 'Cancelar' : 'Fechar'}
             </button>
           </div>
         </form>

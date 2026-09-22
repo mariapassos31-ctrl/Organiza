@@ -79,27 +79,27 @@ export default function DashboardLayout({ children }) {
       { label: '📊 Dashboard', path: '/dashboard/home' },
       { label: '👥 Usuários', path: '/dashboard/usuarios' },
       { label: '📅 Escalas', path: '/dashboard/escalas' },
-      { label: '📆 Agenda', path: '/dashboard/agenda' },
       { label: '🔄 Trocas', path: '/dashboard/trocas' },
-      { label: '📈 Relatórios', path: '/dashboard/relatorios' }
+      { label: '📈 Relatórios', path: '/dashboard/relatorios' },
+      { label: '📖 Manual de Uso', path: '/dashboard/manual' }
     ] : []),
 
-    // Gestor vê: Usuários, Escalas, Agenda, Trocas, Relatórios
+    // Gestor vê: Usuários, Escalas, Trocas, Relatórios
     ...(userData.role === 'gestor' ? [
       { label: '📊 Dashboard', path: '/dashboard/home' },
       { label: '👥 Usuários', path: '/dashboard/usuarios' },
       { label: '📅 Escalas', path: '/dashboard/escalas' },
-      { label: '📆 Agenda', path: '/dashboard/agenda' },
       { label: '🔄 Trocas', path: '/dashboard/trocas' },
-      { label: '📈 Relatórios', path: '/dashboard/relatorios' }
+      { label: '📈 Relatórios', path: '/dashboard/relatorios' },
+      { label: '📖 Manual de Uso', path: '/dashboard/manual' }
     ] : []),
 
     // Qualquer colaborador (técnico, analista, desenvolvedor, ou perfil livre)
-    // vê: Escalas, Agenda, Trocas
+    // vê: Escalas, Trocas (Agenda ficou redundante — Escalas já cobre tudo)
     ...(userData.role !== 'admin' && userData.role !== 'gestor' ? [
       { label: '📅 Escalas', path: '/dashboard/escalas' },
-      { label: '📆 Agenda', path: '/dashboard/agenda' },
-      { label: '🔄 Trocas', path: '/dashboard/trocas' }
+      { label: '🔄 Trocas', path: '/dashboard/trocas' },
+      { label: '📖 Manual de Uso', path: '/dashboard/manual' }
     ] : [])
   ]
 

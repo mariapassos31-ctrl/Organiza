@@ -16,7 +16,11 @@ const SELECT_TROCAS = `
          us.cd_usuario AS solicitante_uid,
          us.nm_usuario AS solicitante_nome,
          ud.cd_usuario AS destino_uid,
-         ud.nm_usuario AS destino_nome
+         ud.nm_usuario AS destino_nome,
+         esol.cd_escala AS escala_solicitada_cd,
+         esol.tp_escala AS escala_solicitada_tipo,
+         to_char(esol.dt_inicio, 'YYYY-MM-DD') AS escala_solicitada_dt_inicio,
+         to_char(esol.dt_fim, 'YYYY-MM-DD') AS escala_solicitada_dt_fim
   FROM trocas_escala te
   JOIN escalas es ON es.cd_escala = te.cd_escala
   LEFT JOIN equipes eq ON eq.cd_equipe = es.cd_equipe
@@ -24,6 +28,7 @@ const SELECT_TROCAS = `
   JOIN usuarios us ON us.cd_usuario = ts.cd_usuario
   LEFT JOIN tecnicos td ON td.cd_tecnico = te.cd_tecnico_destino
   LEFT JOIN usuarios ud ON ud.cd_usuario = td.cd_usuario
+  LEFT JOIN escalas esol ON esol.cd_escala = te.cd_escala_solicitada
 `
 
 function toApiShape(row) {
@@ -42,6 +47,12 @@ function toApiShape(row) {
     destinoNome: row.destino_nome,
     dataCriacao: row.dt_criacao,
     dataAceite: row.dt_aceite,
+    // Preenchido só quando é troca mútua (o solicitante também pediu uma
+    // escala específica do destino em troca da sua).
+    escalaSolicitadaId: row.escala_solicitada_cd ? String(row.escala_solicitada_cd) : null,
+    escalaSolicitadaTipo: row.escala_solicitada_tipo || null,
+    escalaSolicitadaDataInicio: row.escala_solicitada_dt_inicio || null,
+    escalaSolicitadaDataFim: row.escala_solicitada_dt_fim || null,
   }
 }
 
@@ -98,7 +109,7 @@ export async function POST(request) {
   }
 
   const body = await request.json()
-  const { escalaId, tecnicoDestinoUid, dia } = body
+  const { escalaId, tecnicoDestinoUid, dia, escalaSolicitadaId } = body
 
   if (!escalaId || !tecnicoDestinoUid) {
     return NextResponse.json({ error: 'Escala e técnico de destino são obrigatórios' }, { status: 400 })
@@ -158,6 +169,25 @@ export async function POST(request) {
       return NextResponse.json({ error: 'A troca só pode ser feita dentro da mesma equipe' }, { status: 400 })
     }
 
+    // Troca mútua (opcional): o solicitante também está pedindo uma escala
+    // específica do destino — precisa ser realmente do destino.
+    let cdEscalaSolicitada = null
+    if (escalaSolicitadaId) {
+      const { rows: escalaSolicitadaRows } = await query(
+        `SELECT es.cd_escala, t.cd_usuario
+         FROM escalas es
+         JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
+         JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
+         WHERE es.cd_escala = $1`,
+        [escalaSolicitadaId]
+      )
+      const pertenceAoDestino = escalaSolicitadaRows.some(r => String(r.cd_usuario) === String(destino.cd_usuario))
+      if (!pertenceAoDestino) {
+        return NextResponse.json({ error: 'A escala pedida em troca precisa ser do técnico de destino' }, { status: 400 })
+      }
+      cdEscalaSolicitada = escalaSolicitadaId
+    }
+
     // Evita solicitação duplicada para o mesmo período
     const { rows: pendentesRows } = await query(
       `SELECT cd_troca_escala FROM trocas_escala
@@ -169,10 +199,10 @@ export async function POST(request) {
     }
 
     const { rows } = await query(
-      `INSERT INTO trocas_escala (cd_escala, cd_tecnico_solicitante, cd_tecnico_destino, dt_dia, tp_status)
-       VALUES ($1, $2, $3, $4, 'pendente')
+      `INSERT INTO trocas_escala (cd_escala, cd_tecnico_solicitante, cd_tecnico_destino, dt_dia, cd_escala_solicitada, tp_status)
+       VALUES ($1, $2, $3, $4, $5, 'pendente')
        RETURNING cd_troca_escala`,
-      [escalaId, solicitanteRow.cd_tecnico, destino.cd_tecnico, dia || null]
+      [escalaId, solicitanteRow.cd_tecnico, destino.cd_tecnico, dia || null, cdEscalaSolicitada]
     )
 
     return NextResponse.json({ id: String(rows[0].cd_troca_escala) }, { status: 201 })

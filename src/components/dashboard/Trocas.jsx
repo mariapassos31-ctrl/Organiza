@@ -68,6 +68,9 @@ export default function Trocas() {
     return `${new Date(troca.escalaDataInicio + 'T00:00:00').toLocaleDateString('pt-BR')} a ${new Date(troca.escalaDataFim + 'T00:00:00').toLocaleDateString('pt-BR')}`
   }
 
+  const formatPeriodoSolicitada = (troca) =>
+    `${TIPOS_ESCALA[troca.escalaSolicitadaTipo] || troca.escalaSolicitadaTipo} · ${new Date(troca.escalaSolicitadaDataInicio + 'T00:00:00').toLocaleDateString('pt-BR')} a ${new Date(troca.escalaSolicitadaDataFim + 'T00:00:00').toLocaleDateString('pt-BR')}`
+
   const souTecnico = userData?.role !== 'admin' && userData?.role !== 'gestor'
 
   const recebidas = souTecnico
@@ -108,8 +111,14 @@ export default function Trocas() {
               {recebidas.map(troca => (
                 <div key={troca.id} className="troca-card">
                   <div className="troca-info">
-                    <p><strong>{troca.solicitanteNome}</strong> quer trocar {troca.dia ? 'o dia' : 'a escala inteira'} com você</p>
+                    <p>
+                      <strong>{troca.solicitanteNome}</strong>{' '}
+                      {troca.escalaSolicitadaId
+                        ? <>quer trocar a escala dele(a) pela <strong>sua</strong> escala de {formatPeriodoSolicitada(troca)}</>
+                        : <>quer trocar {troca.dia ? 'o dia' : 'a escala inteira'} com você</>}
+                    </p>
                     <p className="troca-detalhe">
+                      {troca.escalaSolicitadaId && 'Oferece em troca: '}
                       {TIPOS_ESCALA[troca.escalaTipo] || troca.escalaTipo} · {formatPeriodo(troca)} · {troca.equipe?.toUpperCase()}
                     </p>
                   </div>
@@ -146,8 +155,14 @@ export default function Trocas() {
               {recebidasHistorico.map(troca => (
                 <div key={troca.id} className="troca-card">
                   <div className="troca-info">
-                    <p><strong>{troca.solicitanteNome}</strong> pediu para trocar {troca.dia ? 'o dia' : 'a escala inteira'} com você</p>
+                    <p>
+                      <strong>{troca.solicitanteNome}</strong>{' '}
+                      {troca.escalaSolicitadaId
+                        ? <>pediu para trocar a escala dele(a) pela <strong>sua</strong> escala de {formatPeriodoSolicitada(troca)}</>
+                        : <>pediu para trocar {troca.dia ? 'o dia' : 'a escala inteira'} com você</>}
+                    </p>
                     <p className="troca-detalhe">
+                      {troca.escalaSolicitadaId && 'Ofereceu em troca: '}
                       {TIPOS_ESCALA[troca.escalaTipo] || troca.escalaTipo} · {formatPeriodo(troca)} · {troca.equipe?.toUpperCase()}
                     </p>
                   </div>
@@ -169,10 +184,17 @@ export default function Trocas() {
               {minhas.map(troca => (
                 <div key={troca.id} className="troca-card">
                   <div className="troca-info">
-                    <p>Troca com <strong>{troca.destinoNome}</strong> · {troca.dia ? 'o dia' : 'a escala inteira'}</p>
+                    <p>
+                      {troca.escalaSolicitadaId ? 'Proposta de troca' : 'Troca'} com <strong>{troca.destinoNome}</strong>
+                      {!troca.escalaSolicitadaId && <> · {troca.dia ? 'o dia' : 'a escala inteira'}</>}
+                    </p>
                     <p className="troca-detalhe">
+                      {troca.escalaSolicitadaId && 'Você oferece: '}
                       {TIPOS_ESCALA[troca.escalaTipo] || troca.escalaTipo} · {formatPeriodo(troca)} · {troca.equipe?.toUpperCase()}
                     </p>
+                    {troca.escalaSolicitadaId && (
+                      <p className="troca-detalhe">Você pede: {formatPeriodoSolicitada(troca)}</p>
+                    )}
                   </div>
                   <div className="troca-actions">
                     <span className={`status-badge troca-status-${troca.status}`}>{STATUS_LABEL[troca.status] || troca.status}</span>
@@ -203,10 +225,18 @@ export default function Trocas() {
               {visaoGeral.map(troca => (
                 <div key={troca.id} className="troca-card">
                   <div className="troca-info">
-                    <p><strong>{troca.solicitanteNome}</strong> → <strong>{troca.destinoNome}</strong> · {troca.dia ? 'um dia' : 'escala inteira'}</p>
+                    <p>
+                      <strong>{troca.solicitanteNome}</strong> → <strong>{troca.destinoNome}</strong>
+                      {!troca.escalaSolicitadaId && <> · {troca.dia ? 'um dia' : 'escala inteira'}</>}
+                      {troca.escalaSolicitadaId && ' · troca mútua'}
+                    </p>
                     <p className="troca-detalhe">
+                      {troca.escalaSolicitadaId && `${troca.solicitanteNome} oferece: `}
                       {TIPOS_ESCALA[troca.escalaTipo] || troca.escalaTipo} · {formatPeriodo(troca)} · {troca.equipe?.toUpperCase()}
                     </p>
+                    {troca.escalaSolicitadaId && (
+                      <p className="troca-detalhe">{troca.solicitanteNome} pede: {formatPeriodoSolicitada(troca)}</p>
+                    )}
                   </div>
                   <span className={`status-badge troca-status-${troca.status}`}>{STATUS_LABEL[troca.status] || troca.status}</span>
                 </div>

@@ -33,7 +33,7 @@ export async function GET(request) {
   let sql = `
     SELECT u.cd_usuario AS uid, t.nm_tecnico, t.ds_email, t.nr_telefone,
            t.ds_especialidade, t.sn_disponivel, e.tp_equipe, u.ds_matricula,
-           t.hr_entrada, t.nr_baia,
+           t.hr_entrada, t.nr_baia, t.sn_baia_fixa, t.sn_elegivel_home_office, t.nr_dia_curso,
            to_char(t.dt_ferias_inicio, 'YYYY-MM-DD') AS dt_ferias_inicio,
            to_char(t.dt_ferias_fim, 'YYYY-MM-DD') AS dt_ferias_fim
     FROM tecnicos t
@@ -62,6 +62,9 @@ export async function GET(request) {
     equipe: row.tp_equipe || null,
     horarioEntrada: row.hr_entrada ? String(row.hr_entrada).slice(0, 5) : '',
     baia: row.nr_baia != null ? String(row.nr_baia) : '',
+    baiaFixa: Boolean(row.sn_baia_fixa),
+    elegivelHomeOffice: row.sn_elegivel_home_office !== false,
+    diaCurso: row.nr_dia_curso ?? null,
     feriasInicio: row.dt_ferias_inicio || '',
     feriasFim: row.dt_ferias_fim || '',
   })))

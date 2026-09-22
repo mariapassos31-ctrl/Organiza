@@ -23,8 +23,11 @@ const PASSOS = [
 // então cada abertura é um mount novo — todo o estado abaixo já nasce
 // resetado para a equipe/usuário atual, sem precisar de um efeito de reset.
 export default function GeradorEscalaModal({ userData, usuarios, onClose, onAtualizarEscalas }) {
-  const carregarTecnicosAtivosEquipe = (equipe) => {
-    return usuarios.filter(u => u.equipe === equipe && u.role !== 'admin' && u.role !== 'gestor' && u.ativo)
+  // Sábado nunca escala Analista nem Aprendiz — os demais tipos usam a
+  // lista normal (elegibilidade fina de home office fica a cargo do backend).
+  const carregarTecnicosAtivosEquipe = (equipe, tipo = autoForm.tipo) => {
+    const base = usuarios.filter(u => u.equipe === equipe && u.role !== 'admin' && u.role !== 'gestor' && u.baia !== '0' && u.ativo)
+    return tipo === 'sabado' ? base.filter(u => u.role !== 'analista' && !u.ehAprendiz) : base
   }
 
   const equipeInicial = userData?.role === 'gestor' ? userData.equipe : 'suporte'
@@ -44,8 +47,13 @@ export default function GeradorEscalaModal({ userData, usuarios, onClose, onAtua
   )
   const [autoDiasTrabalho, setAutoDiasTrabalho] = useState([1, 2, 3, 4, 5])
   const [autoPercentualHome, setAutoPercentualHome] = useState(50)
-  const [autoModoHome, setAutoModoHome] = useState('percentual')
+  // Suporte tem a regra de "sempre exatamente N pessoas" — já começa no modo
+  // certo pra equipe, em vez de deixar porcentagem como padrão universal.
+  const [autoModoHome, setAutoModoHome] = useState(equipeInicial === 'suporte' ? 'quantidade' : 'percentual')
   const [autoQuantidadeHome, setAutoQuantidadeHome] = useState(2)
+  // Suporte troca a dupla de home office a cada 3 dias úteis (fica lá o
+  // bloco inteiro); outras equipes, por padrão, escolhem de novo todo dia.
+  const [autoDuracaoBlocoHome, setAutoDuracaoBlocoHome] = useState(equipeInicial === 'suporte' ? 3 : 1)
   const [autoPreviewBlocos, setAutoPreviewBlocos] = useState([])
   const [autoPreviewAvisos, setAutoPreviewAvisos] = useState([])
   const [autoPreviewErro, setAutoPreviewErro] = useState('')
@@ -61,10 +69,16 @@ export default function GeradorEscalaModal({ userData, usuarios, onClose, onAtua
       tipo: prev.tipo === 'sabado' && novaEquipe !== 'suporte' ? 'hibrido' : prev.tipo,
     }))
     setAutoTecnicosSelecionados(carregarTecnicosAtivosEquipe(novaEquipe).map(t => t.uid))
+    setAutoModoHome(novaEquipe === 'suporte' ? 'quantidade' : 'percentual')
+    setAutoDuracaoBlocoHome(novaEquipe === 'suporte' ? 3 : 1)
   }
 
   const mudarTipoAuto = (novoTipo) => {
     setAutoForm(prev => ({ ...prev, tipo: novoTipo, diasPorTecnico: novoTipo === 'sabado' ? 1 : 7 }))
+    // Sábado tem elegibilidade mais restrita — tira da seleção quem deixou
+    // de valer (ex: Analista/Aprendiz), pra não mandar escondido pro backend.
+    const validos = new Set(carregarTecnicosAtivosEquipe(autoForm.equipe, novoTipo).map(t => t.uid))
+    setAutoTecnicosSelecionados(prev => prev.filter(uid => validos.has(uid)))
   }
 
   const toggleTecnicoAuto = (uid) => {
@@ -107,7 +121,7 @@ export default function GeradorEscalaModal({ userData, usuarios, onClose, onAtua
         tecnicoUids: autoTecnicosSelecionados,
         diasTrabalho: autoDiasTrabalho,
         ...(autoModoHome === 'quantidade'
-          ? { quantidadeHomeOffice: Number(autoQuantidadeHome) }
+          ? { quantidadeHomeOffice: Number(autoQuantidadeHome), duracaoBlocoDiasHomeOffice: Number(autoDuracaoBlocoHome) }
           : { percentualHomeOffice: Number(autoPercentualHome) }),
       }
     }
@@ -161,7 +175,7 @@ export default function GeradorEscalaModal({ userData, usuarios, onClose, onAtua
     }, 500)
     return () => clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoForm, autoTecnicosSelecionados, autoDiasTrabalho, autoPercentualHome, autoModoHome, autoQuantidadeHome])
+  }, [autoForm, autoTecnicosSelecionados, autoDiasTrabalho, autoPercentualHome, autoModoHome, autoQuantidadeHome, autoDuracaoBlocoHome])
 
   const nomeTecnicoAuto = (uid) => carregarTecnicosAtivosEquipe(autoForm.equipe).find(t => t.uid === uid)?.nome || '?'
 
@@ -409,7 +423,24 @@ export default function GeradorEscalaModal({ userData, usuarios, onClose, onAtua
                           />
                         </div>
                         <small className="auto-campo-ajuda">
-                          Todo dia de trabalho, exatamente {autoQuantidadeHome} pessoa(s) ficam em home office. O sistema nunca escala quem entra às 07:00, nunca repete especialidade no mesmo dia e evita colocar a mesma dupla de baia junta.
+                          Todo dia de trabalho, exatamente {autoQuantidadeHome} pessoa(s) ficam em home office. O sistema nunca escala especialidade Aprendiz/Supervisor, nunca repete especialidade nem coloca 2 pessoas que entram às 07:00 juntas no mesmo dia, e evita colocar a mesma dupla de baia junta.
+                        </small>
+
+                        <label className="auto-secao-titulo" style={{ marginTop: 14 }}>A cada quantos dias trocar a dupla</label>
+                        <div className="auto-chip-row">
+                          <input
+                            type="number"
+                            min="1"
+                            value={autoDuracaoBlocoHome}
+                            onChange={(e) => setAutoDuracaoBlocoHome(e.target.value)}
+                            className="auto-dias-input"
+                            title="Dias seguidos que a mesma dupla fica em home office"
+                          />
+                        </div>
+                        <small className="auto-campo-ajuda">
+                          {Number(autoDuracaoBlocoHome) === 1
+                            ? 'A dupla é escolhida de novo todo dia (pode repetir ou trocar).'
+                            : `A mesma dupla fica em home office por ${autoDuracaoBlocoHome} dias úteis seguidos antes de passar a vez pra próxima.`}
                         </small>
                       </>
                     )}
