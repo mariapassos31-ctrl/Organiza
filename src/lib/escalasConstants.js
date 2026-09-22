@@ -16,10 +16,21 @@ export const TIPO_HIBRIDO = { id: 'hibrido', label: '🏢🏠 Presencial + Home 
 // opção ao criar/editar uma escala de verdade.
 export const TIPO_CURSO = { id: 'curso', label: '🎓 Curso', cor: '#9b59b6' }
 
-// Aprendiz com dia de curso configurado (diaCurso: 0=domingo..6=sábado) e
-// a data caindo nesse dia da semana → está no curso, não presencial.
+// Especialidades tratadas como a mesma categoria "jovem/estagiário" pras
+// regras de rodízio (nunca home office, nunca sábado, preferência pelas
+// mesas 7/8, dia de curso).
+export const ESPECIALIDADES_JOVEM_APRENDIZ = ['Aprendiz', 'Estagiário']
+
+export function ehJovemAprendiz(especialidade) {
+  return ESPECIALIDADES_JOVEM_APRENDIZ.includes(especialidade)
+}
+
+// Aprendiz/Estagiário com dia de curso configurado (diaCurso: 0=domingo..
+// 6=sábado) e a data caindo nesse dia da semana → está no curso, não
+// presencial. Usa o sinalizador "ehAprendiz" (visível pra todo mundo),
+// não o texto da especialidade (esse é escondido de quem não é admin/gestor).
 export function estaEmDiaCurso(usuario, data) {
-  if (!usuario || usuario.especialidade !== 'Aprendiz') return false
+  if (!usuario || !usuario.ehAprendiz) return false
   if (usuario.diaCurso === null || usuario.diaCurso === undefined || usuario.diaCurso === '') return false
   return data.getDay() === Number(usuario.diaCurso)
 }

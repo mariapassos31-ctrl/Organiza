@@ -1563,6 +1563,11 @@
   max-width: 280px;
 }
 
+.troca-select-escala {
+  max-width: 100% !important;
+  width: 100%;
+}
+
 .troca-explicacao {
   margin: 0;
   font-size: 13px;

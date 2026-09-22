@@ -2,9 +2,9 @@
 // dias": a cada `duracaoBlocoDias` dias úteis, um número fixo K de pessoas
 // vai pra home office (e fica lá o bloco inteiro, sem trocar no meio),
 // respeitando:
-//   1) quem é especialidade "Aprendiz" ou está na baia 0 (Supervisor) nunca
-//      entra no grupo de H.O., nem quem está marcado manualmente como não
-//      elegível (elegivelHomeOffice === false)
+//   1) quem é especialidade "Aprendiz"/"Estagiário" ou está na baia 0
+//      (Supervisor) nunca entra no grupo de H.O., nem quem está marcado
+//      manualmente como não elegível (elegivelHomeOffice === false)
 //   2) o grupo nunca tem 2 pessoas da mesma especialidade
 //   3) o grupo nunca tem 2 pessoas que entram às 07:00 juntas (quem entra
 //      às 7h pode ir pra H.O. normalmente, só não pode duas ao mesmo tempo)
@@ -18,6 +18,7 @@
 
 import { addDays, estaDeFerias } from './escalasRodizio'
 import { ehFeriado } from './feriados'
+import { ehJovemAprendiz } from './escalasConstants'
 
 function normalizarHora(hora) {
   if (!hora) return null
@@ -25,7 +26,7 @@ function normalizarHora(hora) {
 }
 
 function nuncaVaiParaHomeOffice(p) {
-  return p.especialidade === 'Aprendiz' || p.baiaId === 0 || p.elegivelHomeOffice === false
+  return ehJovemAprendiz(p.especialidade) || p.baiaId === 0 || p.elegivelHomeOffice === false
 }
 
 // Tenta montar um grupo de `quantidade` pessoas, na ordem de prioridade dada,

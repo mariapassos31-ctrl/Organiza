@@ -126,6 +126,26 @@ describe('construirBlocosHomeOfficePar', () => {
     expect(blocosDoAprendizPresencial.length).toBeGreaterThan(0)
   })
 
+  it('nunca escala especialidade Estagiário para home office (mesma categoria de Aprendiz)', () => {
+    const participantes = [
+      participante(0, { especialidade: 'Estagiário' }),
+      participante(1),
+      participante(2),
+      participante(3),
+    ]
+    const dataFim = addDays('2026-01-05', 13)
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim,
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 2,
+    })
+
+    const blocosDoEstagiarioEmHO = resultado.blocos.filter(b => b.tecnicoUid === 'uid-0' && b.tipo === 'homeoffice')
+    expect(blocosDoEstagiarioEmHO).toEqual([])
+  })
+
   it('nunca escala quem está na baia 0 (Supervisor) para home office', () => {
     const participantes = [
       participante(0, { baiaId: 0 }),

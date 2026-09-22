@@ -3,6 +3,11 @@
 import { EQUIPES } from '../../../lib/equipesConfig'
 import { tiposDisponiveisParaEquipe } from '../../../lib/escalasConstants'
 
+function formatarDataBR(dataISO) {
+  if (!dataISO) return ''
+  return new Date(dataISO + 'T00:00:00').toLocaleDateString('pt-BR')
+}
+
 export default function EscalaEditModal({
   open,
   formData,
@@ -35,6 +40,8 @@ export default function EscalaEditModal({
   onEnviarPropostaTroca,
 }) {
   if (!open) return null
+
+  const escalaOferecidaSelecionada = minhasEscalasParaOferecer?.find(e => e.id === escalaOferecidaId)
 
   return (
     <div className="modal-overlay" onClick={onCancel}>
@@ -198,11 +205,19 @@ export default function EscalaEditModal({
               </p>
               <div className="form-group">
                 <label>Qual das suas escalas você oferece?</label>
-                <select value={escalaOferecidaId} onChange={(e) => setEscalaOferecidaId(e.target.value)}>
+                <select
+                  className="troca-select-escala"
+                  value={escalaOferecidaId}
+                  onChange={(e) => {
+                    setEscalaOferecidaId(e.target.value)
+                    setTipoTroca('completa')
+                    setDiaTroca('')
+                  }}
+                >
                   <option value="">Selecione uma escala sua...</option>
                   {minhasEscalasParaOferecer.map(e => (
                     <option key={e.id} value={e.id}>
-                      {nomeTipoEscala(e.tipo)} · {e.dataInicio} a {e.dataFim}
+                      {nomeTipoEscala(e.tipo)} · {formatarDataBR(e.dataInicio)} a {formatarDataBR(e.dataFim)}
                     </option>
                   ))}
                 </select>
@@ -210,6 +225,46 @@ export default function EscalaEditModal({
                   <small className="auto-campo-alerta">Você não tem nenhuma escala pra oferecer em troca.</small>
                 )}
               </div>
+
+              {escalaOferecidaSelecionada && (
+                <>
+                  <div className="form-group">
+                    <label>O que quer oferecer dessa escala?</label>
+                    <div className="troca-tipo-opcoes">
+                      <label>
+                        <input
+                          type="radio"
+                          name="tipoTrocaOferta"
+                          checked={tipoTroca === 'completa'}
+                          onChange={() => setTipoTroca('completa')}
+                        />
+                        Escala inteira
+                      </label>
+                      <label>
+                        <input
+                          type="radio"
+                          name="tipoTrocaOferta"
+                          checked={tipoTroca === 'dia'}
+                          onChange={() => setTipoTroca('dia')}
+                        />
+                        Só um dia
+                      </label>
+                    </div>
+                  </div>
+                  {tipoTroca === 'dia' && (
+                    <div className="form-group">
+                      <label>Qual dia?</label>
+                      <input
+                        type="date"
+                        value={diaTroca}
+                        min={escalaOferecidaSelecionada.dataInicio}
+                        max={escalaOferecidaSelecionada.dataFim}
+                        onChange={(e) => setDiaTroca(e.target.value)}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
 

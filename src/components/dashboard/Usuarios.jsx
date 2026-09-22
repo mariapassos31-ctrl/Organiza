@@ -11,7 +11,7 @@ import {
   corEquipe,
   labelPerfil,
 } from '../../lib/equipesConfig'
-import { DIAS_SEMANA } from '../../lib/escalasConstants'
+import { DIAS_SEMANA, ehJovemAprendiz } from '../../lib/escalasConstants'
 import '../../styles/Usuarios.css'
 
 const CUSTOM = '__custom__'
@@ -125,7 +125,16 @@ export default function Usuarios() {
     return PERFIS.filter(p => p.id === 'gestor' || permitidos.includes(p.id))
   }
 
-  const especialidadesDisponiveis = (equipe) => especialidadesPorEquipe(equipe)
+  // Lista base (padrão) + qualquer especialidade que já esteja em uso por
+  // alguém da equipe (ex: digitada via "Outro" antes) — assim, uma vez
+  // criada, ela já aparece pronta pro próximo cadastro, sem precisar
+  // mexer em código.
+  const especialidadesDisponiveis = (equipe) => {
+    const padrao = especialidadesPorEquipe(equipe)
+    const emUso = usuarios.filter(u => u.equipe === equipe && u.especialidade).map(u => u.especialidade)
+    const extras = [...new Set(emUso)].filter(esp => !padrao.includes(esp))
+    return [...padrao, ...extras]
+  }
 
   // Valida o período de férias antes mesmo de tentar salvar, pra dar
   // feedback imediato em vez de só descobrir o erro depois do envio.
@@ -550,7 +559,7 @@ export default function Usuarios() {
                   />
                 )}
               </div>
-              {formCriar.especialidade === 'Aprendiz' && (
+              {ehJovemAprendiz(formCriar.especialidade) && (
                 <div className="form-group">
                   <label>Dia do curso</label>
                   <select
@@ -797,7 +806,7 @@ export default function Usuarios() {
                   />
                 )}
               </div>
-              {formEditar.especialidade === 'Aprendiz' && (
+              {ehJovemAprendiz(formEditar.especialidade) && (
                 <div className="form-group">
                   <label>Dia do curso</label>
                   <select

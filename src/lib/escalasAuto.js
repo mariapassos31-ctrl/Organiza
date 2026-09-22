@@ -2,6 +2,7 @@ import 'server-only'
 import { query, equipeIdFromSlug, getPool } from './db'
 import { addDays, getSabados, indiceContinuacao, construirBlocosRodizio, construirBlocosHibrido } from './escalasRodizio'
 import { construirBlocosHomeOfficePar } from './escalasHomeOfficePar'
+import { ehJovemAprendiz } from './escalasConstants'
 
 const TIPOS_VALIDOS = ['presencial', 'homeoffice', 'sabado', 'sobreaviso']
 
@@ -152,12 +153,12 @@ export async function montarPlanoAuto({ role, userEquipe, body }) {
 
   const ehSabado = tipo === 'sabado'
 
-  // Analista e Aprendiz nunca entram na escala de sábado.
+  // Analista e Aprendiz/Estagiário nunca entram na escala de sábado.
   const participantes = ehSabado
-    ? participantesSelecionados.filter(p => p.role !== 'analista' && p.especialidade !== 'Aprendiz')
+    ? participantesSelecionados.filter(p => p.role !== 'analista' && !ehJovemAprendiz(p.especialidade))
     : participantesSelecionados
   if (ehSabado && participantes.length === 0) {
-    return { error: 'Nenhum dos técnicos selecionados pode entrar na escala de sábado (Analista e Aprendiz não participam)', status: 400 }
+    return { error: 'Nenhum dos técnicos selecionados pode entrar na escala de sábado (Analista e Aprendiz/Estagiário não participam)', status: 400 }
   }
 
   const sabados = ehSabado ? getSabados(dataInicio, dataFim) : []
@@ -264,11 +265,11 @@ export async function montarPlanoHibrido({ role, userEquipe, body }) {
   let blocos, avisos
   if (usandoQuantidadeFixa) {
     const elegiveis = participantes.filter(p =>
-      p.especialidade !== 'Aprendiz' && p.baiaId !== 0 && p.elegivelHomeOffice !== false
+      !ehJovemAprendiz(p.especialidade) && p.baiaId !== 0 && p.elegivelHomeOffice !== false
     )
     if (elegiveis.length < quantidade) {
       return {
-        error: `Só há ${elegiveis.length} técnico(s) elegível(is) para home office (excluindo Aprendiz, Supervisor e quem está marcado como não elegível), mas a quantidade pedida é ${quantidade}`,
+        error: `Só há ${elegiveis.length} técnico(s) elegível(is) para home office (excluindo Aprendiz/Estagiário, Supervisor e quem está marcado como não elegível), mas a quantidade pedida é ${quantidade}`,
         status: 400,
       }
     }

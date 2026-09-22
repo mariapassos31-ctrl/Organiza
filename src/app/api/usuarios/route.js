@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import { query, equipeIdFromSlug } from '../../../lib/db'
 import { auth } from '../../../auth'
 import { perfisColaboradorPorEquipe } from '../../../lib/equipesConfig'
+import { ehJovemAprendiz } from '../../../lib/escalasConstants'
 
 function validarPerfilEquipe(role, equipe) {
   if (role === 'admin' || role === 'gestor') return null
@@ -40,7 +41,7 @@ function toApiShape(row, viewer) {
     // olhar, não só admin/gestor. "Supervisor" é quem está na baia especial
     // 0 (não depende de especialidade — é só colocar a pessoa na baia).
     ehSupervisor: row.nr_baia === 0,
-    ehAprendiz: row.ds_especialidade === 'Aprendiz',
+    ehAprendiz: ehJovemAprendiz(row.ds_especialidade),
     diaCurso: row.nr_dia_curso ?? null,
     feriasInicio: podeVerDetalhes ? (row.dt_ferias_inicio || '') : '',
     feriasFim: podeVerDetalhes ? (row.dt_ferias_fim || '') : '',
