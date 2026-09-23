@@ -180,7 +180,7 @@ function formatarDataISO(data) {
   return `${ano}-${mes}-${dia}`
 }
 
-export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia, podeEditarEscala, onEditarEscala, getNomeTecnico, usuarios, baiasPerfil = {} }) {
+export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia, podeEditarEscala, onEditarEscala, getNomeTecnico, usuarios, baiasPerfil = {}, laboratorioConfig }) {
   if (!diaDetalhado) return null
 
   const escalasSuporte = diaDetalhado.escalas.filter(e => e.equipe === 'suporte')
@@ -206,6 +206,22 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
   const nomesEmCurso = mostrarMapa
     ? tecnicosSuporte.filter(u => estaEmDiaCurso(u, diaDetalhado.data)).map(u => u.nome)
     : []
+
+  // Quem está no Laboratório hoje: o responsável fixo, a menos que ele
+  // esteja de home office ou de férias — nesses dias quem cobre é o
+  // backup. Não depende de baia nenhuma, é derivado direto da escala dele.
+  const nomeDoUid = (uid) => tecnicosSuporte.find(u => u.uid === uid)?.nome || null
+  const estaDeFeriasHoje = (uid) => {
+    const u = tecnicosSuporte.find(x => x.uid === uid)
+    return Boolean(u?.feriasInicio && u?.feriasFim && u.feriasInicio <= dataISO && dataISO <= u.feriasFim)
+  }
+  const responsavelUid = laboratorioConfig?.responsavelUid
+  const responsavelAusenteHoje = mostrarMapa && responsavelUid &&
+    (new Set(escalasSuporte.filter(e => e.tipo === 'homeoffice').map(e => e.tecnicos[0])).has(responsavelUid) ||
+      estaDeFeriasHoje(responsavelUid))
+  const nomeNoLaboratorio = mostrarMapa && responsavelUid
+    ? (responsavelAusenteHoje ? nomeDoUid(laboratorioConfig.backupUid) : nomeDoUid(responsavelUid))
+    : null
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -237,6 +253,12 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
                 <div className="mapa-baias-legenda-coluna">
                   <strong>🎓 Em curso</strong>
                   <span>{nomesEmCurso.join(', ')}</span>
+                </div>
+              )}
+              {nomeNoLaboratorio && (
+                <div className="mapa-baias-legenda-coluna">
+                  <strong>🧪 No Laboratório</strong>
+                  <span>{nomeNoLaboratorio}</span>
                 </div>
               )}
             </div>

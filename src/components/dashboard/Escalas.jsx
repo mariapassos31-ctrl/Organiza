@@ -32,6 +32,7 @@ export default function Escalas() {
   const [enviandoTroca, setEnviandoTroca] = useState(false)
   const [escalaOferecidaId, setEscalaOferecidaId] = useState('')
   const [baiasPerfil, setBaiasPerfil] = useState({})
+  const [laboratorioConfig, setLaboratorioConfig] = useState({ responsavelUid: null, backupUid: null })
 
   const [formData, setFormData] = useState({
     tipo: 'presencial',
@@ -50,6 +51,7 @@ export default function Escalas() {
     carregarUsuarios()
     carregarEscalas()
     carregarBaiasPerfil()
+    carregarLaboratorioConfig()
   }, [userData])
 
   const carregarBaiasPerfil = async () => {
@@ -60,6 +62,17 @@ export default function Escalas() {
       setBaiasPerfil(dados.baias || {})
     } catch (error) {
       console.error('Erro ao carregar configuração de baias:', error)
+    }
+  }
+
+  const carregarLaboratorioConfig = async () => {
+    try {
+      const response = await fetch('/api/laboratorio-config?equipe=suporte')
+      if (!response.ok) return
+      const dados = await response.json()
+      setLaboratorioConfig({ responsavelUid: dados.responsavelUid || null, backupUid: dados.backupUid || null })
+    } catch (error) {
+      console.error('Erro ao carregar configuração do Laboratório:', error)
     }
   }
 
@@ -443,6 +456,7 @@ export default function Escalas() {
         getNomeTecnico={getNomeTecnico}
         usuarios={usuarios}
         baiasPerfil={baiasPerfil}
+        laboratorioConfig={laboratorioConfig}
       />
 
       <div className="escalas-lista-detalhada-toggle">

@@ -11,9 +11,11 @@ import {
   corEquipe,
   labelPerfil,
   ehPerfilGestao,
+  nuncaEhEscalado,
 } from '../../lib/equipesConfig'
 import { DIAS_SEMANA, ehJovemAprendiz } from '../../lib/escalasConstants'
 import ConfigBaiasMapa from './escalas/ConfigBaiasMapa'
+import ConfigLaboratorio from './escalas/ConfigLaboratorio'
 import '../../styles/Usuarios.css'
 
 const CUSTOM = '__custom__'
@@ -28,6 +30,8 @@ export default function Usuarios() {
   const [filtroEquipe, setFiltroEquipe] = useState('todos')
   const [showConfigBaias, setShowConfigBaias] = useState(false)
   const [baiasPerfil, setBaiasPerfil] = useState({})
+  const [showConfigLaboratorio, setShowConfigLaboratorio] = useState(false)
+  const [laboratorioConfig, setLaboratorioConfig] = useState({ responsavelUid: null, backupUid: null })
 
   const formVazioCriar = {
     nome: '',
@@ -85,6 +89,7 @@ export default function Usuarios() {
     }
     carregarUsuarios()
     carregarBaiasConfig()
+    carregarLaboratorioConfig()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userData])
 
@@ -156,6 +161,40 @@ export default function Usuarios() {
         else delete proximo[baia]
         return proximo
       })
+      return true
+    } catch (err) {
+      alert(err.message)
+      return false
+    }
+  }
+
+  // Laboratório só existe pro Suporte por enquanto — mesma regra de acesso das Baias.
+  const podeConfigurarLaboratorio = podeConfigurarBaias
+
+  const carregarLaboratorioConfig = async () => {
+    try {
+      const response = await fetch('/api/laboratorio-config?equipe=suporte')
+      if (!response.ok) return
+      const dados = await response.json()
+      setLaboratorioConfig({ responsavelUid: dados.responsavelUid || null, backupUid: dados.backupUid || null })
+    } catch (error) {
+      console.error('Erro ao carregar configuração do Laboratório:', error)
+    }
+  }
+
+  // Retorna true/false (sucesso) pro ConfigLaboratorio saber se pode fechar.
+  const definirLaboratorio = async (valores) => {
+    try {
+      const response = await fetch('/api/laboratorio-config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ equipe: 'suporte', ...valores }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao salvar')
+      }
+      setLaboratorioConfig(valores)
       return true
     } catch (err) {
       alert(err.message)
@@ -461,6 +500,11 @@ export default function Usuarios() {
               {showConfigBaias ? '✕ Fechar' : '⚙️ Configurar Baias'}
             </button>
           )}
+          {podeConfigurarLaboratorio && (
+            <button className="btn-secondary" onClick={() => setShowConfigLaboratorio(!showConfigLaboratorio)}>
+              {showConfigLaboratorio ? '✕ Fechar' : '🧪 Configurar Laboratório'}
+            </button>
+          )}
           {podeEditar && (
             <button className="btn-primary" onClick={() => setShowFormCriar(!showFormCriar)}>
               {showFormCriar ? '✕ Cancelar' : '+ Novo Usuário'}
@@ -475,6 +519,16 @@ export default function Usuarios() {
           baiasPerfil={baiasPerfil}
           onAlterarBaia={definirPerfilBaia}
           onClose={() => setShowConfigBaias(false)}
+        />
+      )}
+
+      {/* CONFIGURAÇÃO DO LABORATÓRIO */}
+      {podeConfigurarLaboratorio && showConfigLaboratorio && (
+        <ConfigLaboratorio
+          tecnicos={usuarios.filter(u => u.equipe === 'suporte' && !nuncaEhEscalado(u.role)).sort((a, b) => a.nome.localeCompare(b.nome))}
+          valorInicial={laboratorioConfig}
+          onSalvar={definirLaboratorio}
+          onClose={() => setShowConfigLaboratorio(false)}
         />
       )}
 
