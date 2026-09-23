@@ -119,7 +119,7 @@ async function buscarOcupacaoHomeOfficeExistente(equipeId, dataInicio, dataFim) 
 // a última geração desse mesmo tipo+equipe parou.
 export async function montarPlanoAuto({ role, userEquipe, body }) {
   const { tipo, dataInicio, dataFim, diasPorTecnico, tecnicoUids } = body
-  const equipe = role === 'gestor' ? userEquipe : body.equipe
+  const equipe = role !== 'admin' ? userEquipe : body.equipe
 
   if (!equipe || !tipo || !dataInicio || !dataFim) {
     return { error: 'Equipe, tipo e período são obrigatórios', status: 400 }
@@ -153,12 +153,12 @@ export async function montarPlanoAuto({ role, userEquipe, body }) {
 
   const ehSabado = tipo === 'sabado'
 
-  // Analista e Aprendiz/Estagiário nunca entram na escala de sábado.
+  // Analista, Estag/Aprendiz/Trainee e Líder nunca entram na escala de sábado.
   const participantes = ehSabado
-    ? participantesSelecionados.filter(p => p.role !== 'analista' && !ehJovemAprendiz(p.especialidade))
+    ? participantesSelecionados.filter(p => p.role !== 'analista' && p.role !== 'lider' && !ehJovemAprendiz(p.role))
     : participantesSelecionados
   if (ehSabado && participantes.length === 0) {
-    return { error: 'Nenhum dos técnicos selecionados pode entrar na escala de sábado (Analista e Aprendiz/Estagiário não participam)', status: 400 }
+    return { error: 'Nenhum dos técnicos selecionados pode entrar na escala de sábado (Analista, Analista G. e Estag/Aprendiz/Trainee não participam)', status: 400 }
   }
 
   const sabados = ehSabado ? getSabados(dataInicio, dataFim) : []
@@ -218,7 +218,7 @@ export async function montarPlanoAuto({ role, userEquipe, body }) {
 // de dias de cada tipo.
 export async function montarPlanoHibrido({ role, userEquipe, body }) {
   const { dataInicio, dataFim, tecnicoUids, diasTrabalho, percentualHomeOffice, quantidadeHomeOffice } = body
-  const equipe = role === 'gestor' ? userEquipe : body.equipe
+  const equipe = role !== 'admin' ? userEquipe : body.equipe
 
   if (!equipe || !dataInicio || !dataFim) {
     return { error: 'Equipe e período são obrigatórios', status: 400 }
@@ -265,11 +265,11 @@ export async function montarPlanoHibrido({ role, userEquipe, body }) {
   let blocos, avisos
   if (usandoQuantidadeFixa) {
     const elegiveis = participantes.filter(p =>
-      !ehJovemAprendiz(p.especialidade) && p.baiaId !== 0 && p.elegivelHomeOffice !== false
+      !ehJovemAprendiz(p.role) && p.baiaId !== 0 && p.elegivelHomeOffice !== false
     )
     if (elegiveis.length < quantidade) {
       return {
-        error: `Só há ${elegiveis.length} técnico(s) elegível(is) para home office (excluindo Aprendiz/Estagiário, Supervisor e quem está marcado como não elegível), mas a quantidade pedida é ${quantidade}`,
+        error: `Só há ${elegiveis.length} técnico(s) elegível(is) para home office (excluindo Estag/Aprendiz, Trainee, Supervisor e quem está marcado como não elegível), mas a quantidade pedida é ${quantidade}`,
         status: 400,
       }
     }
@@ -322,7 +322,7 @@ export async function montarPlanoHibrido({ role, userEquipe, body }) {
 // pelo usuário) e valida cada um antes de criar, sem recalcular nada.
 export async function montarPlanoManual({ role, userEquipe, body }) {
   const { blocosManuais } = body
-  const equipe = role === 'gestor' ? userEquipe : body.equipe
+  const equipe = role !== 'admin' ? userEquipe : body.equipe
 
   if (!equipe) {
     return { error: 'Equipe é obrigatória', status: 400 }
@@ -450,8 +450,9 @@ export async function recalcularHomeOfficeEquipe(equipeId) {
   const diasTrabalho = [1, 2, 3, 4, 5]
 
   // Gestor/admin não entram no rodízio (mesmo tendo um registro em
-  // tecnicos, ex: baia fixa própria) — só técnicos/analistas são escalados.
-  // Quem está na baia 0 (Supervisor) também nunca é escalado.
+  // tecnicos, ex: baia fixa própria) — Líder entra normalmente (não está
+  // nessa lista de exclusão de propósito). Quem está na baia 0
+  // (Supervisor) também nunca é escalado.
   const { rows: tecnicosEquipe } = await query(
     `SELECT u.cd_usuario FROM tecnicos t JOIN usuarios u ON u.cd_usuario = t.cd_usuario
      WHERE t.sn_ativo = true AND t.cd_equipe = $1 AND u.tp_role NOT IN ('gestor', 'admin')

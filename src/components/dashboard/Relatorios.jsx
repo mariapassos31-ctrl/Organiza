@@ -31,7 +31,7 @@ export default function Relatorios() {
   const [filtroDataInicio, setFiltroDataInicio] = useState('')
   const [filtroDataFim, setFiltroDataFim] = useState('')
 
-  const souGestor = userData?.role === 'gestor'
+  const souGestor = userData?.role === 'gestor' || userData?.role === 'lider'
 
   useEffect(() => {
     Promise.all([
@@ -136,7 +136,7 @@ export default function Relatorios() {
         <div>
           <h2>📈 Relatórios</h2>
           <p className="subtitle">
-            {userData?.role === 'gestor'
+            {souGestor
               ? `Visão geral da equipe ${userData?.equipe?.toUpperCase()}`
               : 'Visão geral de todas as equipes'}
           </p>

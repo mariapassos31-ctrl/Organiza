@@ -16,14 +16,18 @@ function Secao({ titulo, children }) {
 function ManualGestor() {
   return (
     <>
+      <Secao titulo="⭐ Sobre o perfil Analista G.">
+        <p>Analista G. tem a mesma tela e as mesmas permissões de gestão que Gestor (edita usuários e escalas da própria equipe, vê a visão geral de Trocas). A diferença: Analista G. <strong>participa do rodízio normal</strong> de presencial/home office — só fica de fora da escala de Sábado. Por isso, na própria escala, ele não edita diretamente: precisa <strong>solicitar troca</strong> com um colega, igual técnico.</p>
+      </Secao>
+
       <Secao titulo="👥 Usuários">
         <p>Cadastre e edite técnicos e analistas: nome, e-mail, perfil, equipe, especialidade, horário de entrada, baia e férias.</p>
         <ul>
-          <li><strong>Baia:</strong> escolha um número de 1 a 9, ou a baia especial <strong>⭐ Supervisor</strong> — quem for colocado nela fica automaticamente fixo, aparece na caixa "SUPERVISOR" do mapa da sala e nunca entra em nenhuma escala (nem presencial, nem home office).</li>
-          <li><strong>Baia fixa:</strong> a pessoa sempre volta pro mesmo lugar quando está presencial; quando ela está de folga/home office, a baia fica livre pra outra pessoa usar naquele dia.</li>
+          <li><strong>Preferência de baia:</strong> escolha um número de 1 a 9, ou a baia especial <strong>⭐ Supervisor</strong> — quem for colocado nela fica automaticamente fixo, aparece na caixa "SUPERVISOR" do mapa da sala e nunca entra em nenhuma escala (nem presencial, nem home office). Marcando essa preferência como fixa, a pessoa sempre volta pro mesmo lugar quando está presencial; quando ela está de folga/home office, a baia fica livre pra outra pessoa usar naquele dia.</li>
           <li><strong>Home office suspenso:</strong> desliga a pessoa do rodízio de home office. Ao ligar esse interruptor, o sistema recalcula sozinho os dias futuros da equipe pra continuar com a quantidade certa de pessoas em home office por dia.</li>
-          <li><strong>Dia do curso:</strong> só aparece pra especialidade Aprendiz — marque o dia da semana do curso e, nesse dia, a pessoa aparece como "🎓 Curso" em vez de presencial (e não ocupa baia).</li>
-          <li>Só quem é <strong>gestor</strong> pode editar o próprio cadastro. Técnico/analista nunca edita o próprio perfil — só pode pedir troca de escala.</li>
+          <li><strong>Dia do curso:</strong> só aparece pra perfil Estag/Aprendiz ou Trainee — marque o dia da semana do curso e, nesse dia, a pessoa aparece como "🎓 Curso" em vez de presencial (e não ocupa baia).</li>
+          <li><strong>⚙️ Configurar Baias</strong> (topo da tela, equipe Suporte): reserve uma baia pra um perfil específico — só quem tem aquele perfil senta nela, mesmo com baia livre sobrando. Baias reservadas a Estag/Aprendiz ou Trainee comportam até 2 pessoas por dia (manhã e tarde) e aparecem no mapa com um rótulo genérico, revelado só ao clicar.</li>
+          <li>Só quem é <strong>gestor ou líder</strong> pode editar o próprio cadastro. Técnico/analista nunca edita o próprio perfil — só pode pedir troca de escala.</li>
         </ul>
       </Secao>
 
@@ -41,14 +45,14 @@ function ManualGestor() {
         <p>Clique em <strong>"Nova Escala"</strong> e siga os 4 passos do assistente:</p>
         <ol>
           <li><strong>Tipo:</strong> Presencial + Home Office (híbrido), Escala Sábado (só Suporte) ou Sobreaviso.</li>
-          <li><strong>Técnicos:</strong> escolha quem participa. Analista e Aprendiz nunca aparecem pra Sábado; quem está na baia do Supervisor nunca aparece em nenhum tipo.</li>
+          <li><strong>Técnicos:</strong> escolha quem participa. Analista, Analista G., Estag/Aprendiz e Trainee nunca aparecem pra Sábado; quem está na baia do Supervisor nunca aparece em nenhum tipo.</li>
           <li><strong>Regras:</strong> dias de trabalho da semana e, no modo híbrido, como decidir quem fica em home office — por porcentagem ou por <strong>quantidade fixa</strong> (ex: sempre 2 pessoas por dia, trocando a dupla a cada X dias). No modo quantidade fixa, o sistema nunca repete especialidade nem coloca 2 pessoas que entram às 7h juntas, e evita repetir a mesma dupla de baia.</li>
           <li><strong>Confirmar:</strong> revise a prévia (dá pra trocar o técnico de um dia específico ou remover uma escala antes de confirmar) e gere.</li>
         </ol>
       </Secao>
 
       <Secao titulo="🔄 Trocas">
-        <p>Acompanhe as solicitações de troca entre técnicos/analistas da equipe (ou de todas as equipes, se for admin). Gestor não aprova troca manualmente — a troca acontece direto entre quem pede e quem recebe.</p>
+        <p>Acompanhe as solicitações de troca entre técnicos/analistas da equipe (ou de todas as equipes, se for admin). Gestor/Analista G. não aprovam troca manualmente — a troca acontece direto entre quem pede e quem recebe. Analista G., por participar da escala, também vê e usa a parte de "Solicitar troca" pra si mesmo, igual um técnico.</p>
       </Secao>
 
       <Secao titulo="📈 Relatórios">
@@ -98,7 +102,7 @@ function ManualTecnico() {
 
 export default function ManualUso() {
   const { userData } = useDashboardUser()
-  const ehGestorOuAdmin = userData?.role === 'admin' || userData?.role === 'gestor'
+  const ehGestorOuAdmin = userData?.role === 'admin' || userData?.role === 'gestor' || userData?.role === 'lider'
   const [aba, setAba] = useState(ehGestorOuAdmin ? 'gestor' : 'tecnico')
 
   return (
@@ -113,7 +117,7 @@ export default function ManualUso() {
           className={`manual-aba ${aba === 'gestor' ? 'ativa' : ''}`}
           onClick={() => setAba('gestor')}
         >
-          👔 Gestor
+          👔 Gestor / Analista G.
         </button>
         <button
           className={`manual-aba ${aba === 'tecnico' ? 'ativa' : ''}`}

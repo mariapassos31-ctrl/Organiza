@@ -16,19 +16,19 @@ export const TIPO_HIBRIDO = { id: 'hibrido', label: '🏢🏠 Presencial + Home 
 // opção ao criar/editar uma escala de verdade.
 export const TIPO_CURSO = { id: 'curso', label: '🎓 Curso', cor: '#9b59b6' }
 
-// Especialidades tratadas como a mesma categoria "jovem/estagiário" pras
-// regras de rodízio (nunca home office, nunca sábado, preferência pelas
-// mesas 7/8, dia de curso).
-export const ESPECIALIDADES_JOVEM_APRENDIZ = ['Aprendiz', 'Estagiário']
+// Perfis tratados como a mesma categoria "jovem/estagiário" pras regras de
+// rodízio (nunca home office, nunca sábado, baia exclusiva configurável,
+// dia de curso).
+export const PERFIS_JOVEM_APRENDIZ = ['estagiario_aprendiz', 'trainee']
 
-export function ehJovemAprendiz(especialidade) {
-  return ESPECIALIDADES_JOVEM_APRENDIZ.includes(especialidade)
+export function ehJovemAprendiz(role) {
+  return PERFIS_JOVEM_APRENDIZ.includes(role)
 }
 
-// Aprendiz/Estagiário com dia de curso configurado (diaCurso: 0=domingo..
+// Estag/Aprendiz ou Trainee com dia de curso configurado (diaCurso: 0=domingo..
 // 6=sábado) e a data caindo nesse dia da semana → está no curso, não
-// presencial. Usa o sinalizador "ehAprendiz" (visível pra todo mundo),
-// não o texto da especialidade (esse é escondido de quem não é admin/gestor).
+// presencial. Usa o sinalizador "ehAprendiz" (já calculado a partir do
+// perfil no backend) em vez de checar o role aqui de novo.
 export function estaEmDiaCurso(usuario, data) {
   if (!usuario || !usuario.ehAprendiz) return false
   if (usuario.diaCurso === null || usuario.diaCurso === undefined || usuario.diaCurso === '') return false

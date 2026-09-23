@@ -1123,6 +1123,115 @@
   max-width: 22%;
 }
 
+.mapa-baias-etiqueta-aprendiz {
+  pointer-events: auto;
+  cursor: pointer;
+  max-width: 20%;
+  font-size: 10px;
+  white-space: normal;
+  transition: color 0.15s;
+  overflow: visible;
+}
+
+.mapa-baias-etiqueta-aprendiz:hover {
+  color: var(--brand-primary, #1a73e8);
+}
+
+.mapa-baias-popover {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 6px;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0d2b52;
+  white-space: nowrap;
+  z-index: 20;
+}
+
+.config-baias-explicacao {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: #4b5563;
+  line-height: 1.5;
+}
+
+.config-baia-mapa-item {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  max-width: 24%;
+  z-index: 5;
+}
+
+.config-baia-mapa-item select {
+  font-size: 11px;
+  padding: 3px 4px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-family: inherit;
+  max-width: 100%;
+  background: white;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+
+.config-baia-mapa-item select:disabled {
+  opacity: 0.6;
+  border-color: var(--brand-primary, #1a73e8);
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+
+.confirm-caixa {
+  background: white;
+  border-radius: 10px;
+  padding: 24px;
+  max-width: 380px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.confirm-caixa h4 {
+  margin: 0 0 10px;
+  color: #333;
+  font-size: 17px;
+}
+
+.confirm-caixa p {
+  margin: 0 0 20px;
+  color: #555;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.confirm-acoes {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 /* BADGES */
 .escala-badge-beautiful {
   font-size: 11px;

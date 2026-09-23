@@ -64,7 +64,7 @@ export async function GET() {
   const { role, id: userId, equipe: sessionEquipe } = session.user
 
   let userEquipe = sessionEquipe
-  if (role === 'gestor' && !userEquipe) {
+  if ((role === 'gestor' || role === 'lider') && !userEquipe) {
     const { rows } = await query(
       `SELECT e.tp_equipe FROM usuarios u
        JOIN equipes e ON e.cd_equipe = u.cd_equipe
@@ -79,7 +79,10 @@ export async function GET() {
 
   if (role === 'admin') {
     // sem filtro: vê tudo
-  } else if (role === 'gestor') {
+  } else if (role === 'gestor' || role === 'lider') {
+    // gestor/líder veem a equipe inteira — líder também usa essa mesma
+    // lista pra achar as próprias trocas (ele participa da escala, então
+    // pode aparecer como solicitante/destino nela também).
     sql += ' WHERE eq.tp_equipe = $1'
     params = [userEquipe]
   } else {

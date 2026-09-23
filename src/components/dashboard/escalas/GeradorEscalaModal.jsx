@@ -23,14 +23,14 @@ const PASSOS = [
 // então cada abertura é um mount novo — todo o estado abaixo já nasce
 // resetado para a equipe/usuário atual, sem precisar de um efeito de reset.
 export default function GeradorEscalaModal({ userData, usuarios, onClose, onAtualizarEscalas }) {
-  // Sábado nunca escala Analista nem Aprendiz — os demais tipos usam a
-  // lista normal (elegibilidade fina de home office fica a cargo do backend).
+  // Sábado nunca escala Analista, Líder nem Aprendiz — os demais tipos usam
+  // a lista normal (elegibilidade fina de home office fica a cargo do backend).
   const carregarTecnicosAtivosEquipe = (equipe, tipo = autoForm.tipo) => {
     const base = usuarios.filter(u => u.equipe === equipe && u.role !== 'admin' && u.role !== 'gestor' && u.baia !== '0' && u.ativo)
-    return tipo === 'sabado' ? base.filter(u => u.role !== 'analista' && !u.ehAprendiz) : base
+    return tipo === 'sabado' ? base.filter(u => u.role !== 'analista' && u.role !== 'lider' && !u.ehAprendiz) : base
   }
 
-  const equipeInicial = userData?.role === 'gestor' ? userData.equipe : 'suporte'
+  const equipeInicial = (userData?.role === 'gestor' || userData?.role === 'lider') ? userData.equipe : 'suporte'
 
   const [passoAtual, setPassoAtual] = useState(1)
   const [autoForm, setAutoForm] = useState({
@@ -423,7 +423,7 @@ export default function GeradorEscalaModal({ userData, usuarios, onClose, onAtua
                           />
                         </div>
                         <small className="auto-campo-ajuda">
-                          Todo dia de trabalho, exatamente {autoQuantidadeHome} pessoa(s) ficam em home office. O sistema nunca escala especialidade Aprendiz/Supervisor, nunca repete especialidade nem coloca 2 pessoas que entram às 07:00 juntas no mesmo dia, e evita colocar a mesma dupla de baia junta.
+                          Todo dia de trabalho, exatamente {autoQuantidadeHome} pessoa(s) ficam em home office. O sistema nunca escala Estag/Aprendiz, Trainee ou Supervisor, nunca repete especialidade nem coloca 2 pessoas que entram às 07:00 juntas no mesmo dia, e evita colocar a mesma dupla de baia junta.
                         </small>
 
                         <label className="auto-secao-titulo" style={{ marginTop: 14 }}>A cada quantos dias trocar a dupla</label>

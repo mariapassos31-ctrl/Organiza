@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 
 import { useDashboardUser } from '../../context/DashboardUserContext'
-import { EQUIPES } from '../../lib/equipesConfig'
+import { EQUIPES, nuncaEhEscalado } from '../../lib/equipesConfig'
 import { TIPOS_ESCALA, ordenarSobreavisoPrimeiro } from '../../lib/escalasConstants'
 import CalendarioEscalas from './escalas/CalendarioEscalas'
 import DiaDetalhadoModal from './escalas/DiaDetalhadoModal'
@@ -31,6 +31,7 @@ export default function Escalas() {
   const [destinoTroca, setDestinoTroca] = useState('')
   const [enviandoTroca, setEnviandoTroca] = useState(false)
   const [escalaOferecidaId, setEscalaOferecidaId] = useState('')
+  const [baiasPerfil, setBaiasPerfil] = useState({})
 
   const [formData, setFormData] = useState({
     tipo: 'presencial',
@@ -43,12 +44,24 @@ export default function Escalas() {
   })
 
   useEffect(() => {
-    if (userData?.role === 'gestor') {
+    if (userData?.role === 'gestor' || userData?.role === 'lider') {
       setFormData(prev => ({ ...prev, equipe: userData.equipe }))
     }
     carregarUsuarios()
     carregarEscalas()
+    carregarBaiasPerfil()
   }, [userData])
+
+  const carregarBaiasPerfil = async () => {
+    try {
+      const response = await fetch('/api/baias-config?equipe=suporte')
+      if (!response.ok) return
+      const dados = await response.json()
+      setBaiasPerfil(dados.baias || {})
+    } catch (error) {
+      console.error('Erro ao carregar configuração de baias:', error)
+    }
+  }
 
   const carregarUsuarios = async () => {
     try {
@@ -76,11 +89,16 @@ export default function Escalas() {
     return usuarios.filter(u => u.equipe === equipe && u.role !== 'admin' && u.role !== 'gestor' && u.baia !== '0')
   }
 
-  const podeEditar = userData?.role === 'admin' || userData?.role === 'gestor'
+  const podeEditar = userData?.role === 'admin' || userData?.role === 'gestor' || userData?.role === 'lider'
 
   const podeEditarEscala = (escala) => {
     if (userData?.role === 'admin') return true
-    if (userData?.role === 'gestor' && escala.equipe === userData.equipe) return true
+    if ((userData?.role === 'gestor' || userData?.role === 'lider') && escala.equipe === userData.equipe) {
+      // Líder participa do rodízio normal — não edita a própria escala
+      // diretamente, só pode solicitar troca com um colega (igual técnico).
+      if (userData.role === 'lider' && (escala.tecnicos || []).includes(userData.uid)) return false
+      return true
+    }
     return false
   }
 
@@ -117,6 +135,10 @@ export default function Escalas() {
       alert('Selecione qual das suas escalas você quer oferecer em troca')
       return
     }
+    if (tipoTroca === 'dia' && !diaTroca) {
+      alert('Selecione o dia que deseja oferecer')
+      return
+    }
     setEnviandoTroca(true)
     try {
       const response = await fetch('/api/trocas', {
@@ -126,6 +148,7 @@ export default function Escalas() {
           escalaId: escalaOferecidaId,
           tecnicoDestinoUid: donoDaEscalaAberta?.uid,
           escalaSolicitadaId: editingId,
+          dia: tipoTroca === 'dia' ? diaTroca : undefined,
         }),
       })
       if (!response.ok) {
@@ -181,7 +204,7 @@ export default function Escalas() {
 
   const tecnicosParaFiltro = usuarios
     .filter(u =>
-      (u.role === 'tecnico' || u.role === 'analista') &&
+      !nuncaEhEscalado(u.role) &&
       (filterEquipe === 'todas' || u.equipe === filterEquipe)
     )
     .sort((a, b) => a.nome.localeCompare(b.nome))
@@ -220,7 +243,7 @@ export default function Escalas() {
         dataInicio: formData.dataInicio,
         dataFim: formData.dataFim,
         tecnicos: formData.tecnicos,
-        equipe: userData?.role === 'gestor' ? userData.equipe : formData.equipe,
+        equipe: (userData?.role === 'gestor' || userData?.role === 'lider') ? userData.equipe : formData.equipe,
         descricao: formData.descricao,
         status: formData.status,
       }
@@ -419,6 +442,7 @@ export default function Escalas() {
         onEditarEscala={handleEdit}
         getNomeTecnico={getNomeTecnico}
         usuarios={usuarios}
+        baiasPerfil={baiasPerfil}
       />
 
       <div className="escalas-lista-detalhada-toggle">

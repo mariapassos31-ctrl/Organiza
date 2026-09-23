@@ -7,6 +7,7 @@ function participante(i, overrides = {}) {
     cd_usuario: `uid-${i}`,
     cd_tecnico: `t-${i}`,
     nm_tecnico: `Tecnico ${i}`,
+    role: 'tecnico',
     especialidade: null,
     horarioEntrada: null,
     baiaId: null,
@@ -103,9 +104,9 @@ describe('construirBlocosHomeOfficePar', () => {
     }
   })
 
-  it('nunca escala especialidade Aprendiz para home office', () => {
+  it('nunca escala perfil Estag/Aprendiz para home office', () => {
     const participantes = [
-      participante(0, { especialidade: 'Aprendiz' }),
+      participante(0, { role: 'estagiario_aprendiz' }),
       participante(1),
       participante(2),
       participante(3),
@@ -126,9 +127,9 @@ describe('construirBlocosHomeOfficePar', () => {
     expect(blocosDoAprendizPresencial.length).toBeGreaterThan(0)
   })
 
-  it('nunca escala especialidade Estagiário para home office (mesma categoria de Aprendiz)', () => {
+  it('nunca escala perfil Trainee para home office (mesma categoria de Estag/Aprendiz)', () => {
     const participantes = [
-      participante(0, { especialidade: 'Estagiário' }),
+      participante(0, { role: 'trainee' }),
       participante(1),
       participante(2),
       participante(3),

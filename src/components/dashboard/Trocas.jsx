@@ -71,18 +71,22 @@ export default function Trocas() {
   const formatPeriodoSolicitada = (troca) =>
     `${TIPOS_ESCALA[troca.escalaSolicitadaTipo] || troca.escalaSolicitadaTipo} · ${new Date(troca.escalaSolicitadaDataInicio + 'T00:00:00').toLocaleDateString('pt-BR')} a ${new Date(troca.escalaSolicitadaDataFim + 'T00:00:00').toLocaleDateString('pt-BR')}`
 
-  const souTecnico = userData?.role !== 'admin' && userData?.role !== 'gestor'
+  // Líder vê as duas coisas: acompanha a equipe inteira (como gestor) E
+  // participa da escala, então também pede/recebe troca pra si mesmo
+  // (como técnico) — por isso as duas flags não são mutuamente exclusivas.
+  const podeVerPropriaTroca = userData?.role !== 'admin' && userData?.role !== 'gestor'
+  const podeVerVisaoGeral = userData?.role === 'admin' || userData?.role === 'gestor' || userData?.role === 'lider'
 
-  const recebidas = souTecnico
+  const recebidas = podeVerPropriaTroca
     ? trocas.filter(t => t.destinoUid === user?.uid && t.status === 'pendente')
     : []
-  const recebidasHistorico = souTecnico
+  const recebidasHistorico = podeVerPropriaTroca
     ? trocas.filter(t => t.destinoUid === user?.uid && t.status !== 'pendente')
     : []
-  const minhas = souTecnico
+  const minhas = podeVerPropriaTroca
     ? trocas.filter(t => t.solicitanteUid === user?.uid)
     : []
-  const visaoGeral = !souTecnico ? trocas : []
+  const visaoGeral = podeVerVisaoGeral ? trocas : []
 
   if (loading) {
     return <div className="trocas-container"><p>Carregando...</p></div>
@@ -93,7 +97,9 @@ export default function Trocas() {
       <div className="trocas-header">
         <h2>🔄 Trocas de Escala</h2>
         <p className="subtitle">
-          {souTecnico
+          {userData?.role === 'lider'
+            ? `Solicite trocas com colegas e acompanhe as trocas da equipe ${userData?.equipe?.toUpperCase()}`
+            : podeVerPropriaTroca
             ? 'Solicite trocas com colegas da sua equipe e responda aos pedidos que você recebeu'
             : userData?.role === 'gestor'
             ? `Acompanhamento das trocas da equipe ${userData?.equipe?.toUpperCase()}`
@@ -101,7 +107,7 @@ export default function Trocas() {
         </p>
       </div>
 
-      {souTecnico && (
+      {podeVerPropriaTroca && (
         <div className="trocas-secao">
           <h3>📥 Solicitações Recebidas</h3>
           {recebidas.length === 0 ? (
@@ -145,7 +151,7 @@ export default function Trocas() {
         </div>
       )}
 
-      {souTecnico && (
+      {podeVerPropriaTroca && (
         <div className="trocas-secao">
           <h3>🗂️ Histórico de Solicitações Recebidas</h3>
           {recebidasHistorico.length === 0 ? (
@@ -174,7 +180,7 @@ export default function Trocas() {
         </div>
       )}
 
-      {souTecnico && (
+      {podeVerPropriaTroca && (
         <div className="trocas-secao">
           <h3>📤 Minhas Solicitações</h3>
           {minhas.length === 0 ? (
@@ -215,9 +221,9 @@ export default function Trocas() {
         </div>
       )}
 
-      {!souTecnico && (
+      {podeVerVisaoGeral && (
         <div className="trocas-secao">
-          <h3>📋 {userData?.role === 'gestor' ? 'Trocas da Equipe' : 'Todas as Trocas'}</h3>
+          <h3>📋 {(userData?.role === 'gestor' || userData?.role === 'lider') ? 'Trocas da Equipe' : 'Todas as Trocas'}</h3>
           {visaoGeral.length === 0 ? (
             <p className="empty-state">Nenhuma troca registrada</p>
           ) : (

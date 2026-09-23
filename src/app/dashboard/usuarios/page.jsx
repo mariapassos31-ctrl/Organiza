@@ -8,7 +8,7 @@ export default function UsuariosPage() {
   const { userData } = useDashboardUser()
 
   return (
-    <ProtectedRoute requiredRoles={['admin', 'gestor']} userData={userData}>
+    <ProtectedRoute requiredRoles={['admin', 'gestor', 'lider']} userData={userData}>
       <Usuarios />
     </ProtectedRoute>
   )

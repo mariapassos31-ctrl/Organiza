@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getPool } from '../../../../lib/db'
 import { auth } from '../../../../auth'
 import { montarPlano, resolverEquipeGestor } from '../../../../lib/escalasAuto'
+import { ehPerfilGestao } from '../../../../lib/equipesConfig'
 
 export async function POST(request) {
   const session = await auth()
@@ -9,11 +10,11 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
   const { role } = session.user
-  if (role !== 'admin' && role !== 'gestor') {
+  if (!ehPerfilGestao(role)) {
     return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
   }
 
-  const userEquipe = role === 'gestor' ? await resolverEquipeGestor(session.user) : null
+  const userEquipe = role !== 'admin' ? await resolverEquipeGestor(session.user) : null
   const body = await request.json()
 
   try {

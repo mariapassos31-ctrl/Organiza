@@ -2,13 +2,13 @@ import { describe, it, expect } from 'vitest'
 import { ehJovemAprendiz, estaEmDiaCurso } from './escalasConstants'
 
 describe('ehJovemAprendiz', () => {
-  it('reconhece Aprendiz e Estagiário como a mesma categoria', () => {
-    expect(ehJovemAprendiz('Aprendiz')).toBe(true)
-    expect(ehJovemAprendiz('Estagiário')).toBe(true)
+  it('reconhece Estag/Aprendiz e Trainee como a mesma categoria', () => {
+    expect(ehJovemAprendiz('estagiario_aprendiz')).toBe(true)
+    expect(ehJovemAprendiz('trainee')).toBe(true)
   })
 
-  it('não reconhece outras especialidades nem valores vazios', () => {
-    expect(ehJovemAprendiz('Redes')).toBe(false)
+  it('não reconhece outros perfis nem valores vazios', () => {
+    expect(ehJovemAprendiz('tecnico')).toBe(false)
     expect(ehJovemAprendiz(null)).toBe(false)
     expect(ehJovemAprendiz(undefined)).toBe(false)
   })

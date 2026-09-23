@@ -325,9 +325,19 @@
   color: #6f42c1;
 }
 
-.role-badge.desenvolvedor {
-  background: #e6f9f0;
-  color: #1e8a5e;
+.role-badge.lider {
+  background: #fde8d8;
+  color: #b8560f;
+}
+
+.role-badge.estagiario_aprendiz {
+  background: #fff0cc;
+  color: #8a6d00;
+}
+
+.role-badge.trainee {
+  background: #e3f7e8;
+  color: #217a3e;
 }
 
 .acoes {

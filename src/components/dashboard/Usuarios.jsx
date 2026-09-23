@@ -10,8 +10,10 @@ import {
   labelEquipe,
   corEquipe,
   labelPerfil,
+  ehPerfilGestao,
 } from '../../lib/equipesConfig'
 import { DIAS_SEMANA, ehJovemAprendiz } from '../../lib/escalasConstants'
+import ConfigBaiasMapa from './escalas/ConfigBaiasMapa'
 import '../../styles/Usuarios.css'
 
 const CUSTOM = '__custom__'
@@ -24,6 +26,8 @@ export default function Usuarios() {
   const [showFormEditar, setShowFormEditar] = useState(false)
   const [usuarioEditando, setUsuarioEditando] = useState(null)
   const [filtroEquipe, setFiltroEquipe] = useState('todos')
+  const [showConfigBaias, setShowConfigBaias] = useState(false)
+  const [baiasPerfil, setBaiasPerfil] = useState({})
 
   const formVazioCriar = {
     nome: '',
@@ -80,6 +84,7 @@ export default function Usuarios() {
       }))
     }
     carregarUsuarios()
+    carregarBaiasConfig()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userData])
 
@@ -107,22 +112,76 @@ export default function Usuarios() {
 
   const podecriarUsuario = () => {
     if (!userData) return false
-    return userData.role === 'admin' || userData.role === 'gestor'
+    return ehPerfilGestao(userData.role)
+  }
+
+  // Baias só existem pro Suporte por enquanto — admin sempre pode
+  // configurar; gestor/líder só se forem dessa equipe.
+  const podeConfigurarBaias = podecriarUsuario() && (userData?.role === 'admin' || userData?.equipe === 'suporte')
+
+  const carregarBaiasConfig = async () => {
+    try {
+      const response = await fetch('/api/baias-config?equipe=suporte')
+      if (!response.ok) return
+      const dados = await response.json()
+      setBaiasPerfil(dados.baias || {})
+    } catch (error) {
+      console.error('Erro ao carregar configuração de baias:', error)
+    }
+  }
+
+  // "supervisor" é um valor especial (não é um perfil de verdade) — só uma
+  // baia por vez pode ter essa marcação, então marcar uma nova já limpa
+  // qualquer outra que estivesse marcada antes. Retorna true/false (sucesso)
+  // pro ConfigBaiasMapa saber se pode fechar depois de salvar tudo.
+  const definirPerfilBaia = async (baia, perfil) => {
+    try {
+      const response = await fetch('/api/baias-config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ equipe: 'suporte', baia, perfil: perfil || null }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao salvar')
+      }
+      setBaiasPerfil(prev => {
+        const proximo = { ...prev }
+        if (perfil === 'supervisor') {
+          for (const b of Object.keys(proximo)) {
+            if (b !== baia && proximo[b] === 'supervisor') delete proximo[b]
+          }
+        }
+        if (perfil) proximo[baia] = perfil
+        else delete proximo[baia]
+        return proximo
+      })
+      return true
+    } catch (err) {
+      alert(err.message)
+      return false
+    }
   }
 
   const equipesDisponiveis = () => {
     if (!userData) return EQUIPES
     if (userData.role === 'admin') return EQUIPES
-    if (userData.role === 'gestor') return EQUIPES.filter(e => e.id === userData.equipe)
+    if (userData.role === 'gestor' || userData.role === 'lider') return EQUIPES.filter(e => e.id === userData.equipe)
     return []
   }
 
-  // Perfis que fazem sentido pra equipe escolhida (fora do admin, que vê tudo + "Outro")
+  // Perfis que fazem sentido pra equipe escolhida — gestor/líder/admin
+  // sempre aparecem (são equipe-agnósticos), o resto depende da equipe.
+  // "Admin" só aparece pra quem já é admin, e só admin ganha a opção de
+  // digitar um perfil novo ("Outro").
   const perfisDisponiveis = (equipe) => {
-    if (souAdmin) return [...PERFIS, { id: CUSTOM, label: '✏️ Outro (digitar)' }]
-
     const permitidos = perfisColaboradorPorEquipe(equipe)
-    return PERFIS.filter(p => p.id === 'gestor' || permitidos.includes(p.id))
+    const base = PERFIS.filter(p => {
+      if (p.id === 'admin') return souAdmin
+      if (p.id === 'gestor' || p.id === 'lider') return true
+      return permitidos.includes(p.id)
+    })
+    return souAdmin ? [...base, { id: CUSTOM, label: '✏️ Outro (digitar)' }] : base
   }
 
   // Lista base (padrão) + qualquer especialidade que já esteja em uso por
@@ -375,12 +434,12 @@ export default function Usuarios() {
     if (userData?.role === 'admin') {
       return usuarios
     }
-    if (userData?.role === 'gestor') {
+    if (userData?.role === 'gestor' || userData?.role === 'lider') {
       return usuarios.filter(u => {
-        if (u.equipe === userData.equipe && u.role !== 'admin' && u.role !== 'gestor') {
+        if (u.equipe === userData.equipe && u.role !== 'admin' && u.role !== 'gestor' && u.role !== 'lider') {
           return true
         }
-        if (u.role === 'gestor' && u.equipe === userData.equipe && u.uid !== userData.uid) {
+        if ((u.role === 'gestor' || u.role === 'lider') && u.equipe === userData.equipe && u.uid !== userData.uid) {
           return true
         }
         return false
@@ -396,12 +455,28 @@ export default function Usuarios() {
           <h2>Gerenciar Usuários</h2>
           <p className="subtitle">Total de usuários: {usuarios.length}</p>
         </div>
-        {podeEditar && (
-          <button className="btn-primary" onClick={() => setShowFormCriar(!showFormCriar)}>
-            {showFormCriar ? '✕ Cancelar' : '+ Novo Usuário'}
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: '10px' }}>
+          {podeConfigurarBaias && (
+            <button className="btn-secondary" onClick={() => setShowConfigBaias(!showConfigBaias)}>
+              {showConfigBaias ? '✕ Fechar' : '⚙️ Configurar Baias'}
+            </button>
+          )}
+          {podeEditar && (
+            <button className="btn-primary" onClick={() => setShowFormCriar(!showFormCriar)}>
+              {showFormCriar ? '✕ Cancelar' : '+ Novo Usuário'}
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* CONFIGURAÇÃO DE BAIAS */}
+      {podeConfigurarBaias && showConfigBaias && (
+        <ConfigBaiasMapa
+          baiasPerfil={baiasPerfil}
+          onAlterarBaia={definirPerfilBaia}
+          onClose={() => setShowConfigBaias(false)}
+        />
+      )}
 
       {error && <p className="error-message">{error}</p>}
       {success && <p className="success-message">{success}</p>}
@@ -559,7 +634,7 @@ export default function Usuarios() {
                   />
                 )}
               </div>
-              {ehJovemAprendiz(formCriar.especialidade) && (
+              {ehJovemAprendiz(formCriar.role) && (
                 <div className="form-group">
                   <label>Dia do curso</label>
                   <select
@@ -588,7 +663,7 @@ export default function Usuarios() {
                 />
               </div>
               <div className="form-group">
-                <label>Baia</label>
+                <label>Preferência de baia</label>
                 <select
                   value={formCriar.baia}
                   onChange={(e) => setFormCriar({...formCriar, baia: e.target.value})}
@@ -614,7 +689,7 @@ export default function Usuarios() {
                         />
                         <span className="toggle-switch-slider"></span>
                       </span>
-                      <span>Baia fixa (sempre volta pra ela quando presencial)</span>
+                      <span>Baia fixa: essa baia é só dele. Sempre volta pra ela quando ela estiver livre e ele presencial</span>
                     </label>
                     <label className="campo-toggle">
                       <span className="toggle-switch">
@@ -806,7 +881,7 @@ export default function Usuarios() {
                   />
                 )}
               </div>
-              {ehJovemAprendiz(formEditar.especialidade) && (
+              {ehJovemAprendiz(formEditar.role) && (
                 <div className="form-group">
                   <label>Dia do curso</label>
                   <select
@@ -835,7 +910,7 @@ export default function Usuarios() {
                 />
               </div>
               <div className="form-group">
-                <label>Baia</label>
+                <label>Preferência de baia</label>
                 <select
                   value={formEditar.baia}
                   onChange={(e) => setFormEditar({...formEditar, baia: e.target.value})}
@@ -861,7 +936,7 @@ export default function Usuarios() {
                         />
                         <span className="toggle-switch-slider"></span>
                       </span>
-                      <span>Baia fixa (sempre volta pra ela quando presencial)</span>
+                      <span>Baia fixa: essa baia é só dele. Sempre volta pra ela quando ela estiver livre e ele presencial</span>
                     </label>
                     <label className="campo-toggle">
                       <span className="toggle-switch">
@@ -996,7 +1071,7 @@ export default function Usuarios() {
                         <div className="acoes">
                           {usuario.role !== 'admin' && (
                             <>
-                              {(usuario.uid !== userData.uid || userData.role === 'gestor') && (
+                              {(usuario.uid !== userData.uid || userData.role === 'gestor' || userData.role === 'lider') && (
                                 <button
                                   className="btn-editar"
                                   onClick={() => abrirEditar(usuario)}

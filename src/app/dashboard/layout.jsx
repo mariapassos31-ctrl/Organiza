@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { useAuthUser } from '../../hooks/useAuthUser'
 import { DashboardUserProvider } from '../../context/DashboardUserContext'
+import { ehPerfilGestao } from '../../lib/equipesConfig'
 import '../../styles/Escalas.css'
 import '../../styles/Dashboard.css'
 
@@ -84,8 +85,8 @@ export default function DashboardLayout({ children }) {
       { label: '📖 Manual de Uso', path: '/dashboard/manual' }
     ] : []),
 
-    // Gestor vê: Usuários, Escalas, Trocas, Relatórios
-    ...(userData.role === 'gestor' ? [
+    // Gestor e Líder veem o mesmo menu: Usuários, Escalas, Trocas, Relatórios
+    ...(userData.role === 'gestor' || userData.role === 'lider' ? [
       { label: '📊 Dashboard', path: '/dashboard/home' },
       { label: '👥 Usuários', path: '/dashboard/usuarios' },
       { label: '📅 Escalas', path: '/dashboard/escalas' },
@@ -96,7 +97,7 @@ export default function DashboardLayout({ children }) {
 
     // Qualquer colaborador (técnico, analista, desenvolvedor, ou perfil livre)
     // vê: Escalas, Trocas (Agenda ficou redundante — Escalas já cobre tudo)
-    ...(userData.role !== 'admin' && userData.role !== 'gestor' ? [
+    ...(!ehPerfilGestao(userData.role) ? [
       { label: '📅 Escalas', path: '/dashboard/escalas' },
       { label: '🔄 Trocas', path: '/dashboard/trocas' },
       { label: '📖 Manual de Uso', path: '/dashboard/manual' }

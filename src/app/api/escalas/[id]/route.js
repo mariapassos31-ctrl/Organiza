@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { query, getPool, equipeIdFromSlug, tecnicoIdsFromUids } from '../../../../lib/db'
 import { auth } from '../../../../auth'
+import { ehPerfilGestao } from '../../../../lib/equipesConfig'
 
 
 export async function PATCH(request, { params }) {
@@ -9,14 +10,14 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
   const { role, equipe: sessionEquipe } = session.user
-  if (role !== 'admin' && role !== 'gestor') {
+  if (!ehPerfilGestao(role)) {
     return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
   }
   const { id } = await params
 
   // Fallback: se a session não trouxer equipe, busca no banco
   let userEquipe = sessionEquipe
-  if (role === 'gestor' && !userEquipe) {
+  if (role !== 'admin' && !userEquipe) {
     const { rows } = await query(
       `SELECT e.tp_equipe FROM usuarios u
        JOIN equipes e ON e.cd_equipe = u.cd_equipe
@@ -29,19 +30,28 @@ export async function PATCH(request, { params }) {
   // Validações que só leem dados usam o helper simples — a transação só é
   // aberta depois, quando já se sabe que a escrita vai de fato acontecer.
   const { rows: escalaRows } = await query(
-    `SELECT eq.tp_equipe FROM escalas es
+    `SELECT eq.tp_equipe, u.cd_usuario AS tecnico_usuario_id
+     FROM escalas es
      JOIN equipes eq ON eq.cd_equipe = es.cd_equipe
+     LEFT JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
+     LEFT JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
+     LEFT JOIN usuarios u ON u.cd_usuario = t.cd_usuario
      WHERE es.cd_escala = $1`,
     [id]
   )
   if (escalaRows.length === 0) {
     return NextResponse.json({ error: 'Escala não encontrada' }, { status: 404 })
   }
-  if (role === 'gestor' && escalaRows[0].tp_equipe !== userEquipe) {
+  if (role !== 'admin' && escalaRows[0].tp_equipe !== userEquipe) {
     return NextResponse.json(
       { error: 'Você só pode editar escalas da sua equipe' },
       { status: 403 }
     )
+  }
+  // Líder participa do rodízio normal — não edita a própria escala
+  // diretamente, só pode solicitar troca com um colega (igual técnico).
+  if (role === 'lider' && escalaRows.some(r => String(r.tecnico_usuario_id) === String(session.user.id))) {
+    return NextResponse.json({ error: 'Você não pode editar a própria escala — solicite uma troca' }, { status: 403 })
   }
 
   const body = await request.json()
@@ -53,7 +63,7 @@ export async function PATCH(request, { params }) {
   if (dataFim < dataInicio) {
     return NextResponse.json({ error: 'A data final não pode ser antes da data inicial' }, { status: 400 })
   }
-  if (role === 'gestor' && equipe !== userEquipe) {
+  if (role !== 'admin' && equipe !== userEquipe) {
     return NextResponse.json(
       { error: 'Você não pode transferir escala para outra equipe' },
       { status: 403 }
@@ -110,7 +120,7 @@ if (!session?.user) {
   return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
 }
 const { role, equipe: sessionEquipe } = session.user
-if (role !== 'admin' && role !== 'gestor') {
+if (!ehPerfilGestao(role)) {
   return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
 }
 try {
@@ -118,7 +128,7 @@ try {
 
   // Fallback: se a session não trouxer equipe, busca no banco
   let userEquipe = sessionEquipe
-  if (role === 'gestor' && !userEquipe) {
+  if (role !== 'admin' && !userEquipe) {
     const { rows: userRows } = await query(
       `SELECT e.tp_equipe FROM usuarios u
        JOIN equipes e ON e.cd_equipe = u.cd_equipe
@@ -128,10 +138,14 @@ try {
     userEquipe = userRows[0]?.tp_equipe || null
   }
 
-  if (role === 'gestor') {
+  if (role !== 'admin') {
     const { rows } = await query(
-      `SELECT eq.tp_equipe FROM escalas es
+      `SELECT eq.tp_equipe, u.cd_usuario AS tecnico_usuario_id
+       FROM escalas es
        JOIN equipes eq ON eq.cd_equipe = es.cd_equipe
+       LEFT JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
+       LEFT JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
+       LEFT JOIN usuarios u ON u.cd_usuario = t.cd_usuario
        WHERE es.cd_escala = $1`,
       [id]
     )
@@ -143,6 +157,9 @@ try {
         { error: 'Você só pode excluir escalas da sua equipe' },
         { status: 403 }
       )
+    }
+    if (role === 'lider' && rows.some(r => String(r.tecnico_usuario_id) === String(session.user.id))) {
+      return NextResponse.json({ error: 'Você não pode excluir a própria escala' }, { status: 403 })
     }
   }
   await query('DELETE FROM escalas WHERE cd_escala = $1', [id])

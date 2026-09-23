@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { query, equipeIdFromSlug } from '../../../lib/db'
 import { auth } from '../../../auth'
-import { perfisColaboradorPorEquipe } from '../../../lib/equipesConfig'
+import { perfisColaboradorPorEquipe, ehPerfilGestao } from '../../../lib/equipesConfig'
 import { ehJovemAprendiz } from '../../../lib/escalasConstants'
 
 function validarPerfilEquipe(role, equipe) {
-  if (role === 'admin' || role === 'gestor') return null
+  if (ehPerfilGestao(role)) return null
   const permitidos = perfisColaboradorPorEquipe(equipe)
   if (!permitidos.includes(role)) {
     return `A equipe ${equipe} só aceita os perfis: ${permitidos.join(', ')}`
@@ -21,7 +21,7 @@ function validarPerfilEquipe(role, equipe) {
 // de todo mundo e desenhar o mapa da sala), mas não o resto.
 function toApiShape(row, viewer) {
   const podeVerDetalhes = viewer.role === 'admin' ||
-    (viewer.role === 'gestor' && row.tp_equipe && row.tp_equipe === viewer.equipe) ||
+    ((viewer.role === 'gestor' || viewer.role === 'lider') && row.tp_equipe && row.tp_equipe === viewer.equipe) ||
     String(row.cd_usuario) === String(viewer.id)
 
   return {
@@ -41,7 +41,7 @@ function toApiShape(row, viewer) {
     // olhar, não só admin/gestor. "Supervisor" é quem está na baia especial
     // 0 (não depende de especialidade — é só colocar a pessoa na baia).
     ehSupervisor: row.nr_baia === 0,
-    ehAprendiz: ehJovemAprendiz(row.ds_especialidade),
+    ehAprendiz: ehJovemAprendiz(row.tp_role),
     diaCurso: row.nr_dia_curso ?? null,
     feriasInicio: podeVerDetalhes ? (row.dt_ferias_inicio || '') : '',
     feriasFim: podeVerDetalhes ? (row.dt_ferias_fim || '') : '',
@@ -110,7 +110,7 @@ export async function GET() {
   }
 
   let viewerEquipe = session.user.equipe
-  if (session.user.role === 'gestor' && !viewerEquipe) {
+  if ((session.user.role === 'gestor' || session.user.role === 'lider') && !viewerEquipe) {
     const { rows } = await query(
       `SELECT e.tp_equipe FROM usuarios u
        JOIN equipes e ON e.cd_equipe = u.cd_equipe
@@ -131,7 +131,7 @@ export async function POST(request) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
   const { role: minhaRole, equipe: minhaEquipe } = session.user
-  if (minhaRole !== 'admin' && minhaRole !== 'gestor') {
+  if (!ehPerfilGestao(minhaRole)) {
     return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
   }
 
@@ -150,8 +150,8 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Apenas admin pode criar contas de administrador' }, { status: 403 })
     }
 
-    // Gestor só cria gente na própria equipe, e não escolhe uma equipe arbitrária
-    if (minhaRole === 'gestor') {
+    // Gestor/Líder só criam gente na própria equipe, e não escolhem uma equipe arbitrária
+    if (minhaRole === 'gestor' || minhaRole === 'lider') {
       equipe = minhaEquipe
     }
 

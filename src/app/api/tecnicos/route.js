@@ -1,22 +1,24 @@
 import { NextResponse } from 'next/server'
 import { query } from '../../../lib/db'
 import { auth } from '../../../auth'
+import { ehPerfilGestao } from '../../../lib/equipesConfig'
 
 // Traz dados sensíveis (matrícula, especialidade, horário, baia, férias) —
-// só usado hoje pela tela de Relatórios, que é admin/gestor. Um gestor só
-// pode ver a própria equipe, mesmo que peça outra via query string.
+// só usado hoje pela tela de Relatórios, que é admin/gestor/líder. Um
+// gestor/líder só pode ver a própria equipe, mesmo que peça outra via query string.
 export async function GET(request) {
   const session = await auth()
   if (!session?.user) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
   const { role, equipe: sessionEquipe } = session.user
-  if (role !== 'admin' && role !== 'gestor') {
+  if (!ehPerfilGestao(role)) {
     return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
   }
 
+  const restritoAEquipe = role === 'gestor' || role === 'lider'
   let userEquipe = sessionEquipe
-  if (role === 'gestor' && !userEquipe) {
+  if (restritoAEquipe && !userEquipe) {
     const { rows } = await query(
       `SELECT e.tp_equipe FROM usuarios u
        JOIN equipes e ON e.cd_equipe = u.cd_equipe
@@ -27,7 +29,7 @@ export async function GET(request) {
   }
 
   const { searchParams } = new URL(request.url)
-  const equipeSlug = role === 'gestor' ? userEquipe : searchParams.get('equipe')
+  const equipeSlug = restritoAEquipe ? userEquipe : searchParams.get('equipe')
 
   const params = []
   let sql = `

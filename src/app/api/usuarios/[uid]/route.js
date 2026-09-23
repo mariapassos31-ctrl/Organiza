@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
 import { query, equipeIdFromSlug } from '../../../../lib/db'
 import { auth } from '../../../../auth'
-import { perfisColaboradorPorEquipe } from '../../../../lib/equipesConfig'
+import { perfisColaboradorPorEquipe, ehPerfilGestao } from '../../../../lib/equipesConfig'
 import { recalcularHomeOfficeEquipe } from '../../../../lib/escalasAuto'
 
 function validarPerfilEquipe(role, equipe) {
-  if (role === 'admin' || role === 'gestor') return null
+  if (ehPerfilGestao(role)) return null
   const permitidos = perfisColaboradorPorEquipe(equipe)
   if (!permitidos.includes(role)) {
     return `A equipe ${equipe} só aceita os perfis: ${permitidos.join(', ')}`
@@ -61,7 +61,7 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
   const { role: minhaRole, equipe: minhaEquipe } = session.user
-  if (minhaRole !== 'admin' && minhaRole !== 'gestor') {
+  if (!ehPerfilGestao(minhaRole)) {
     return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
   }
 
@@ -90,7 +90,7 @@ export async function PATCH(request, { params }) {
       return NextResponse.json({ error: 'Você não pode mudar o seu próprio perfil' }, { status: 403 })
     }
 
-    if (minhaRole === 'gestor') {
+    if (minhaRole === 'gestor' || minhaRole === 'lider') {
       if (alvo.tp_role === 'admin') {
         return NextResponse.json({ error: 'Você não pode editar um administrador' }, { status: 403 })
       }
@@ -180,7 +180,7 @@ export async function DELETE(_request, { params }) {
     return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
   }
   const { role: minhaRole, equipe: minhaEquipe, id: meuId } = session.user
-  if (minhaRole !== 'admin' && minhaRole !== 'gestor') {
+  if (!ehPerfilGestao(minhaRole)) {
     return NextResponse.json({ error: 'Permissão negada' }, { status: 403 })
   }
 
@@ -192,7 +192,7 @@ export async function DELETE(_request, { params }) {
       return NextResponse.json({ error: 'Você não pode deletar sua própria conta' }, { status: 400 })
     }
 
-    if (minhaRole === 'gestor') {
+    if (minhaRole === 'gestor' || minhaRole === 'lider') {
       const { rows: alvoRows } = await query(
         `SELECT u.tp_role, e.tp_equipe FROM usuarios u
          LEFT JOIN equipes e ON e.cd_equipe = u.cd_equipe

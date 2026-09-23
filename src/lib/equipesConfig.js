@@ -25,10 +25,29 @@ export const EQUIPES = [
 export const PERFIS = [
   { id: 'tecnico', label: '👤 Técnico' },
   { id: 'analista', label: '📊 Analista' },
-  { id: 'desenvolvedor', label: '🧑‍💻 Desenvolvedor' },
+  { id: 'estagiario_aprendiz', label: '🎓 Estag/Aprendiz' },
+  { id: 'trainee', label: '🌱 Trainee' },
+  { id: 'lider', label: '⭐ Analista G.' },
   { id: 'gestor', label: '👨‍💼 Gestor' },
   { id: 'admin', label: '🔐 Admin' },
 ]
+
+// "lider" é exibido como "Analista G." pra tela (analista com visão de
+// gestão), mas o id interno continua "lider" — mesma visão/operação de
+// gestão que Gestor (edita usuários e escalas da própria equipe, vê a
+// visão geral de trocas), mas — diferente de Gestor — participa do
+// rodízio normal de presencial/home office (só fica de fora do sábado).
+// Por isso ele precisa de duas checagens separadas: "tem poder de gestão"
+// e "nunca é escalado".
+export function ehPerfilGestao(role) {
+  return role === 'admin' || role === 'gestor' || role === 'lider'
+}
+
+// Só Gestor (e Admin) nunca recebem escala de verdade — "lider" (Analista
+// G.) recebe.
+export function nuncaEhEscalado(role) {
+  return role === 'admin' || role === 'gestor'
+}
 
 // Perfis de colaborador (não-gestão) disponíveis por padrão em qualquer
 // equipe que não seja listada abaixo.
@@ -36,13 +55,14 @@ const PERFIS_COLABORADOR_PADRAO = ['tecnico', 'analista']
 
 // Só precisa entrar aqui uma equipe cujos perfis fogem do padrão.
 const PERFIS_COLABORADOR_POR_EQUIPE = {
-  sistemas: ['tecnico', 'analista', 'desenvolvedor'],
+  suporte: ['tecnico', 'analista', 'estagiario_aprendiz', 'trainee'],
+  sistemas: ['tecnico', 'analista'],
   projetos: ['analista'],
 }
 
 // Só precisa entrar aqui uma equipe que tem especialidade fixa.
 const ESPECIALIDADES_POR_EQUIPE = {
-  suporte: ['Manutenção', 'Redes', 'Sistemas N1', 'Sistemas N2', 'Aprendiz', 'Estagiário', 'Supervisor', 'Externo', 'Segurança da Informação'],
+  suporte: ['Manutenção', 'Redes', 'Sistemas N1', 'Sistemas N2', 'Supervisor', 'Externo', 'Segurança da Informação'],
   infraestrutura: ['Analista Junior', 'Analista Pleno', 'Analista Senior'],
   sistemas: ['PEP', 'TOTVS'],
 }
