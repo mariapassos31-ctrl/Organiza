@@ -44,9 +44,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     // Sala com a imagem de posições fixas (feita pra 1 equipe só, com
     // perfis específicos dela) não pode virar "por equipe" — travaria o
     // mapa visual numa lógica que ele não entende.
-    const { rows: salaRows } = await query('SELECT ds_imagem FROM salas WHERE cd_sala = $1', [cdSala])
+    const { rows: salaRows } = await query('SELECT ds_imagem, cd_grupo_rodizio FROM salas WHERE cd_sala = $1', [cdSala])
     if (salaRows[0]?.ds_imagem === IMAGEM_COM_POSICOES_CONHECIDAS && equipes.length > 1) {
       return NextResponse.json({ error: 'Essa sala usa um mapa com posições fixas — só pode ter uma equipe vinculada' }, { status: 400 })
+    }
+
+    // Sala que já faz parte de um rodízio "Entre Salas" tem as equipes
+    // sincronizadas com as demais salas do grupo — mudar só uma aqui
+    // desalinharia o grupo inteiro. Edita pelo grupo, não sala por sala.
+    if (salaRows[0]?.cd_grupo_rodizio) {
+      const { rows: irmasRows } = await query(
+        'SELECT COUNT(*)::int AS qtd FROM salas WHERE cd_grupo_rodizio = $1',
+        [salaRows[0].cd_grupo_rodizio]
+      )
+      if ((irmasRows[0]?.qtd || 0) > 1) {
+        return NextResponse.json({ error: 'Essa sala faz parte de um rodízio Entre Salas — mude as equipes por lá' }, { status: 400 })
+      }
     }
 
     const equipeIds = []

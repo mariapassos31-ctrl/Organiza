@@ -5,14 +5,17 @@ import { useState, useEffect, type FormEvent } from 'react'
 import { useDashboardUser } from '../../context/DashboardUserContext'
 import { EQUIPES, nuncaEhEscalado } from '../../lib/equipesConfig'
 import { mensagemDeErro } from '../../lib/erros'
-import type { Usuario, Escala, Sala, ConfigBaia, ConfigLab, FormEscala, DiaDetalhado } from '../../types/dominio'
+import type { Usuario, Escala, Sala, ConfigBaia, ConfigLab, FormEscala, DiaDetalhado, MarcadorSala, GrupoRodizioDetalhado } from '../../types/dominio'
 import { TIPOS_ESCALA, ordenarSobreavisoPrimeiro } from '../../lib/escalasConstants'
 import CalendarioEscalas from './escalas/CalendarioEscalas'
 import DiaDetalhadoModal from './escalas/DiaDetalhadoModal'
 import EscalaEditModal from './escalas/EscalaEditModal'
 import GeradorEscalaModal from './escalas/GeradorEscalaModal'
 import EscalasListaDetalhada from './escalas/EscalasListaDetalhada'
+import PainelSalas from './escalas/PainelSalas'
 import '../../styles/Escalas.css'
+
+type DadosBaia = { equipe?: string | null; especialidade?: string | null; perfil?: string | null }
 
 export default function Escalas() {
   const { userData } = useDashboardUser()
@@ -25,6 +28,8 @@ export default function Escalas() {
   const [filterTecnico, setFilterTecnico] = useState('todos')
   const [modalOpen, setModalOpen] = useState(false)
   const [diaDetalhado, setDiaDetalhado] = useState<DiaDetalhado | null>(null)
+  const [salaFocoAtiva, setSalaFocoAtiva] = useState<{ sala: Sala; data: Date } | null>(null)
+  const [salaSelecionadaId, setSalaSelecionadaId] = useState<number | null>(null)
   const [autoModalOpen, setAutoModalOpen] = useState(false)
   const [mostrarListaDetalhada, setMostrarListaDetalhada] = useState(false)
   const [mostrarFormTroca, setMostrarFormTroca] = useState(false)
@@ -34,8 +39,10 @@ export default function Escalas() {
   const [enviandoTroca, setEnviandoTroca] = useState(false)
   const [escalaOferecidaId, setEscalaOferecidaId] = useState('')
   const [baiasPerfil, setBaiasPerfil] = useState<Record<string, string>>({})
-  const [salaCompartilhadaBaias, setSalaCompartilhadaBaias] = useState<Record<string, ConfigBaia>>({})
   const [laboratorioConfig, setLaboratorioConfig] = useState<ConfigLab>({ responsavelUid: null, backupUid: null })
+  const [salas, setSalas] = useState<Sala[]>([])
+  const [grupos, setGrupos] = useState<GrupoRodizioDetalhado[]>([])
+  const [showPainelSalas, setShowPainelSalas] = useState(false)
 
   const [formData, setFormData] = useState<FormEscala>({
     tipo: 'presencial',
@@ -44,7 +51,8 @@ export default function Escalas() {
     tecnicos: [],
     equipe: 'suporte',
     descricao: '',
-    status: 'ativa'
+    status: 'ativa',
+    salaId: null,
   })
 
   useEffect(() => {
@@ -55,6 +63,7 @@ export default function Escalas() {
     carregarEscalas()
     carregarBaiasPerfil()
     carregarLaboratorioConfig()
+    if (userData?.role === 'admin') carregarGrupos()
   }, [userData])
 
   // O mapa do dia do Suporte só entende { [baia]: perfilId } (sala de uma
@@ -65,17 +74,289 @@ export default function Escalas() {
       const response = await fetch('/api/salas')
       if (!response.ok) return
       const dados = await response.json()
-      const salaSuporte = (dados.salas || []).find((s: Sala) => s.modoReserva === 'perfil' && s.equipes.includes('suporte'))
+      const listaSalas: Sala[] = dados.salas || []
+      setSalas(listaSalas)
+
+      const salaSuporte = listaSalas.find(s => s.modoReserva === 'perfil' && s.equipes.includes('suporte'))
       const mapa: Record<string, string> = {}
       for (const [baia, valor] of Object.entries<ConfigBaia>(salaSuporte?.baias ?? {})) {
         if (valor?.perfil) mapa[baia] = valor.perfil
       }
       setBaiasPerfil(mapa)
-
-      const salaCompartilhada = (dados.salas || []).find((s: Sala) => s.modoReserva === 'equipe')
-      setSalaCompartilhadaBaias(salaCompartilhada?.baias || {})
     } catch (error) {
       console.error('Erro ao carregar configuração de baias:', error)
+    }
+  }
+
+  // Mudar quais equipes usam uma sala pode virar o modo de reserva dela
+  // (perfil <-> equipe) e liberar baias de quem saiu — mais simples
+  // recarregar a sala inteira do que tentar remendar o estado local.
+  const definirEquipesSala = async (salaId: number, equipes: string[]) => {
+    try {
+      const response = await fetch(`/api/salas/${salaId}/equipes`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ equipes }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao salvar')
+      }
+      await carregarBaiasPerfil()
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
+    }
+  }
+
+  // Devolve o id da sala criada (não só true/false) — o painel usa isso
+  // pra já abrir a edição dela em seguida, pra dar pra subir a imagem sem
+  // precisar procurar a sala de novo na lista.
+  const criarSala = async (valores: { nome: string; qtdBaias: number; equipes: string[] }) => {
+    try {
+      const response = await fetch('/api/salas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(valores),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || 'Falha ao criar')
+      }
+      await carregarBaiasPerfil()
+      return data.id as number
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
+    }
+  }
+
+  const editarSala = async (salaId: number, valores: { nome: string; qtdBaias: number }) => {
+    try {
+      const response = await fetch(`/api/salas/${salaId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(valores),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao salvar')
+      }
+      await carregarBaiasPerfil()
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
+    }
+  }
+
+  const excluirSala = async (salaId: number) => {
+    try {
+      const response = await fetch(`/api/salas/${salaId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao excluir')
+      }
+      setSalas(prev => prev.filter(s => s.id !== salaId))
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
+    }
+  }
+
+  const enviarImagemSala = async (salaId: number, arquivo: File) => {
+    try {
+      const formData = new FormData()
+      formData.append('imagem', arquivo)
+      const response = await fetch(`/api/salas/${salaId}/imagem`, { method: 'POST', body: formData })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao enviar imagem')
+      }
+      await carregarBaiasPerfil()
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
+    }
+  }
+
+  const removerImagemSala = async (salaId: number) => {
+    try {
+      const response = await fetch(`/api/salas/${salaId}/imagem`, { method: 'DELETE' })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao remover imagem')
+      }
+      await carregarBaiasPerfil()
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
+    }
+  }
+
+  const definirPosicoesSala = async (salaId: number, posicoes: Record<string, { top: string; left: string }>) => {
+    try {
+      const response = await fetch(`/api/salas/${salaId}/posicoes`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ posicoes }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao salvar')
+      }
+      await carregarBaiasPerfil()
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
+    }
+  }
+
+  const definirMarcadoresSala = async (salaId: number, marcadores: MarcadorSala[]) => {
+    try {
+      const response = await fetch(`/api/salas/${salaId}/marcadores`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ marcadores }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao salvar')
+      }
+      await carregarBaiasPerfil()
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
+    }
+  }
+
+  const carregarGrupos = async () => {
+    try {
+      const response = await fetch('/api/grupos-rodizio')
+      if (!response.ok) return
+      const dados = await response.json()
+      setGrupos(dados.grupos || [])
+    } catch (error) {
+      console.error('Erro ao carregar rodízios entre salas:', error)
+    }
+  }
+
+  const criarGrupoRodizio = async (dados: { nome: string; salaIds: number[]; equipes: string[] }) => {
+    try {
+      const response = await fetch('/api/grupos-rodizio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dados),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao criar')
+      }
+      await Promise.all([carregarGrupos(), carregarBaiasPerfil()])
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
+    }
+  }
+
+  const editarGrupoRodizio = async (grupoId: number, dados: { nome?: string; salaIds?: number[]; equipes?: string[] }) => {
+    try {
+      const response = await fetch(`/api/grupos-rodizio/${grupoId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dados),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao salvar')
+      }
+      await Promise.all([carregarGrupos(), carregarBaiasPerfil()])
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
+    }
+  }
+
+  const excluirGrupoRodizio = async (grupoId: number) => {
+    try {
+      const response = await fetch(`/api/grupos-rodizio/${grupoId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao excluir')
+      }
+      await Promise.all([carregarGrupos(), carregarBaiasPerfil()])
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
+    }
+  }
+
+  const gerarRodizioEntreSalas = async (grupoId: number, periodo: { dataInicio: string; dataFim: string }) => {
+    try {
+      const response = await fetch(`/api/grupos-rodizio/${grupoId}/gerar-rodizio`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(periodo),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || 'Falha ao gerar rodízio')
+      }
+      await carregarEscalas()
+      alert(data.aviso || `${data.atribuidas} escala(s) receberam sala.`)
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
+    }
+  }
+
+  // Retorna true/false (sucesso) pro ConfigSala saber se pode considerar
+  // aquela baia salva. `valores` é { perfil } (sala de 1 equipe só) ou
+  // { equipe, especialidade } (sala compartilhada) — o formato certo já
+  // vem calculado pelo ConfigSala, que sabe o modoReserva da sala.
+  const definirBaiaSala = async (salaId: number, baia: string, valores: DadosBaia) => {
+    try {
+      const response = await fetch(`/api/salas/${salaId}/baias`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baia, ...valores }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao salvar')
+      }
+      setSalas(prev => prev.map(sala => {
+        if (sala.id !== salaId) return sala
+        const proximasBaias = { ...sala.baias }
+        const livre = sala.modoReserva === 'equipe' ? !valores.equipe : !valores.perfil
+        if (livre) {
+          delete proximasBaias[baia]
+        } else if (sala.modoReserva === 'equipe') {
+          proximasBaias[baia] = { equipe: valores.equipe ?? undefined, especialidade: valores.especialidade || undefined }
+        } else {
+          proximasBaias[baia] = { perfil: valores.perfil ?? undefined }
+          if (valores.perfil === 'supervisor') {
+            for (const b of Object.keys(proximasBaias)) {
+              if (b !== baia && proximasBaias[b]?.perfil === 'supervisor') delete proximasBaias[b]
+            }
+          }
+        }
+        return { ...sala, baias: proximasBaias }
+      }))
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
     }
   }
 
@@ -87,6 +368,26 @@ export default function Escalas() {
       setLaboratorioConfig({ responsavelUid: dados.responsavelUid || null, backupUid: dados.backupUid || null })
     } catch (error) {
       console.error('Erro ao carregar configuração do Laboratório:', error)
+    }
+  }
+
+  // Retorna true/false (sucesso) pro ConfigLaboratorio saber se pode fechar.
+  const definirLaboratorio = async (valores: ConfigLab) => {
+    try {
+      const response = await fetch('/api/laboratorio-config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ equipe: 'suporte', ...valores }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao salvar')
+      }
+      setLaboratorioConfig(valores)
+      return true
+    } catch (err) {
+      alert(mensagemDeErro(err))
+      return false
     }
   }
 
@@ -117,6 +418,10 @@ export default function Escalas() {
   }
 
   const podeEditar = userData?.role === 'admin' || userData?.role === 'gestor' || userData?.role === 'lider'
+  const souAdmin = userData?.role === 'admin'
+  // Laboratório só existe pro Suporte por enquanto.
+  const podeConfigurarLaboratorio = podeEditar && (souAdmin || userData?.equipe === 'suporte')
+  const podeVerPainelSalas = podeConfigurarLaboratorio || salas.some(s => s.podeEditar)
 
   const podeEditarEscala = (escala: { equipe: string | null; tecnicos?: string[] }) => {
     if (userData?.role === 'admin') return true
@@ -254,6 +559,65 @@ export default function Escalas() {
     })
   }
 
+  const abrirDiaCalendario = (dia: DiaDetalhado) => {
+    setSalaFocoAtiva(null)
+    setDiaDetalhado(dia)
+  }
+
+  // "Salas hoje": clicar num chip seleciona a sala e troca o calendário
+  // principal pra mostrar só ela (sem filtro de equipe/técnico, sem janela
+  // flutuante) — clicar de novo no mesmo chip desmarca e volta ao normal.
+  // "Salas do dia": qualquer um (não só quem edita) pode ver a ocupação
+  // de uma sala num dia específico — sem depender do filtro de equipe da
+  // tela (que é só pra lista/calendário), por isso usa `escalas` cru.
+  const escalasDoDiaSemFiltro = (data: Date) => ordenarSobreavisoPrimeiro(escalas.filter(escala => {
+    const dataInicio = new Date(escala.dataInicio)
+    const dataFim = new Date(escala.dataFim)
+    dataFim.setDate(dataFim.getDate() + 1)
+    return data >= dataInicio && data < dataFim
+  }))
+
+  const salasComMovimento = salas.filter(s => s.equipes.length > 0)
+  const salaSelecionada = salasComMovimento.find(s => s.id === salaSelecionadaId) || null
+
+  const contarPresencialHoje = (sala: Sala) => escalasDoDiaSemFiltro(new Date()).filter(e =>
+    sala.equipes.includes(e.equipe ?? '') && (e.tipo === 'presencial' || e.tipo === 'sabado')
+  ).length
+
+  const selecionarSala = (sala: Sala) => {
+    setSalaSelecionadaId(prev => prev === sala.id ? null : sala.id)
+    setDiaDetalhado(null)
+    setSalaFocoAtiva(null)
+  }
+
+  const escalasParaCalendario = salaSelecionada
+    ? escalas.filter(e => salaSelecionada.equipes.includes(e.equipe ?? ''))
+    : escalasFiltradasPorEquipe
+
+  const clicarDiaCalendario = (dia: DiaDetalhado) => {
+    if (salaSelecionada) {
+      setSalaFocoAtiva({ sala: salaSelecionada, data: dia.data })
+    } else {
+      abrirDiaCalendario(dia)
+    }
+  }
+
+  const diaDetalhadoSalaFoco: DiaDetalhado | null = salaFocoAtiva
+    ? {
+        data: salaFocoAtiva.data,
+        escalas: escalasDoDiaSemFiltro(salaFocoAtiva.data).filter(e => salaFocoAtiva.sala.equipes.includes(e.equipe ?? '')),
+      }
+    : null
+
+  const navegarSalaFoco = (delta: number) => {
+    setSalaFocoAtiva((atual) => {
+      if (!atual) return atual
+      const novaData = new Date(atual.data)
+      novaData.setDate(novaData.getDate() + delta)
+      return { ...atual, data: novaData }
+    })
+  }
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!formData.dataInicio || !formData.dataFim || formData.tecnicos.length === 0) {
@@ -273,6 +637,7 @@ export default function Escalas() {
         equipe: (userData?.role === 'gestor' || userData?.role === 'lider') ? userData.equipe : formData.equipe,
         descricao: formData.descricao,
         status: formData.status,
+        salaId: formData.salaId,
       }
 
       const response = await fetch(`/api/escalas/${encodeURIComponent(String(editingId))}`, {
@@ -344,7 +709,8 @@ export default function Escalas() {
       tecnicos: [],
       equipe: 'suporte',
       descricao: '',
-      status: 'ativa'
+      status: 'ativa',
+      salaId: null,
     })
     setMostrarFormTroca(false)
   }
@@ -365,14 +731,66 @@ export default function Escalas() {
           <h2>📅 Escalas</h2>
           <p className="subtitle">Gerenciamento de escalas por equipe</p>
         </div>
-        {podeEditar && (
-          <div className="escalas-header-actions">
+        <div className="escalas-header-actions">
+          {podeVerPainelSalas && (
+            <button className="btn-secondary" onClick={() => setShowPainelSalas(!showPainelSalas)}>
+              {showPainelSalas ? '✕ Fechar' : '🏢 Salas'}
+            </button>
+          )}
+          {podeEditar && (
             <button className="btn-primary" onClick={() => setAutoModalOpen(true)}>
               🪄 Nova Escala
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
+
+      {salasComMovimento.length > 0 && (
+        <div className="escalas-salas-do-dia">
+          <span className="escalas-salas-do-dia-titulo">Salas hoje:</span>
+          {salasComMovimento.map(sala => (
+            <button
+              key={sala.id}
+              type="button"
+              className={`escalas-salas-do-dia-chip${salaSelecionadaId === sala.id ? ' escalas-salas-do-dia-chip-ativo' : ''}`}
+              onClick={() => selecionarSala(sala)}
+            >
+              🏢 {sala.nome}
+              <span className="escalas-salas-do-dia-contagem">{contarPresencialHoje(sala)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* SALAS (baias do Suporte, sala compartilhada, Laboratório) */}
+      {podeVerPainelSalas && showPainelSalas && (
+        <PainelSalas
+          salas={salas}
+          podeConfigurarLaboratorio={podeConfigurarLaboratorio}
+          laboratorioProps={{
+            tecnicos: usuarios.filter(u => u.equipe === 'suporte' && !nuncaEhEscalado(u.role)).sort((a, b) => a.nome.localeCompare(b.nome)),
+            valorInicial: laboratorioConfig,
+            onSalvar: definirLaboratorio,
+          }}
+          minhaEquipe={userData?.equipe}
+          souAdmin={souAdmin}
+          onAlterarBaiaSala={definirBaiaSala}
+          onAlterarEquipesSala={definirEquipesSala}
+          onCriarSala={criarSala}
+          onEditarSala={editarSala}
+          onExcluirSala={excluirSala}
+          onEnviarImagemSala={enviarImagemSala}
+          onRemoverImagemSala={removerImagemSala}
+          onAjustarPosicoesSala={definirPosicoesSala}
+          onAjustarMarcadoresSala={definirMarcadoresSala}
+          grupos={grupos}
+          onCriarGrupoRodizio={criarGrupoRodizio}
+          onEditarGrupoRodizio={editarGrupoRodizio}
+          onExcluirGrupoRodizio={excluirGrupoRodizio}
+          onGerarRodizioEntreSalas={gerarRodizioEntreSalas}
+          onClose={() => setShowPainelSalas(false)}
+        />
+      )}
 
       <div className="escalas-toolbar">
         <div className="escalas-filters">
@@ -413,6 +831,7 @@ export default function Escalas() {
         open={modalOpen}
         formData={formData}
         setFormData={setFormData}
+        salas={salas}
         canEdit={canEditCurrent}
         isAdmin={userData?.role === 'admin'}
         tecnicosDisponiveis={carregarTecnicosEquipe(userData?.role === 'admin' ? formData.equipe : userData?.equipe)}
@@ -445,19 +864,20 @@ export default function Escalas() {
         <GeradorEscalaModal
           userData={userData}
           usuarios={usuarios}
+          salas={salas}
           onClose={() => setAutoModalOpen(false)}
           onAtualizarEscalas={carregarEscalas}
         />
       )}
 
       <CalendarioEscalas
-        escalas={escalasFiltradasPorEquipe}
+        escalas={escalasParaCalendario}
         currentMonth={currentMonth}
         onMonthChange={setCurrentMonth}
         getNomeTecnico={getNomeTecnico}
         podeEditarEscala={podeEditarEscala}
         onEditarEscala={handleEdit}
-        onDiaClick={setDiaDetalhado}
+        onDiaClick={clicarDiaCalendario}
         usuarios={usuarios}
       />
 
@@ -471,7 +891,22 @@ export default function Escalas() {
         usuarios={usuarios}
         baiasPerfil={baiasPerfil}
         laboratorioConfig={laboratorioConfig}
-        salaCompartilhadaBaias={salaCompartilhadaBaias}
+        salas={salas}
+        todasAsSalas={salas}
+      />
+
+      <DiaDetalhadoModal
+        diaDetalhado={diaDetalhadoSalaFoco}
+        onClose={() => setSalaFocoAtiva(null)}
+        onNavegarDia={navegarSalaFoco}
+        podeEditarEscala={podeEditarEscala}
+        onEditarEscala={handleEdit}
+        getNomeTecnico={getNomeTecnico}
+        usuarios={usuarios}
+        baiasPerfil={baiasPerfil}
+        laboratorioConfig={laboratorioConfig}
+        salas={salaFocoAtiva ? [salaFocoAtiva.sala] : []}
+        todasAsSalas={salas}
       />
 
       <div className="escalas-lista-detalhada-toggle">
@@ -490,7 +925,7 @@ export default function Escalas() {
 
       {mostrarListaDetalhada && (
         <EscalasListaDetalhada
-          escalas={escalasFiltradasPorEquipe}
+          escalas={escalasParaCalendario}
           usuarios={usuarios}
           getNomeTecnico={getNomeTecnico}
           podeEditarEscala={podeEditarEscala}

@@ -75,8 +75,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const bytes = Buffer.from(await arquivo.arrayBuffer())
     const url = `/api/salas/${cdSala}/imagem`
 
+    // Uma imagem nova pode ter um layout bem diferente da anterior — as
+    // posições de baia e os marcadores (divisória, rack etc.) calibrados
+    // pra planta antiga não fazem mais sentido.
     await query(
-      'UPDATE salas SET ds_imagem_dados = $1, ds_imagem_tipo = $2, ds_imagem = $3 WHERE cd_sala = $4',
+      'UPDATE salas SET ds_imagem_dados = $1, ds_imagem_tipo = $2, ds_imagem = $3, ds_posicoes = NULL, ds_marcadores = NULL WHERE cd_sala = $4',
       [bytes, arquivo.type, url, cdSala]
     )
 
@@ -105,7 +108,7 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
     }
 
     await query(
-      'UPDATE salas SET ds_imagem_dados = NULL, ds_imagem_tipo = NULL, ds_imagem = NULL WHERE cd_sala = $1',
+      'UPDATE salas SET ds_imagem_dados = NULL, ds_imagem_tipo = NULL, ds_imagem = NULL, ds_posicoes = NULL, ds_marcadores = NULL WHERE cd_sala = $1',
       [cdSala]
     )
 

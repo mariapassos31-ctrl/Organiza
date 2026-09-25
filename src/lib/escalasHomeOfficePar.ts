@@ -33,12 +33,12 @@ function nuncaVaiParaHomeOffice(p: Participante): boolean {
 // Tenta montar um grupo de `quantidade` pessoas, na ordem de prioridade dada,
 // nunca repetindo especialidade, nunca repetindo horário de entrada às 07:00
 // e (se `evitarDupla`) nunca repetindo baiaId.
-function tentarFormarGrupo(candidatosOrdenados: Participante[], quantidade: number, evitarDupla: boolean): Participante[] | null {
+function tentarFormarGrupo(candidatosOrdenados: Participante[], quantidade: number, evitarDupla: boolean, respeitarEspecialidade: boolean): Participante[] | null {
   function backtrack(inicio: number, escolhidos: Participante[]): Participante[] | null {
     if (escolhidos.length === quantidade) return escolhidos
     for (let i = inicio; i < candidatosOrdenados.length; i++) {
       const candidato = candidatosOrdenados[i]
-      const especialidadeRepetida = escolhidos.some(e =>
+      const especialidadeRepetida = respeitarEspecialidade && escolhidos.some(e =>
         e.especialidade && candidato.especialidade && e.especialidade === candidato.especialidade
       )
       if (especialidadeRepetida) continue
@@ -59,7 +59,7 @@ function tentarFormarGrupo(candidatosOrdenados: Participante[], quantidade: numb
   return backtrack(0, [])
 }
 
-function escolherGrupoDoDia(elegiveis: Participante[], contagens: Map<number | string, number>, quantidade: number): { uids: Array<number | string>; aviso?: string } {
+function escolherGrupoDoDia(elegiveis: Participante[], contagens: Map<number | string, number>, quantidade: number, respeitarEspecialidade: boolean): { uids: Array<number | string>; aviso?: string } {
   if (elegiveis.length < quantidade) {
     return { uids: [], aviso: `Não há técnicos elegíveis suficientes para formar o grupo de home office (precisa de ${quantidade})` }
   }
@@ -70,10 +70,10 @@ function escolherGrupoDoDia(elegiveis: Participante[], contagens: Map<number | s
     return a.cd_usuario < b.cd_usuario ? -1 : a.cd_usuario > b.cd_usuario ? 1 : 0
   })
 
-  const comDupla = tentarFormarGrupo(ordenados, quantidade, true)
+  const comDupla = tentarFormarGrupo(ordenados, quantidade, true, respeitarEspecialidade)
   if (comDupla) return { uids: comDupla.map(p => p.cd_usuario) }
 
-  const semDupla = tentarFormarGrupo(ordenados, quantidade, false)
+  const semDupla = tentarFormarGrupo(ordenados, quantidade, false, respeitarEspecialidade)
   if (semDupla) {
     return {
       uids: semDupla.map(p => p.cd_usuario),
@@ -81,7 +81,7 @@ function escolherGrupoDoDia(elegiveis: Participante[], contagens: Map<number | s
     }
   }
 
-  return { uids: [], aviso: `Não foi possível formar um grupo de ${quantidade} pessoa(s) em home office sem repetir especialidade nem repetir horário de entrada às 07:00` }
+  return { uids: [], aviso: `Não foi possível formar um grupo de ${quantidade} pessoa(s) em home office${respeitarEspecialidade ? ' sem repetir especialidade nem repetir horário de entrada às 07:00' : ' sem repetir horário de entrada às 07:00'}` }
 }
 
 // participantes: [{ cd_usuario, cd_tecnico, nm_tecnico, especialidade, horarioEntrada, baiaId, elegivelHomeOffice }]
@@ -101,6 +101,7 @@ export function construirBlocosHomeOfficePar({
   duracaoBlocoDias = 1,
   contagensIniciais = {},
   ocupacaoExistentePorDia = {},
+  respeitarEspecialidade = true,
 }: {
   participantes: Participante[]
   dataInicio: string
@@ -110,6 +111,7 @@ export function construirBlocosHomeOfficePar({
   duracaoBlocoDias?: number
   contagensIniciais?: Record<string, number>
   ocupacaoExistentePorDia?: Record<string, number>
+  respeitarEspecialidade?: boolean
 }): { blocos: BlocoEscala[]; avisos: AvisoEscala[] } {
   const diasTrabalhoSet = new Set(diasTrabalho.map(Number))
   const diasUteis: string[] = []
@@ -178,7 +180,7 @@ export function construirBlocosHomeOfficePar({
         })
       }
     } else {
-      escolhido = escolherGrupoDoDia(elegiveisDoBloco, contagens, vagasDoBloco)
+      escolhido = escolherGrupoDoDia(elegiveisDoBloco, contagens, vagasDoBloco, respeitarEspecialidade)
       if (escolhido.aviso) avisos.push({ data: diasDoBloco[0], mensagem: escolhido.aviso })
     }
 

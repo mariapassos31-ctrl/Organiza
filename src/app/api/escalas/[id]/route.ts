@@ -56,7 +56,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   const body = await request.json()
-  const { tipo, dataInicio, dataFim, tecnicos, equipe, descricao, status } = body
+  const { tipo, dataInicio, dataFim, tecnicos, equipe, descricao, status, salaId } = body
 
   if (!tipo || !dataInicio || !dataFim || !equipe) {
     return NextResponse.json({ error: 'Tipo, período e equipe são obrigatórios' }, { status: 400 })
@@ -82,15 +82,30 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Equipe não encontrada' }, { status: 404 })
   }
 
+  // Sala é opcional (só faz sentido pra equipe que participa de um
+  // rodízio "Entre Salas") — se vier, precisa ser uma sala que essa
+  // equipe realmente usa, senão a ocupação da sala fica inconsistente.
+  let cdSala: number | null = null
+  if (salaId !== undefined && salaId !== null && salaId !== '') {
+    const { rows: salaRows } = await query(
+      `SELECT 1 FROM sala_equipes WHERE cd_sala = $1 AND cd_equipe = $2`,
+      [Number(salaId), equipeId]
+    )
+    if (salaRows.length === 0) {
+      return NextResponse.json({ error: 'Essa sala não é usada por essa equipe' }, { status: 400 })
+    }
+    cdSala = Number(salaId)
+  }
+
   const client = await getPool().connect()
   try {
     await client.query('BEGIN')
 
     await client.query(
       `UPDATE escalas
-       SET tp_escala = $1, cd_equipe = $2, dt_inicio = $3, dt_fim = $4, ds_descricao = $5, tp_status = $6
-       WHERE cd_escala = $7`,
-      [tipo, equipeId, dataInicio, dataFim, descricao || null, status || 'ativa', id]
+       SET tp_escala = $1, cd_equipe = $2, dt_inicio = $3, dt_fim = $4, ds_descricao = $5, tp_status = $6, cd_sala = $7
+       WHERE cd_escala = $8`,
+      [tipo, equipeId, dataInicio, dataFim, descricao || null, status || 'ativa', cdSala, id]
     )
 
     await client.query('DELETE FROM escala_tecnicos WHERE cd_escala = $1', [id])

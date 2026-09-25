@@ -10,6 +10,7 @@ const SELECT_ESCALAS = `
          es.ds_descricao,
          es.tp_status,
          es.dt_criacao,
+         es.cd_sala,
          eq.tp_equipe,
          cu.nm_usuario AS criado_por_nome,
          COALESCE(
@@ -39,6 +40,7 @@ function toApiShape(row: any) {
     status: row.tp_status,
     criadoPor: row.criado_por_nome,
     dataCriacao: row.dt_criacao,
+    salaId: row.cd_sala ?? null,
   }
 }
 

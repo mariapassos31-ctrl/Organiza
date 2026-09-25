@@ -3,8 +3,10 @@
 import { EQUIPES, nuncaEhEscalado } from '../../../lib/equipesConfig'
 import { TIPOS_ESCALA, TIPO_CURSO, estaEmDiaCurso, ehJovemAprendiz } from '../../../lib/escalasConstants'
 import { ehFeriado } from '../../../lib/feriados'
-import MapaBaias from './MapaBaias'
-import type { Escala, Usuario, ConfigBaia, ConfigLab, DiaDetalhado, OcupanteAprendiz } from '../../../types/dominio'
+import MapaBaias, { criarExibidorDeNome } from './MapaBaias'
+import { emojiDoMarcador } from './EditorPosicoesSala'
+import { IMAGEM_COM_POSICOES_CONHECIDAS } from '../../../lib/salasConfig'
+import type { Escala, Usuario, Sala, ConfigLab, DiaDetalhado, OcupanteAprendiz } from '../../../types/dominio'
 
 // Decide quem senta em qual baia no dia.
 // - Quem tem "ehSupervisor" senta na baia marcada como "⭐ Supervisor" na
@@ -200,28 +202,57 @@ function calcularOcupacaoBaias(
   return { ocupantes, ocupantesAprendiz, baiasJovemAprendiz, baiaSupervisor }
 }
 
-// Equipes que dividem a Sala Compartilhada (o Suporte tem sala própria,
-// calculada acima). Reserva por equipe: um técnico só ocupa uma baia
+// Ocupação de uma sala com reserva por equipe (Sala Compartilhada comum,
+// ou uma sala de um grupo "Entre Salas"): um técnico só ocupa uma baia
 // reservada à PRÓPRIA equipe, nunca a de outra. A especialidade que
 // eventualmente restrinja uma baia ali é só informativa na config — não
 // entra nessa conta, porque especialidade é um campo sensível (só visível
 // pro gestor da MESMA equipe do técnico) e aqui um gestor precisa ver o
-// dia inteiro, com gente de 3 equipes diferentes.
-const EQUIPES_SALA_COMPARTILHADA = ['infraestrutura', 'sistemas', 'projetos']
+// dia inteiro, com gente de equipes diferentes.
+//
+// Uma equipe pode estar vinculada a mais de uma sala ao mesmo tempo (não
+// só num grupo "Entre Salas" formal — pode ser qualquer configuração) —
+// nesse caso a equipe sozinha não diz em qual sala a pessoa está, só a
+// sala marcada na própria escala (escolhida na hora de escalar, manual
+// ou pelo rodízio entre salas). Quem ainda não tem sala definida não
+// aparece em nenhuma (fica só o aviso), pra não contar a mesma pessoa em
+// duas salas ao mesmo tempo. Equipe vinculada a uma única sala continua
+// descoberta sozinha, como sempre.
+function calcularOcupacaoSalaEquipe(
+  escalasDoDia: Escala[],
+  usuarios: Usuario[] | undefined,
+  sala: Sala,
+  todasAsSalas: Sala[]
+): { ocupantes: Record<string, string>; semSalaDefinida: number; temEscalasHoje: boolean; nomesHomeOffice: string[] } {
+  const baiasReservadas = Object.keys(sala.baias)
+  const tecnicosEnvolvidos = (usuarios || []).filter(u => sala.equipes.includes(u.equipe ?? ''))
 
-function calcularOcupacaoSalaCompartilhada(escalasDoDia: Escala[], usuarios: Usuario[] | undefined, salaBaias: Record<string, ConfigBaia>): Record<string, string> {
-  const baiasReservadas = Object.keys(salaBaias)
-  if (baiasReservadas.length === 0) return {}
+  const equipeAmbigua = (equipe: string | null | undefined) =>
+    todasAsSalas.filter(s => s.equipes.includes(equipe ?? '')).length > 1
 
-  const tecnicosEnvolvidos = (usuarios || []).filter(u => EQUIPES_SALA_COMPARTILHADA.includes(u.equipe ?? ''))
-  const uidsPresencialHoje = new Set(
-    escalasDoDia
-      .filter(e => EQUIPES_SALA_COMPARTILHADA.includes(e.equipe ?? '') && (e.tipo === 'presencial' || e.tipo === 'sabado'))
-      .map(e => e.tecnicos[0])
+  const escalasCandidatas = escalasDoDia.filter(e =>
+    sala.equipes.includes(e.equipe ?? '') && (e.tipo === 'presencial' || e.tipo === 'sabado')
   )
+  const escalasDaSala = escalasCandidatas.filter(e => !equipeAmbigua(e.equipe) || e.salaId === sala.id)
+  const semSalaDefinida = escalasCandidatas.filter(e => equipeAmbigua(e.equipe) && e.salaId == null).length
+
+  // Home office não ocupa baia nenhuma, mas a sala da equipe continua
+  // aparecendo no dia mesmo assim (igual já acontecia pro Suporte) — só
+  // pra mostrar que a sala existe e quem da equipe está em casa hoje.
+  const nomesHomeOffice = escalasDoDia
+    .filter(e => sala.equipes.includes(e.equipe ?? '') && e.tipo === 'homeoffice')
+    .map(e => tecnicosEnvolvidos.find(u => u.uid === e.tecnicos[0])?.nome)
+    .filter((n): n is string => Boolean(n))
+  const temEscalasHoje = escalasCandidatas.length > 0 || nomesHomeOffice.length > 0
+
+  if (baiasReservadas.length === 0) {
+    return { ocupantes: {}, semSalaDefinida, temEscalasHoje, nomesHomeOffice }
+  }
+
+  const uidsPresencialHoje = new Set(escalasDaSala.map(e => e.tecnicos[0]))
 
   const ocupantes: Record<string, string> = {}
-  const baiaDaPropriaEquipe = (baia: string, usuario: Usuario) => salaBaias[baia]?.equipe === usuario.equipe
+  const baiaDaPropriaEquipe = (baia: string, usuario: Usuario) => sala.baias[baia]?.equipe === usuario.equipe
 
   const fixos = tecnicosEnvolvidos.filter(u => u.baiaFixa && u.baia && baiasReservadas.includes(u.baia) && baiaDaPropriaEquipe(u.baia, u))
   for (const fixo of fixos) {
@@ -239,7 +270,69 @@ function calcularOcupacaoSalaCompartilhada(escalasDoDia: Escala[], usuarios: Usu
     if (vaga) ocupantes[vaga] = usuario.nome
   }
 
-  return ocupantes
+  return { ocupantes, semSalaDefinida, temEscalasHoje, nomesHomeOffice }
+}
+
+// Ocupação de uma sala de 1 equipe só (reserva por perfil), fora a sala
+// fixa do Suporte (que tem regras próprias — Jovem Aprendiz dividindo
+// turno, Supervisor, baia extra por último recurso — calculadas à parte
+// em calcularOcupacaoBaias). Aqui é o caso genérico: usa todas as baias
+// da sala (1..qtdBaias), não só as que tiverem reserva de perfil — uma
+// sala sem nenhuma reserva configurada deixa qualquer um da equipe sentar
+// em qualquer baia livre, em vez de aparecer tudo vazio. Baia fixa tem
+// prioridade, os demais flutuam pra uma baia livre do próprio perfil (ou
+// sem restrição nenhuma). Mesma equipe em 2+ salas só conta quem já tem
+// essa sala marcada na escala, igual ao modo por equipe.
+function calcularOcupacaoSalaPerfil(
+  escalasDoDia: Escala[],
+  usuarios: Usuario[] | undefined,
+  sala: Sala,
+  todasAsSalas: Sala[]
+): { ocupantes: Record<string, string>; semSalaDefinida: number; temEscalasHoje: boolean; nomesHomeOffice: string[] } {
+  const equipeDaSala = sala.equipes[0]
+  const numerosBaia = Array.from({ length: sala.qtdBaias || 9 }, (_, i) => String(i + 1))
+  const tecnicosEnvolvidos = (usuarios || []).filter(u => u.equipe === equipeDaSala)
+
+  const equipeAmbigua = todasAsSalas.filter(s => s.equipes.includes(equipeDaSala)).length > 1
+
+  const escalasCandidatas = escalasDoDia.filter(e => e.equipe === equipeDaSala && (e.tipo === 'presencial' || e.tipo === 'sabado'))
+  const escalasDaSala = escalasCandidatas.filter(e => !equipeAmbigua || e.salaId === sala.id)
+  const semSalaDefinida = equipeAmbigua ? escalasCandidatas.filter(e => e.salaId == null).length : 0
+
+  // Mesma lógica do modo por equipe: home office não ocupa baia, mas a
+  // sala continua aparecendo no dia (mostra a planta + quem tá em casa).
+  const nomesHomeOffice = escalasDoDia
+    .filter(e => e.equipe === equipeDaSala && e.tipo === 'homeoffice')
+    .map(e => tecnicosEnvolvidos.find(u => u.uid === e.tecnicos[0])?.nome)
+    .filter((n): n is string => Boolean(n))
+  const temEscalasHoje = escalasCandidatas.length > 0 || nomesHomeOffice.length > 0
+
+  const uidsPresencialHoje = new Set(escalasDaSala.map(e => e.tecnicos[0]))
+  const ocupantes: Record<string, string> = {}
+  const baiaCombinaComPerfil = (baia: string, usuario: Usuario) => !sala.baias[baia]?.perfil || sala.baias[baia].perfil === usuario.role
+
+  const fixos = tecnicosEnvolvidos.filter(u => u.baiaFixa && u.baia && numerosBaia.includes(u.baia) && baiaCombinaComPerfil(u.baia, u))
+  for (const fixo of fixos) {
+    if (uidsPresencialHoje.has(fixo.uid)) ocupantes[fixo.baia] = fixo.nome
+  }
+
+  const presenciaisNaoFixos = tecnicosEnvolvidos.filter(u =>
+    uidsPresencialHoje.has(u.uid) && !(u.baiaFixa && numerosBaia.includes(u.baia) && baiaCombinaComPerfil(u.baia, u))
+  )
+
+  const livrePara = (usuario: Usuario) => {
+    const doPerfil = numerosBaia.filter(b => sala.baias[b]?.perfil === usuario.role)
+    const vagaDoPerfil = doPerfil.find(b => !ocupantes[b])
+    if (vagaDoPerfil) return vagaDoPerfil
+    return numerosBaia.find(b => !ocupantes[b] && !sala.baias[b]?.perfil)
+  }
+
+  for (const usuario of presenciaisNaoFixos) {
+    const vaga = livrePara(usuario)
+    if (vaga) ocupantes[vaga] = usuario.nome
+  }
+
+  return { ocupantes, semSalaDefinida, temEscalasHoje, nomesHomeOffice }
 }
 
 function formatarDataISO(data: Date) {
@@ -249,7 +342,7 @@ function formatarDataISO(data: Date) {
   return `${ano}-${mes}-${dia}`
 }
 
-export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia, podeEditarEscala, onEditarEscala, getNomeTecnico, usuarios, baiasPerfil = {}, laboratorioConfig, salaCompartilhadaBaias = {} }: {
+export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia, podeEditarEscala, onEditarEscala, getNomeTecnico, usuarios, baiasPerfil = {}, laboratorioConfig, salas = [], todasAsSalas }: {
   diaDetalhado: DiaDetalhado | null
   onClose: () => void
   onNavegarDia?: (delta: number) => void
@@ -259,18 +352,43 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
   usuarios?: Usuario[]
   baiasPerfil?: Record<string, string>
   laboratorioConfig?: ConfigLab
-  salaCompartilhadaBaias?: Record<string, ConfigBaia>
+  salas?: Sala[]
+  // Lista completa de salas (não só as sendo mostradas agora) — usada só
+  // pra saber se a equipe de alguém está espalhada em mais de uma sala,
+  // mesmo quando a tela está focada numa única sala. Sem essa lista
+  // separada, uma visão focada nunca detectaria ambiguidade nenhuma.
+  todasAsSalas?: Sala[]
 }) {
   if (!diaDetalhado) return null
 
-  const escalasSuporte = diaDetalhado.escalas.filter(e => e.equipe === 'suporte')
-  const mostrarMapa = escalasSuporte.length > 0
+  // O mapa fixo do Suporte só pode aparecer se a sala com aquela imagem
+  // específica estiver de fato entre as salas sendo mostradas agora — só
+  // ter escala de alguém da equipe "suporte" não basta, porque uma sala
+  // genérica qualquer também pode acabar vinculada à equipe suporte (ex:
+  // criada por um gestor de Suporte) sem ser essa sala com posições fixas.
+  const salaSuporteFixa = (salas || []).find(s => s.imagem === IMAGEM_COM_POSICOES_CONHECIDAS)
+  // Se o Suporte ganhar uma segunda sala de verdade, quem já tem essa
+  // outra sala marcada na escala não entra aqui — só quem ainda não tem
+  // sala definida continua caindo por padrão nessa (a original), pra
+  // ninguém sumir do mapa por causa de escala antiga sem esse campo.
+  const escalasSuporte = diaDetalhado.escalas.filter(e =>
+    e.equipe === 'suporte' && (!salaSuporteFixa || e.salaId == null || e.salaId === salaSuporteFixa.id)
+  )
+  const mostrarMapa = Boolean(salaSuporteFixa) && escalasSuporte.length > 0
 
-  const escalasSalaCompartilhada = diaDetalhado.escalas.filter(e => EQUIPES_SALA_COMPARTILHADA.includes(e.equipe ?? ''))
-  const mostrarSalaCompartilhada = escalasSalaCompartilhada.length > 0
-  const ocupantesSalaCompartilhada = mostrarSalaCompartilhada
-    ? calcularOcupacaoSalaCompartilhada(escalasSalaCompartilhada, usuarios, salaCompartilhadaBaias)
-    : {}
+  const salasCompartilhadas = (salas || []).filter(s => s.modoReserva === 'equipe' || s.modoReserva === 'entre_salas')
+  const ocupacaoPorSala = salasCompartilhadas
+    .map(sala => ({ sala, ...calcularOcupacaoSalaEquipe(diaDetalhado.escalas, usuarios, sala, todasAsSalas ?? salas ?? []) }))
+    .filter(o => o.temEscalasHoje)
+
+  // Sala de 1 equipe só, além da fixa do Suporte — ex: uma segunda sala
+  // do próprio Suporte, ou de qualquer outra equipe com sala própria.
+  const outrasSalasPerfil = (salas || []).filter(s => s.modoReserva === 'perfil' && s.id !== salaSuporteFixa?.id)
+  const ocupacaoPorSalaPerfil = outrasSalasPerfil
+    .map(sala => ({ sala, ...calcularOcupacaoSalaPerfil(diaDetalhado.escalas, usuarios, sala, todasAsSalas ?? salas ?? []) }))
+    .filter(o => o.temEscalasHoje)
+
+  const blocosDeSala = [...ocupacaoPorSala, ...ocupacaoPorSalaPerfil]
 
   const tecnicosSuporte = mostrarMapa ? (usuarios || []).filter(u => u.equipe === 'suporte') : []
   const dataISO = mostrarMapa ? formatarDataISO(diaDetalhado.data) : ''
@@ -316,7 +434,7 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className={`modal-content ${(mostrarMapa || mostrarSalaCompartilhada) ? 'modal-content-largo' : ''}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`modal-content ${(mostrarMapa || blocosDeSala.length > 0) ? 'modal-content-largo' : ''}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>📅 Escalados em {diaDetalhado.data.toLocaleDateString('pt-BR')}</h3>
           <button className="modal-close" onClick={onClose}>✕</button>
@@ -357,19 +475,54 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
           </div>
         )}
 
-        {mostrarSalaCompartilhada && (
-          <div style={{ padding: '0 20px' }}>
-            <h4 style={{ margin: '0 0 10px' }}>🏢 Sala Compartilhada</h4>
-            <div className="config-baias-lista">
-              {Object.keys(salaCompartilhadaBaias).sort((a, b) => Number(a) - Number(b)).map(baia => (
-                <div key={baia} className="config-baia-linha">
-                  <span className="config-baia-linha-numero">Baia {baia}</span>
-                  <span>{ocupantesSalaCompartilhada[baia] || '—'}</span>
+        {blocosDeSala.map(({ sala, ocupantes, semSalaDefinida, nomesHomeOffice }) => {
+          const numerosBaia = Array.from({ length: sala.qtdBaias || 9 }, (_, i) => String(i + 1))
+          const temMapaProprio = Boolean(sala.imagem) && numerosBaia.every(n => sala.posicoes?.[n])
+          const exibirNome = criarExibidorDeNome(Object.values(ocupantes))
+          return (
+            <div key={sala.id} style={{ padding: '0 20px' }}>
+              <h4 style={{ margin: '0 0 10px' }}>🏢 {sala.nome}</h4>
+              {nomesHomeOffice.length > 0 && (
+                <p className="campo-nota">🏠 Em home office hoje: {nomesHomeOffice.join(', ')}</p>
+              )}
+              {semSalaDefinida > 0 && (
+                <p className="campo-nota">
+                  {semSalaDefinida} pessoa(s) presencial ainda sem sala definida — gere o rodízio entre salas (ou marque manualmente na escala) pra esse período.
+                </p>
+              )}
+              {temMapaProprio ? (
+                <div className="mapa-baias-wrapper">
+                  <img src={sala.imagem ?? undefined} alt={`Mapa da ${sala.nome}`} className="mapa-baias-imagem" />
+                  {numerosBaia.map(baia => (
+                    <div key={baia} className="mapa-baias-etiqueta" style={sala.posicoes[baia]}>
+                      {ocupantes[baia] ? exibirNome(ocupantes[baia]) : '—'}
+                    </div>
+                  ))}
+                  {sala.marcadores?.map(m => (
+                    <div key={m.id} className="editor-marcador-item" style={{ top: m.top, left: m.left }}>
+                      <span className="editor-marcador-icone">{emojiDoMarcador(m.tipo)}</span>
+                      <span className="editor-marcador-rotulo">{m.rotulo}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <div className="config-baias-lista">
+                  {/* Modo por perfil (equipe só) mostra todas as baias da sala,
+                     mesmo sem reserva nenhuma — qualquer um da equipe pode
+                     estar em qualquer uma. Modo por equipe só mostra as que
+                     têm reserva de verdade, porque baia sem reserva ali fica
+                     sempre vazia mesmo (ninguém flutua pra ela). */}
+                  {(sala.modoReserva === 'perfil' ? numerosBaia : Object.keys(sala.baias)).sort((a, b) => Number(a) - Number(b)).map(baia => (
+                    <div key={baia} className="config-baia-linha">
+                      <span className="config-baia-linha-numero">Baia {baia}</span>
+                      <span>{ocupantes[baia] || '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          )
+        })}
 
         <div className="dia-detalhado-lista">
           {diaDetalhado.escalas.map(escala => {

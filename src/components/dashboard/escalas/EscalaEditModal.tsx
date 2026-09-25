@@ -2,7 +2,7 @@
 
 import type { Dispatch, FormEvent, SetStateAction } from 'react'
 import { EQUIPES } from '../../../lib/equipesConfig'
-import type { Escala, FormEscala, Usuario } from '../../../types/dominio'
+import type { Escala, FormEscala, Sala, Usuario } from '../../../types/dominio'
 import { tiposDisponiveisParaEquipe } from '../../../lib/escalasConstants'
 
 function formatarDataBR(dataISO: string | null | undefined) {
@@ -16,6 +16,7 @@ export default function EscalaEditModal({
   setFormData,
   canEdit,
   isAdmin,
+  salas,
   tecnicosDisponiveis,
   getNomeTecnico,
   onSubmit,
@@ -46,6 +47,7 @@ export default function EscalaEditModal({
   setFormData: Dispatch<SetStateAction<FormEscala>>
   canEdit: boolean
   isAdmin: boolean
+  salas: Sala[]
   tecnicosDisponiveis: Usuario[]
   getNomeTecnico: (uid: string) => string
   onSubmit: (e: FormEvent<HTMLFormElement>) => void
@@ -74,6 +76,13 @@ export default function EscalaEditModal({
   if (!open) return null
 
   const escalaOferecidaSelecionada = minhasEscalasParaOferecer?.find(e => e.id === escalaOferecidaId)
+
+  // Só faz sentido escolher sala quando a equipe está em mais de uma
+  // (formalizadas num rodízio "Entre Salas" ou não — qualquer configuração
+  // com 2+ salas pra mesma equipe é ambígua) — nos outros casos a sala já
+  // é descoberta sozinha, não precisa escolher aqui.
+  const salasDaEquipe = salas.filter(s => s.equipes.includes(formData.equipe ?? ''))
+  const mostrarSelecaoSala = (formData.tipo === 'presencial' || formData.tipo === 'sabado') && salasDaEquipe.length > 1
 
   return (
     <div className="modal-overlay" onClick={onCancel}>
@@ -171,6 +180,22 @@ export default function EscalaEditModal({
               )}
             </select>
           </div>
+          {mostrarSelecaoSala && (
+            <div className="form-group">
+              <label>Sala</label>
+              <select
+                value={formData.salaId ?? ''}
+                onChange={(e) => setFormData({ ...formData, salaId: e.target.value ? Number(e.target.value) : null })}
+                disabled={!canEdit}
+              >
+                <option value="">— Ainda não definida —</option>
+                {salasDaEquipe.map(sala => (
+                  <option key={sala.id} value={sala.id}>{sala.nome}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="form-group">
             <label>Descrição</label>
             <textarea

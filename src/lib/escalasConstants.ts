@@ -64,10 +64,8 @@ export function tiposDisponiveisParaEquipe(equipe: string | null | undefined): T
 
 // Opções ao GERAR uma escala nova: Presencial e Home Office isolados saem
 // da lista porque já estão cobertos pelo modo híbrido (que os combina).
-export function tiposGeracaoDisponiveis(equipe: string | null | undefined): TipoEscala[] {
-  const base = TIPOS_ESCALA.filter(t =>
-    (t.id === 'sabado' && equipe === 'suporte') || t.id === 'sobreaviso'
-  )
+export function tiposGeracaoDisponiveis(podeSabado: boolean): TipoEscala[] {
+  const base = TIPOS_ESCALA.filter(t => (t.id === 'sabado' && podeSabado) || t.id === 'sobreaviso')
   return [TIPO_HIBRIDO, ...base]
 }
 

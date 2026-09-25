@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { POSICOES_BAIA } from './MapaBaias'
+import { emojiDoMarcador } from './EditorPosicoesSala'
 import { labelEquipe, PERFIS, especialidadesPorEquipe } from '../../../lib/equipesConfig'
 import { IMAGEM_COM_POSICOES_CONHECIDAS } from '../../../lib/salasConfig'
 import type { Sala, ConfigBaia } from '../../../types/dominio'
@@ -35,10 +36,14 @@ export default function ConfigSala({ sala, minhaEquipe, souAdmin, onAlterarBaia,
   const [confirmandoSaida, setConfirmandoSaida] = useState(false)
   const [semAlteracao, setSemAlteracao] = useState(false)
 
-  const mostrarMapa = sala.imagem === IMAGEM_COM_POSICOES_CONHECIDAS
-  const numerosBaia = mostrarMapa
+  const mostrarMapaFixo = sala.imagem === IMAGEM_COM_POSICOES_CONHECIDAS
+  const numerosBaia = mostrarMapaFixo
     ? Object.keys(POSICOES_BAIA)
     : Array.from({ length: sala.qtdBaias || 9 }, (_, i) => String(i + 1))
+  const posicoesProprias = sala.posicoes || {}
+  const temMapaProprio = !mostrarMapaFixo && !!sala.imagem && numerosBaia.every(b => posicoesProprias[b])
+  const mostrarMapa = mostrarMapaFixo || temMapaProprio
+  const posicoesParaUsar = mostrarMapaFixo ? POSICOES_BAIA : posicoesProprias
   const equipesQuePossoEscolher = souAdmin ? sala.equipes : sala.equipes.filter(e => e === minhaEquipe)
 
   const todasAsBaias = new Set([...Object.keys(sala.baias), ...Object.keys(valores)])
@@ -172,12 +177,24 @@ export default function ConfigSala({ sala, minhaEquipe, souAdmin, onAlterarBaia,
             Cada escolha só salva quando você clicar em <strong>Salvar</strong>.
           </p>
 
+          {!mostrarMapa && sala.imagem && (
+            <p className="campo-nota" style={{ marginBottom: 10 }}>
+              Essa sala já tem planta, mas as posições de alguma baia ainda não foram marcadas — abra "Editar sala" (⚙️) e use "Ajustar posições" pra virar mapa visual clicável.
+            </p>
+          )}
+
           {mostrarMapa ? (
             <div className="mapa-baias-wrapper">
               <img src={sala.imagem ?? undefined} alt={`Mapa da ${sala.nome}`} className="mapa-baias-imagem" />
               {numerosBaia.map(baia => (
-                <div key={baia} className="config-baia-mapa-item" style={POSICOES_BAIA[baia]}>
+                <div key={baia} className="config-baia-mapa-item" style={posicoesParaUsar[baia]}>
                   {renderCampos(baia)}
+                </div>
+              ))}
+              {sala.marcadores?.map(m => (
+                <div key={m.id} className="editor-marcador-item" style={{ top: m.top, left: m.left }}>
+                  <span className="editor-marcador-icone">{emojiDoMarcador(m.tipo)}</span>
+                  <span className="editor-marcador-rotulo">{m.rotulo}</span>
                 </div>
               ))}
             </div>

@@ -24,8 +24,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const { baia, perfil, especialidade } = body
     let { equipe } = body
 
+    const { rows: salaRows } = await query('SELECT qtd_baias FROM salas WHERE cd_sala = $1', [cdSala])
+    if (salaRows.length === 0) {
+      return NextResponse.json({ error: 'Sala não encontrada' }, { status: 404 })
+    }
     const numero = Number(baia)
-    if (!Number.isInteger(numero) || numero < 0 || numero > 9) {
+    if (!Number.isInteger(numero) || numero < 0 || numero > salaRows[0].qtd_baias) {
       return NextResponse.json({ error: 'Número da baia inválido' }, { status: 400 })
     }
 

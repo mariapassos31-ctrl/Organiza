@@ -11,12 +11,10 @@ import {
   corEquipe,
   labelPerfil,
   ehPerfilGestao,
-  nuncaEhEscalado,
 } from '../../lib/equipesConfig'
 import { DIAS_SEMANA, ehJovemAprendiz } from '../../lib/escalasConstants'
-import PainelSalas from './escalas/PainelSalas'
 import { mensagemDeErro } from '../../lib/erros'
-import type { Usuario, Sala, ConfigLab } from '../../types/dominio'
+import type { Usuario } from '../../types/dominio'
 import '../../styles/Usuarios.css'
 
 const CUSTOM = '__custom__'
@@ -42,8 +40,6 @@ interface FormCriar extends FormUsuario {
   email: string
 }
 
-type DadosBaia = { equipe?: string | null; especialidade?: string | null; perfil?: string | null }
-
 export default function Usuarios() {
   const { user, userData } = useDashboardUser()
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
@@ -52,9 +48,6 @@ export default function Usuarios() {
   const [showFormEditar, setShowFormEditar] = useState(false)
   const [usuarioEditando, setUsuarioEditando] = useState<Usuario | null>(null)
   const [filtroEquipe, setFiltroEquipe] = useState('todos')
-  const [showPainelSalas, setShowPainelSalas] = useState(false)
-  const [salas, setSalas] = useState<Sala[]>([])
-  const [laboratorioConfig, setLaboratorioConfig] = useState<ConfigLab>({ responsavelUid: null, backupUid: null })
 
   const formVazioCriar: FormCriar = {
     nome: '',
@@ -109,8 +102,6 @@ export default function Usuarios() {
       }))
     }
     carregarUsuarios()
-    carregarSalas()
-    carregarLaboratorioConfig()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userData])
 
@@ -140,200 +131,6 @@ export default function Usuarios() {
     if (!userData) return false
     return ehPerfilGestao(userData.role)
   }
-
-  const carregarSalas = async () => {
-    try {
-      const response = await fetch('/api/salas')
-      if (!response.ok) return
-      const dados = await response.json()
-      setSalas(dados.salas || [])
-    } catch (error) {
-      console.error('Erro ao carregar salas:', error)
-    }
-  }
-
-  // Mudar quais equipes usam uma sala pode virar o modo de reserva dela
-  // (perfil <-> equipe) e liberar baias de quem saiu — mais simples
-  // recarregar a sala inteira do que tentar remendar o estado local.
-  const definirEquipesSala = async (salaId: number, equipes: string[]) => {
-    try {
-      const response = await fetch(`/api/salas/${salaId}/equipes`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ equipes }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Falha ao salvar')
-      }
-      await carregarSalas()
-      return true
-    } catch (err) {
-      alert(mensagemDeErro(err))
-      return false
-    }
-  }
-
-  const criarSala = async (valores: { nome: string; qtdBaias: number; equipes: string[] }) => {
-    try {
-      const response = await fetch('/api/salas', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(valores),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Falha ao criar')
-      }
-      await carregarSalas()
-      return true
-    } catch (err) {
-      alert(mensagemDeErro(err))
-      return false
-    }
-  }
-
-  const editarSala = async (salaId: number, valores: { nome: string; qtdBaias: number }) => {
-    try {
-      const response = await fetch(`/api/salas/${salaId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(valores),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Falha ao salvar')
-      }
-      await carregarSalas()
-      return true
-    } catch (err) {
-      alert(mensagemDeErro(err))
-      return false
-    }
-  }
-
-  const excluirSala = async (salaId: number) => {
-    try {
-      const response = await fetch(`/api/salas/${salaId}`, { method: 'DELETE' })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Falha ao excluir')
-      }
-      setSalas(prev => prev.filter(s => s.id !== salaId))
-      return true
-    } catch (err) {
-      alert(mensagemDeErro(err))
-      return false
-    }
-  }
-
-  const enviarImagemSala = async (salaId: number, arquivo: File) => {
-    try {
-      const formData = new FormData()
-      formData.append('imagem', arquivo)
-      const response = await fetch(`/api/salas/${salaId}/imagem`, { method: 'POST', body: formData })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Falha ao enviar imagem')
-      }
-      await carregarSalas()
-      return true
-    } catch (err) {
-      alert(mensagemDeErro(err))
-      return false
-    }
-  }
-
-  const removerImagemSala = async (salaId: number) => {
-    try {
-      const response = await fetch(`/api/salas/${salaId}/imagem`, { method: 'DELETE' })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Falha ao remover imagem')
-      }
-      await carregarSalas()
-      return true
-    } catch (err) {
-      alert(mensagemDeErro(err))
-      return false
-    }
-  }
-
-  // Retorna true/false (sucesso) pro ConfigSala saber se pode considerar
-  // aquela baia salva. `valores` é { perfil } (sala de 1 equipe só) ou
-  // { equipe, especialidade } (sala compartilhada) — o formato certo já
-  // vem calculado pelo ConfigSala, que sabe o modoReserva da sala.
-  const definirBaiaSala = async (salaId: number, baia: string, valores: DadosBaia) => {
-    try {
-      const response = await fetch(`/api/salas/${salaId}/baias`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ baia, ...valores }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Falha ao salvar')
-      }
-      setSalas(prev => prev.map(sala => {
-        if (sala.id !== salaId) return sala
-        const proximasBaias = { ...sala.baias }
-        const livre = sala.modoReserva === 'equipe' ? !valores.equipe : !valores.perfil
-        if (livre) {
-          delete proximasBaias[baia]
-        } else if (sala.modoReserva === 'equipe') {
-          proximasBaias[baia] = { equipe: valores.equipe ?? undefined, especialidade: valores.especialidade || undefined }
-        } else {
-          proximasBaias[baia] = { perfil: valores.perfil ?? undefined }
-          if (valores.perfil === 'supervisor') {
-            for (const b of Object.keys(proximasBaias)) {
-              if (b !== baia && proximasBaias[b]?.perfil === 'supervisor') delete proximasBaias[b]
-            }
-          }
-        }
-        return { ...sala, baias: proximasBaias }
-      }))
-      return true
-    } catch (err) {
-      alert(mensagemDeErro(err))
-      return false
-    }
-  }
-
-  // Laboratório só existe pro Suporte por enquanto.
-  const podeConfigurarLaboratorio = podecriarUsuario() && (userData?.role === 'admin' || userData?.equipe === 'suporte')
-
-  const carregarLaboratorioConfig = async () => {
-    try {
-      const response = await fetch('/api/laboratorio-config?equipe=suporte')
-      if (!response.ok) return
-      const dados = await response.json()
-      setLaboratorioConfig({ responsavelUid: dados.responsavelUid || null, backupUid: dados.backupUid || null })
-    } catch (error) {
-      console.error('Erro ao carregar configuração do Laboratório:', error)
-    }
-  }
-
-  // Retorna true/false (sucesso) pro ConfigLaboratorio saber se pode fechar.
-  const definirLaboratorio = async (valores: ConfigLab) => {
-    try {
-      const response = await fetch('/api/laboratorio-config', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ equipe: 'suporte', ...valores }),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Falha ao salvar')
-      }
-      setLaboratorioConfig(valores)
-      return true
-    } catch (err) {
-      alert(mensagemDeErro(err))
-      return false
-    }
-  }
-
-  const podeVerPainelSalas = podeConfigurarLaboratorio || salas.some(s => s.podeEditar)
 
   const equipesDisponiveis = () => {
     if (!userData) return EQUIPES
@@ -622,11 +419,6 @@ export default function Usuarios() {
           <p className="subtitle">Total de usuários: {usuarios.length}</p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
-          {podeVerPainelSalas && (
-            <button className="btn-secondary" onClick={() => setShowPainelSalas(!showPainelSalas)}>
-              {showPainelSalas ? '✕ Fechar' : '🏢 Salas'}
-            </button>
-          )}
           {podeEditar && (
             <button className="btn-primary" onClick={() => setShowFormCriar(!showFormCriar)}>
               {showFormCriar ? '✕ Cancelar' : '+ Novo Usuário'}
@@ -634,29 +426,6 @@ export default function Usuarios() {
           )}
         </div>
       </div>
-
-      {/* SALAS (baias do Suporte, sala compartilhada, Laboratório) */}
-      {podeVerPainelSalas && showPainelSalas && (
-        <PainelSalas
-          salas={salas}
-          podeConfigurarLaboratorio={podeConfigurarLaboratorio}
-          laboratorioProps={{
-            tecnicos: usuarios.filter(u => u.equipe === 'suporte' && !nuncaEhEscalado(u.role)).sort((a, b) => a.nome.localeCompare(b.nome)),
-            valorInicial: laboratorioConfig,
-            onSalvar: definirLaboratorio,
-          }}
-          minhaEquipe={userData?.equipe}
-          souAdmin={souAdmin}
-          onAlterarBaiaSala={definirBaiaSala}
-          onAlterarEquipesSala={definirEquipesSala}
-          onCriarSala={criarSala}
-          onEditarSala={editarSala}
-          onExcluirSala={excluirSala}
-          onEnviarImagemSala={enviarImagemSala}
-          onRemoverImagemSala={removerImagemSala}
-          onClose={() => setShowPainelSalas(false)}
-        />
-      )}
 
       {error && <p className="error-message">{error}</p>}
       {success && <p className="success-message">{success}</p>}

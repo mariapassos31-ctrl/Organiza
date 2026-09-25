@@ -1,5 +1,5 @@
 import 'server-only'
-import { query, equipeIdFromSlug, getPool } from './db'
+import { query, getPool } from './db'
 import { addDays, getSabados, indiceContinuacao, construirBlocosRodizio, construirBlocosHibrido } from './escalasRodizio'
 import { construirBlocosHomeOfficePar } from './escalasHomeOfficePar'
 import { ehJovemAprendiz } from './escalasConstants'
@@ -20,20 +20,36 @@ export async function resolverEquipeGestor(sessionUser: { id: string; equipe?: s
   return rows[0]?.tp_equipe || null
 }
 
+// Uma sala pode ligar mais de uma equipe (ex: Sala Compartilhada) — nesse
+// caso a geração mistura os participantes de todas elas numa única leva
+// (mesmo rodízio de home office, por exemplo), cada um mantendo sua
+// própria equipe (pra escala dele sair vinculada à equipe certa depois).
+export async function carregarEquipesDaSala(salaId: number): Promise<{ equipeIds: number[]; equipeSlugs: string[] } | null> {
+  const { rows } = await query(
+    `SELECT e.cd_equipe, e.tp_equipe FROM sala_equipes se JOIN equipes e ON e.cd_equipe = se.cd_equipe WHERE se.cd_sala = $1`,
+    [salaId]
+  )
+  if (rows.length === 0) return null
+  return { equipeIds: rows.map(r => r.cd_equipe), equipeSlugs: rows.map(r => r.tp_equipe) }
+}
+
 // Cada participante carrega seu período de férias (feriasInicio/feriasFim,
 // se houver) — quem está de férias num dia específico é pulado nesse dia
-// pelos motores de rotação, sem precisar tirá-lo da lista inteira.
-async function carregarParticipantes(equipeId: number, tecnicoUids: Array<string | number>): Promise<Participante[]> {
+// pelos motores de rotação, sem precisar tirá-lo da lista inteira. Guarda
+// também a própria equipe (cd_equipe) de cada um — necessário quando a
+// sala mistura gente de equipes diferentes numa mesma geração, pra saber
+// depois em qual equipe gravar a escala de cada bloco.
+async function carregarParticipantes(equipeIds: number[], tecnicoUids: Array<string | number>): Promise<Participante[]> {
   const { rows: tecnicosEquipe } = await query(
-    `SELECT u.cd_usuario, u.tp_role, t.cd_tecnico, t.nm_tecnico, t.ds_especialidade, t.hr_entrada, t.nr_baia,
+    `SELECT u.cd_usuario, u.tp_role, t.cd_tecnico, t.nm_tecnico, t.cd_equipe, t.ds_especialidade, t.hr_entrada, t.nr_baia,
             t.sn_elegivel_home_office,
             to_char(t.dt_ferias_inicio, 'YYYY-MM-DD') AS dt_ferias_inicio,
             to_char(t.dt_ferias_fim, 'YYYY-MM-DD') AS dt_ferias_fim
      FROM tecnicos t
      JOIN usuarios u ON u.cd_usuario = t.cd_usuario
-     WHERE t.sn_ativo = true AND t.cd_equipe = $1
+     WHERE t.sn_ativo = true AND t.cd_equipe = ANY($1::int[])
      ORDER BY t.nm_tecnico`,
-    [equipeId]
+    [equipeIds]
   )
   const selecionados = new Set(tecnicoUids.map(String))
   return tecnicosEquipe
@@ -43,6 +59,7 @@ async function carregarParticipantes(equipeId: number, tecnicoUids: Array<string
       role: t.tp_role,
       cd_tecnico: t.cd_tecnico,
       nm_tecnico: t.nm_tecnico,
+      cd_equipe: t.cd_equipe,
       especialidade: t.ds_especialidade || null,
       horarioEntrada: t.hr_entrada ? String(t.hr_entrada).slice(0, 5) : null,
       baiaId: t.nr_baia ?? null,
@@ -52,18 +69,27 @@ async function carregarParticipantes(equipeId: number, tecnicoUids: Array<string
     }))
 }
 
-// Soma quantos dias cada técnico já ficou em home office nessa equipe até
-// agora, pra uma geração nova continuar o rodízio justo em vez de resetar.
-async function buscarContagensHomeOffice(equipeId: number, tecnicoUids: Array<string | number>): Promise<Record<string, number>> {
+// Devolve o cd_equipe de cada bloco, olhando de qual participante veio —
+// necessário pra gravar a escala na equipe certa mesmo quando a geração
+// mistura gente de equipes diferentes (a sala pode ligar mais de uma).
+function anexarEquipePorBloco(blocos: BlocoEscala[], participantes: Participante[]): BlocoEscala[] {
+  const equipePorTecnico = new Map(participantes.map(p => [String(p.cd_tecnico), p.cd_equipe]))
+  return blocos.map(b => ({ ...b, cdEquipe: equipePorTecnico.get(String(b.cdTecnico)) }))
+}
+
+// Soma quantos dias cada técnico já ficou em home office (nas equipes da
+// sala) até agora, pra uma geração nova continuar o rodízio justo em vez
+// de resetar.
+async function buscarContagensHomeOffice(equipeIds: number[], tecnicoUids: Array<string | number>): Promise<Record<string, number>> {
   const { rows } = await query(
     `SELECT u.cd_usuario, COALESCE(SUM(es.dt_fim - es.dt_inicio + 1), 0) AS dias
      FROM escalas es
      JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
      JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
      JOIN usuarios u ON u.cd_usuario = t.cd_usuario
-     WHERE es.cd_equipe = $1 AND es.tp_escala = 'homeoffice' AND u.cd_usuario = ANY($2::int[])
+     WHERE es.cd_equipe = ANY($1::int[]) AND es.tp_escala = 'homeoffice' AND u.cd_usuario = ANY($2::int[])
      GROUP BY u.cd_usuario`,
-    [equipeId, tecnicoUids.map(Number)]
+    [equipeIds, tecnicoUids.map(Number)]
   )
   const contagens: Record<string, number> = {}
   for (const r of rows) contagens[String(r.cd_usuario)] = Number(r.dias)
@@ -73,34 +99,34 @@ async function buscarContagensHomeOffice(equipeId: number, tecnicoUids: Array<st
 // Mesma soma de buscarContagensHomeOffice, mas só considera dias que já
 // terminaram antes de `antesDe` — usado ao recalcular uma janela futura,
 // pra não contar (nem descontar) os dias que estão sendo refeitos agora.
-async function buscarContagensHomeOfficeAntes(equipeId: number, tecnicoUids: Array<string | number>, antesDe: string): Promise<Record<string, number>> {
+async function buscarContagensHomeOfficeAntes(equipeIds: number[], tecnicoUids: Array<string | number>, antesDe: string): Promise<Record<string, number>> {
   const { rows } = await query(
     `SELECT u.cd_usuario, COALESCE(SUM(es.dt_fim - es.dt_inicio + 1), 0) AS dias
      FROM escalas es
      JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
      JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
      JOIN usuarios u ON u.cd_usuario = t.cd_usuario
-     WHERE es.cd_equipe = $1 AND es.tp_escala = 'homeoffice' AND es.dt_fim < $2 AND u.cd_usuario = ANY($3::int[])
+     WHERE es.cd_equipe = ANY($1::int[]) AND es.tp_escala = 'homeoffice' AND es.dt_fim < $2 AND u.cd_usuario = ANY($3::int[])
      GROUP BY u.cd_usuario`,
-    [equipeId, antesDe, tecnicoUids.map(Number)]
+    [equipeIds, antesDe, tecnicoUids.map(Number)]
   )
   const contagens: Record<string, number> = {}
   for (const r of rows) contagens[String(r.cd_usuario)] = Number(r.dias)
   return contagens
 }
 
-// Quantas pessoas da equipe (não só dos participantes desta geração) já
-// estão escaladas em home office em cada dia do período — vem de escalas
-// já existentes, possivelmente criadas numa geração anterior separada.
-// Evita que gerar em pedaços (ex: mês a mês) estoure o limite diário.
-async function buscarOcupacaoHomeOfficeExistente(equipeId: number, dataInicio: string, dataFim: string): Promise<Record<string, number>> {
+// Quantas pessoas das equipes da sala (não só dos participantes desta
+// geração) já estão escaladas em home office em cada dia do período — vem
+// de escalas já existentes, possivelmente criadas numa geração anterior
+// separada. Evita que gerar em pedaços (ex: mês a mês) estoure o limite diário.
+async function buscarOcupacaoHomeOfficeExistente(equipeIds: number[], dataInicio: string, dataFim: string): Promise<Record<string, number>> {
   const { rows } = await query(
     `SELECT to_char(es.dt_inicio, 'YYYY-MM-DD') AS dt_inicio,
             to_char(es.dt_fim, 'YYYY-MM-DD') AS dt_fim
      FROM escalas es
-     WHERE es.cd_equipe = $1 AND es.tp_escala = 'homeoffice'
+     WHERE es.cd_equipe = ANY($1::int[]) AND es.tp_escala = 'homeoffice'
        AND es.dt_inicio <= $3 AND es.dt_fim >= $2`,
-    [equipeId, dataInicio, dataFim]
+    [equipeIds, dataInicio, dataFim]
   )
   const porDia: Record<string, number> = {}
   for (const r of rows) {
@@ -117,19 +143,16 @@ async function buscarOcupacaoHomeOfficeExistente(equipeId: number, dataInicio: s
 // Modo "rodízio" — usado para tipos de dono único por vez (Sábado,
 // Sobreaviso, ou Presencial/Home Office isolados): um técnico ocupa um
 // bloco de dias, depois passa a vez para o próximo, continuando de onde
-// a última geração desse mesmo tipo+equipe parou.
+// a última geração desse mesmo tipo (nas equipes da sala) parou. Quando a
+// sala liga mais de uma equipe, todo mundo entra na MESMA fila de rodízio.
 export async function montarPlanoAuto({ role, userEquipe, body }: ArgsPlano): Promise<ResultadoPlano> {
-  const { tipo, dataInicio, dataFim, diasPorTecnico, tecnicoUids } = body
-  const equipe = role !== 'admin' ? userEquipe : body.equipe
+  const { tipo, dataInicio, dataFim, diasPorTecnico, tecnicoUids, salaId } = body
 
-  if (!equipe || !tipo || !dataInicio || !dataFim) {
-    return { error: 'Equipe, tipo e período são obrigatórios', status: 400 }
+  if (!salaId || !tipo || !dataInicio || !dataFim) {
+    return { error: 'Sala, tipo e período são obrigatórios', status: 400 }
   }
   if (!TIPOS_VALIDOS.includes(tipo)) {
     return { error: 'Tipo de escala inválido', status: 400 }
-  }
-  if (tipo === 'sabado' && equipe !== 'suporte') {
-    return { error: 'Escala do tipo Sábado só pode ser gerada para a equipe Suporte', status: 400 }
   }
   if (dataFim < dataInicio) {
     return { error: 'A data final não pode ser antes da data inicial', status: 400 }
@@ -142,14 +165,22 @@ export async function montarPlanoAuto({ role, userEquipe, body }: ArgsPlano): Pr
     return { error: 'Selecione ao menos um técnico', status: 400 }
   }
 
-  const equipeId = await equipeIdFromSlug(equipe)
-  if (!equipeId) {
-    return { error: 'Equipe não encontrada', status: 404 }
+  const salaEquipes = await carregarEquipesDaSala(Number(salaId))
+  if (!salaEquipes) {
+    return { error: 'Sala não encontrada ou sem equipe vinculada', status: 404 }
+  }
+  const { equipeIds, equipeSlugs } = salaEquipes
+  if (role !== 'admin' && !(userEquipe && equipeSlugs.includes(userEquipe))) {
+    return { error: 'Você só pode gerar escalas pra uma sala que a sua equipe usa', status: 403 }
   }
 
-  const participantesSelecionados = await carregarParticipantes(equipeId, tecnicoUids)
+  if (tipo === 'sabado' && !(equipeSlugs.length === 1 && equipeSlugs[0] === 'suporte')) {
+    return { error: 'Escala do tipo Sábado só pode ser gerada pra uma sala exclusiva da equipe Suporte', status: 400 }
+  }
+
+  const participantesSelecionados = await carregarParticipantes(equipeIds, tecnicoUids)
   if (participantesSelecionados.length === 0) {
-    return { error: 'Nenhum dos técnicos selecionados pertence a esta equipe', status: 400 }
+    return { error: 'Nenhum dos técnicos selecionados pertence às equipes dessa sala', status: 400 }
   }
 
   const ehSabado = tipo === 'sabado'
@@ -172,9 +203,9 @@ export async function montarPlanoAuto({ role, userEquipe, body }: ArgsPlano): Pr
   if (ehSabado) {
     const { rows: conflitos } = await query(
       `SELECT cd_escala FROM escalas
-       WHERE cd_equipe = $1 AND tp_escala = $2 AND dt_inicio = ANY($3::date[])
+       WHERE cd_equipe = ANY($1::int[]) AND tp_escala = $2 AND dt_inicio = ANY($3::date[])
        LIMIT 1`,
-      [equipeId, tipo, sabados]
+      [equipeIds, tipo, sabados]
     )
     if (conflitos.length > 0) {
       return { error: 'Já existe escala de sábado cadastrada em algum desses dias', status: 400 }
@@ -182,34 +213,35 @@ export async function montarPlanoAuto({ role, userEquipe, body }: ArgsPlano): Pr
   } else {
     const { rows: conflitos } = await query(
       `SELECT cd_escala FROM escalas
-       WHERE cd_equipe = $1 AND tp_escala = $2 AND dt_inicio <= $4 AND dt_fim >= $3
+       WHERE cd_equipe = ANY($1::int[]) AND tp_escala = $2 AND dt_inicio <= $4 AND dt_fim >= $3
        LIMIT 1`,
-      [equipeId, tipo, dataInicio, dataFim]
+      [equipeIds, tipo, dataInicio, dataFim]
     )
     if (conflitos.length > 0) {
-      return { error: 'Já existem escalas desse tipo cadastradas nesse período para esta equipe', status: 400 }
+      return { error: 'Já existem escalas desse tipo cadastradas nesse período para essas equipes', status: 400 }
     }
   }
 
   // Continua o rodízio a partir de quem foi o último técnico escalado
-  // (equipe + tipo) mais recentemente, senão começa do primeiro da lista.
+  // (nas equipes da sala + tipo) mais recentemente, senão começa do
+  // primeiro da lista.
   const { rows: ultimaRows } = await query(
     `SELECT u.cd_usuario
      FROM escalas es
      JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
      JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
      JOIN usuarios u ON u.cd_usuario = t.cd_usuario
-     WHERE es.cd_equipe = $1 AND es.tp_escala = $2
+     WHERE es.cd_equipe = ANY($1::int[]) AND es.tp_escala = $2
      ORDER BY es.dt_fim DESC, es.cd_escala DESC
      LIMIT 1`,
-    [equipeId, tipo]
+    [equipeIds, tipo]
   )
   const ultimoUid = ultimaRows[0]?.cd_usuario ? String(ultimaRows[0].cd_usuario) : null
   const indiceInicial = indiceContinuacao(participantes, ultimoUid)
 
   const { blocos, avisos } = construirBlocosRodizio({ participantes, tipo, dataInicio, dataFim, bloco, indiceInicial, sabados })
 
-  return { equipeId, equipe, blocos, avisos }
+  return { salaId: Number(salaId), equipeSlugs, blocos: anexarEquipePorBloco(blocos, participantes), avisos }
 }
 
 // Modo "híbrido" (Presencial + Home Office divididos): a cada dia de
@@ -218,11 +250,10 @@ export async function montarPlanoAuto({ role, userEquipe, body }: ArgsPlano): Pr
 // de trabalho = nº de técnicos), todo mundo passou pela mesma quantidade
 // de dias de cada tipo.
 export async function montarPlanoHibrido({ role, userEquipe, body }: ArgsPlano): Promise<ResultadoPlano> {
-  const { dataInicio, dataFim, tecnicoUids, diasTrabalho, percentualHomeOffice, quantidadeHomeOffice } = body
-  const equipe = role !== 'admin' ? userEquipe : body.equipe
+  const { dataInicio, dataFim, tecnicoUids, diasTrabalho, percentualHomeOffice, quantidadeHomeOffice, salaId } = body
 
-  if (!equipe || !dataInicio || !dataFim) {
-    return { error: 'Equipe e período são obrigatórios', status: 400 }
+  if (!salaId || !dataInicio || !dataFim) {
+    return { error: 'Sala e período são obrigatórios', status: 400 }
   }
   if (dataFim < dataInicio) {
     return { error: 'A data final não pode ser antes da data inicial', status: 400 }
@@ -252,15 +283,19 @@ export async function montarPlanoHibrido({ role, userEquipe, body }: ArgsPlano):
     }
   }
 
-  const equipeId = await equipeIdFromSlug(equipe)
-  if (!equipeId) {
-    return { error: 'Equipe não encontrada', status: 404 }
+  const salaEquipes = await carregarEquipesDaSala(Number(salaId))
+  if (!salaEquipes) {
+    return { error: 'Sala não encontrada ou sem equipe vinculada', status: 404 }
+  }
+  const { equipeIds, equipeSlugs } = salaEquipes
+  if (role !== 'admin' && !(userEquipe && equipeSlugs.includes(userEquipe))) {
+    return { error: 'Você só pode gerar escalas pra uma sala que a sua equipe usa', status: 403 }
   }
 
-  const participantes = await carregarParticipantes(equipeId, tecnicoUids)
+  const participantes = await carregarParticipantes(equipeIds, tecnicoUids)
   const n = participantes.length
   if (n === 0) {
-    return { error: 'Nenhum dos técnicos selecionados pertence a esta equipe', status: 400 }
+    return { error: 'Nenhum dos técnicos selecionados pertence às equipes dessa sala', status: 400 }
   }
 
   let blocos: BlocoEscala[]
@@ -279,8 +314,8 @@ export async function montarPlanoHibrido({ role, userEquipe, body }: ArgsPlano):
     if (!Number.isInteger(duracaoBlocoDias) || duracaoBlocoDias < 1) {
       return { error: 'A duração do bloco de home office precisa ser um número inteiro maior que zero', status: 400 }
     }
-    const contagensIniciais = await buscarContagensHomeOffice(equipeId, participantes.map(p => p.cd_usuario))
-    const ocupacaoExistentePorDia = await buscarOcupacaoHomeOfficeExistente(equipeId, dataInicio, dataFim)
+    const contagensIniciais = await buscarContagensHomeOffice(equipeIds, participantes.map(p => p.cd_usuario))
+    const ocupacaoExistentePorDia = await buscarOcupacaoHomeOfficeExistente(equipeIds, dataInicio, dataFim)
     const resultado = construirBlocosHomeOfficePar({
       participantes,
       dataInicio,
@@ -290,6 +325,7 @@ export async function montarPlanoHibrido({ role, userEquipe, body }: ArgsPlano):
       duracaoBlocoDias,
       contagensIniciais,
       ocupacaoExistentePorDia,
+      respeitarEspecialidade: body.respeitarEspecialidade !== false,
     })
     blocos = resultado.blocos
     avisos = resultado.avisos
@@ -317,35 +353,40 @@ export async function montarPlanoHibrido({ role, userEquipe, body }: ArgsPlano):
     }
   }
 
-  return { equipeId, equipe, blocos, avisos }
+  return { salaId: Number(salaId), equipeSlugs, blocos: anexarEquipePorBloco(blocos, participantes), avisos }
 }
 
 // Recebe uma lista de blocos já decididos (ex: prévia editada manualmente
 // pelo usuário) e valida cada um antes de criar, sem recalcular nada.
 export async function montarPlanoManual({ role, userEquipe, body }: ArgsPlano): Promise<ResultadoPlano> {
-  const { blocosManuais } = body
-  const equipe = role !== 'admin' ? userEquipe : body.equipe
+  const { blocosManuais, salaId } = body
 
-  if (!equipe) {
-    return { error: 'Equipe é obrigatória', status: 400 }
+  if (!salaId) {
+    return { error: 'Sala é obrigatória', status: 400 }
   }
   if (!Array.isArray(blocosManuais) || blocosManuais.length === 0) {
     return { error: 'Nenhuma escala para criar', status: 400 }
   }
 
-  const equipeId = await equipeIdFromSlug(equipe)
-  if (!equipeId) {
-    return { error: 'Equipe não encontrada', status: 404 }
+  const salaEquipes = await carregarEquipesDaSala(Number(salaId))
+  if (!salaEquipes) {
+    return { error: 'Sala não encontrada ou sem equipe vinculada', status: 404 }
+  }
+  const { equipeIds, equipeSlugs } = salaEquipes
+  if (role !== 'admin' && !(userEquipe && equipeSlugs.includes(userEquipe))) {
+    return { error: 'Você só pode gerar escalas pra uma sala que a sua equipe usa', status: 403 }
   }
 
-  const { rows: tecnicosEquipe } = await query(
-    `SELECT u.cd_usuario, t.cd_tecnico
+  const { rows: tecnicosEquipes } = await query(
+    `SELECT u.cd_usuario, t.cd_tecnico, t.cd_equipe
      FROM tecnicos t
      JOIN usuarios u ON u.cd_usuario = t.cd_usuario
-     WHERE t.sn_ativo = true AND t.cd_equipe = $1`,
-    [equipeId]
+     WHERE t.sn_ativo = true AND t.cd_equipe = ANY($1::int[])`,
+    [equipeIds]
   )
-  const cdTecnicoPorUid = new Map(tecnicosEquipe.map(t => [String(t.cd_usuario), t.cd_tecnico]))
+  const tecnicoPorUid = new Map(tecnicosEquipes.map(t => [String(t.cd_usuario), t]))
+
+  const sabadoPermitido = equipeSlugs.length === 1 && equipeSlugs[0] === 'suporte'
 
   const blocos: BlocoEscala[] = []
   for (const b of blocosManuais) {
@@ -355,14 +396,21 @@ export async function montarPlanoManual({ role, userEquipe, body }: ArgsPlano): 
     if (!TIPOS_VALIDOS.includes(b.tipo)) {
       return { error: 'Tipo de escala inválido', status: 400 }
     }
-    if (b.tipo === 'sabado' && equipe !== 'suporte') {
-      return { error: 'Escala do tipo Sábado só pode ser usada pela equipe Suporte', status: 400 }
+    if (b.tipo === 'sabado' && !sabadoPermitido) {
+      return { error: 'Escala do tipo Sábado só pode ser usada numa sala exclusiva da equipe Suporte', status: 400 }
     }
-    const cdTecnico = cdTecnicoPorUid.get(String(b.tecnicoUid))
-    if (!cdTecnico) {
-      return { error: 'Um dos técnicos escolhidos não pertence a esta equipe', status: 400 }
+    const tecnico = tecnicoPorUid.get(String(b.tecnicoUid))
+    if (!tecnico) {
+      return { error: 'Um dos técnicos escolhidos não pertence às equipes dessa sala', status: 400 }
     }
-    blocos.push({ dtInicio: b.dataInicio, dtFim: b.dataFim, cdTecnico, tipo: b.tipo })
+    let cdSala: number | null = null
+    if (b.salaId !== undefined && b.salaId !== null && b.salaId !== '') {
+      if (Number(b.salaId) !== Number(salaId)) {
+        return { error: 'Uma das escalas aponta pra uma sala diferente da escolhida', status: 400 }
+      }
+      cdSala = Number(b.salaId)
+    }
+    blocos.push({ dtInicio: b.dataInicio, dtFim: b.dataFim, cdTecnico: tecnico.cd_tecnico, cdEquipe: tecnico.cd_equipe, tipo: b.tipo, cdSala })
   }
 
   for (const b of blocos) {
@@ -378,7 +426,7 @@ export async function montarPlanoManual({ role, userEquipe, body }: ArgsPlano): 
     }
   }
 
-  return { equipeId, equipe, blocos }
+  return { salaId: Number(salaId), equipeSlugs, blocos }
 }
 
 // Único ponto de despacho — usado tanto pela prévia quanto pela geração
@@ -462,10 +510,10 @@ export async function recalcularHomeOfficeEquipe(equipeId: number): Promise<{ re
     [equipeId]
   )
   const tecnicoUids = tecnicosEquipe.map(t => t.cd_usuario)
-  const participantes = await carregarParticipantes(equipeId, tecnicoUids)
+  const participantes = await carregarParticipantes([equipeId], tecnicoUids)
   if (participantes.length === 0) return { recalculado: false }
 
-  const contagensIniciais = await buscarContagensHomeOfficeAntes(equipeId, tecnicoUids, dataInicioJanela)
+  const contagensIniciais = await buscarContagensHomeOfficeAntes([equipeId], tecnicoUids, dataInicioJanela)
 
   const { blocos, avisos } = construirBlocosHomeOfficePar({
     participantes,

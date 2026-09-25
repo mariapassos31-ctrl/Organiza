@@ -24,7 +24,7 @@ export const POSICOES_BAIA: Record<string, Posicao> = {
   8: { top: '35.7%', left: '26.7%' },
   9: { top: '17.3%', left: '26.7%' },
 }
-function primeiroNome(nomeCompleto: string) {
+export function primeiroNome(nomeCompleto: string) {
   return nomeCompleto.trim().split(/\s+/)[0]
 }
 
@@ -37,7 +37,7 @@ function semEmoji(texto: string) {
 // Mostra só o primeiro nome pra não poluir o mapa — a não ser que dois
 // ocupantes exibidos compartilhem o mesmo primeiro nome, aí mostra nome
 // completo só desses, pra não confundir quem é quem.
-function criarExibidorDeNome(nomes: string[]) {
+export function criarExibidorDeNome(nomes: string[]) {
   const contagem: Record<string, number> = {}
   for (const nome of nomes) {
     const primeiro = primeiroNome(nome)

@@ -5,6 +5,7 @@ export interface Participante {
   role?: string
   cd_tecnico: number | string
   nm_tecnico: string
+  cd_equipe?: number
   especialidade?: string | null
   horarioEntrada?: string | null
   baiaId?: number | null
@@ -17,9 +18,11 @@ export interface BlocoEscala {
   dtInicio: string
   dtFim: string
   cdTecnico: number | string
+  cdEquipe?: number
   tecnicoUid?: string
   tecnicoNome?: string
   tipo: string
+  cdSala?: number | null
 }
 
 export interface AvisoEscala {
@@ -33,8 +36,8 @@ export interface ErroPlano {
 }
 
 export interface PlanoEscala {
-  equipeId: number
-  equipe: string
+  salaId: number
+  equipeSlugs: string[]
   blocos: BlocoEscala[]
   avisos?: AvisoEscala[]
 }

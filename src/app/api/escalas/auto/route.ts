@@ -30,10 +30,10 @@ export async function POST(request: Request) {
       await client.query('BEGIN')
       for (const b of plano.blocos) {
         const { rows } = await client.query(
-          `INSERT INTO escalas (tp_escala, cd_equipe, dt_inicio, dt_fim, ds_descricao, tp_status, cd_usuario_criador)
-           VALUES ($1, $2, $3, $4, $5, 'ativa', $6)
+          `INSERT INTO escalas (tp_escala, cd_equipe, dt_inicio, dt_fim, ds_descricao, tp_status, cd_usuario_criador, cd_sala)
+           VALUES ($1, $2, $3, $4, $5, 'ativa', $6, $7)
            RETURNING cd_escala`,
-          [b.tipo, plano.equipeId, b.dtInicio, b.dtFim, 'Gerada automaticamente', Number(session.user.id)]
+          [b.tipo, b.cdEquipe, b.dtInicio, b.dtFim, 'Gerada automaticamente', Number(session.user.id), b.cdSala ?? null]
         )
         const escalaId = rows[0].cd_escala
         await client.query('INSERT INTO escala_tecnicos (cd_escala, cd_tecnico) VALUES ($1, $2)', [escalaId, b.cdTecnico])

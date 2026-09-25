@@ -41,6 +41,7 @@ export interface Escala {
   status: string
   criadoPor: string | null
   dataCriacao: string
+  salaId: number | null
 }
 
 export interface Troca {
@@ -70,15 +71,47 @@ export interface ConfigBaia {
   perfil?: string
 }
 
+export interface PosicaoBaia {
+  top: string
+  left: string
+}
+
+export type TipoMarcador = 'divisoria' | 'rack' | 'impressora' | 'outro'
+
+export interface MarcadorSala {
+  id: string
+  tipo: TipoMarcador
+  rotulo: string
+  top: string
+  left: string
+}
+
+export interface GrupoRodizio {
+  id: number
+  nome: string
+  salaIds: number[]
+}
+
+export interface GrupoRodizioDetalhado {
+  id: number
+  nome: string
+  salas: { id: number; nome: string }[]
+  equipes: string[]
+}
+
 export interface Sala {
   id: number
   nome: string
   imagem: string | null
+  imagemHash: string | null
   qtdBaias: number
   equipes: string[]
-  modoReserva: 'equipe' | 'perfil'
+  modoReserva: 'equipe' | 'perfil' | 'entre_salas'
   podeEditar: boolean
   baias: Record<string, ConfigBaia>
+  posicoes: Record<string, PosicaoBaia>
+  marcadores: MarcadorSala[]
+  grupoRodizio: GrupoRodizio | null
 }
 
 export interface ConfigLab {
@@ -92,7 +125,7 @@ export interface OcupanteAprendiz {
 }
 
 // Campos editáveis de uma escala no formulário de edição.
-export type FormEscala = Pick<Escala, 'tipo' | 'dataInicio' | 'dataFim' | 'tecnicos' | 'equipe' | 'descricao' | 'status'>
+export type FormEscala = Pick<Escala, 'tipo' | 'dataInicio' | 'dataFim' | 'tecnicos' | 'equipe' | 'descricao' | 'status' | 'salaId'>
 
 export interface DiaDetalhado {
   data: Date

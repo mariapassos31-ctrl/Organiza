@@ -1198,6 +1198,210 @@
   gap: 10px;
 }
 
+.editor-posicoes-planta {
+  cursor: crosshair;
+}
+
+/* Retângulo pontilhado (não preenchido) — mostra só o contorno de onde o
+   nome vai ficar, sem tapar a imagem embaixo. Arrasta (mousedown + mover)
+   pra reposicionar; a posição já cola no ponto mais próximo de uma grade
+   invisível (ver colarNaGrade no componente), tipo um ímã. */
+.editor-posicoes-marcador {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 13%;
+  min-width: 46px;
+  height: 24px;
+  border-radius: 5px;
+  background: rgba(26, 115, 232, 0.18);
+  border: 2px dashed var(--brand-primary, #1a73e8);
+  color: #0d2b52;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: grab;
+  z-index: 6;
+  user-select: none;
+}
+
+.editor-posicoes-marcador:active {
+  cursor: grabbing;
+}
+
+.editor-posicoes-marcador-ativo {
+  background: rgba(198, 40, 40, 0.18);
+  border-color: #c62828;
+  color: #c62828;
+}
+
+/* Soquete ainda sem número — mais apagado, pra diferenciar visualmente
+   dos que já têm um número encaixado. */
+.editor-posicoes-soquete-vazio {
+  background: rgba(148, 163, 184, 0.15);
+  border-color: #94a3b8;
+  color: transparent;
+}
+
+/* "Fantasma" do número enquanto está sendo arrastado — segue o mouse
+   pela tela inteira (por isso position:fixed, e não relativo à planta). */
+.editor-posicoes-numero-arrastando {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #c62828;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  pointer-events: none;
+  z-index: 2000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.editor-posicoes-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.editor-posicoes-chip {
+  min-width: 32px;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  background: #f8f9fa;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  color: #4b5563;
+}
+
+.editor-posicoes-chip-ativo {
+  background: #c62828;
+  border-color: #c62828;
+  color: white;
+}
+
+.editor-marcador-item {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  cursor: pointer;
+  z-index: 6;
+}
+
+.editor-marcador-icone {
+  font-size: 20px;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+}
+
+.editor-marcador-rotulo {
+  font-size: 10px;
+  font-weight: 700;
+  color: #0d2b52;
+  background: rgba(255, 255, 255, 0.85);
+  padding: 1px 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-marcador-item-ativo .editor-marcador-rotulo {
+  background: #c62828;
+  color: white;
+}
+
+.editor-marcador-painel {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.escalas-salas-do-dia {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 16px;
+}
+
+.escalas-salas-do-dia-titulo {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.escalas-salas-do-dia-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0d2b52;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.escalas-salas-do-dia-chip:hover {
+  background: #eef2f7;
+  border-color: var(--brand-primary, #1a73e8);
+}
+
+.escalas-salas-do-dia-chip-ativo,
+.escalas-salas-do-dia-chip-ativo:hover {
+  background: var(--brand-primary, #1a73e8);
+  border-color: var(--brand-primary, #1a73e8);
+  color: white;
+}
+
+.escalas-salas-do-dia-chip-ativo .escalas-salas-do-dia-contagem {
+  background: white;
+  color: var(--brand-primary, #1a73e8);
+}
+
+.escalas-salas-do-dia-contagem {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  background: var(--brand-primary, #1a73e8);
+  color: white;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.editor-marcador-painel input {
+  flex: 1;
+  min-width: 160px;
+  padding: 6px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-family: inherit;
+}
+
 .config-baia-linha {
   display: flex;
   align-items: center;
