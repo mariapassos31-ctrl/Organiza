@@ -32,6 +32,7 @@ export default function Escalas() {
   const [enviandoTroca, setEnviandoTroca] = useState(false)
   const [escalaOferecidaId, setEscalaOferecidaId] = useState('')
   const [baiasPerfil, setBaiasPerfil] = useState({})
+  const [salaCompartilhadaBaias, setSalaCompartilhadaBaias] = useState({})
   const [laboratorioConfig, setLaboratorioConfig] = useState({ responsavelUid: null, backupUid: null })
 
   const [formData, setFormData] = useState({
@@ -54,12 +55,23 @@ export default function Escalas() {
     carregarLaboratorioConfig()
   }, [userData])
 
+  // O mapa do dia do Suporte só entende { [baia]: perfilId } (sala de uma
+  // equipe só); o da Sala Compartilhada entende { [baia]: {equipe, especialidade} }
+  // (2+ equipes) — os dois já vêm prontos nesse formato da API de Salas.
   const carregarBaiasPerfil = async () => {
     try {
-      const response = await fetch('/api/baias-config?equipe=suporte')
+      const response = await fetch('/api/salas')
       if (!response.ok) return
       const dados = await response.json()
-      setBaiasPerfil(dados.baias || {})
+      const salaSuporte = (dados.salas || []).find(s => s.modoReserva === 'perfil' && s.equipes.includes('suporte'))
+      const mapa = {}
+      for (const [baia, valor] of Object.entries(salaSuporte?.baias || {})) {
+        if (valor?.perfil) mapa[baia] = valor.perfil
+      }
+      setBaiasPerfil(mapa)
+
+      const salaCompartilhada = (dados.salas || []).find(s => s.modoReserva === 'equipe')
+      setSalaCompartilhadaBaias(salaCompartilhada?.baias || {})
     } catch (error) {
       console.error('Erro ao carregar configuração de baias:', error)
     }
@@ -457,6 +469,7 @@ export default function Escalas() {
         usuarios={usuarios}
         baiasPerfil={baiasPerfil}
         laboratorioConfig={laboratorioConfig}
+        salaCompartilhadaBaias={salaCompartilhadaBaias}
       />
 
       <div className="escalas-lista-detalhada-toggle">

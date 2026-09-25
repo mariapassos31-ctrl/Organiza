@@ -14,8 +14,7 @@ import {
   nuncaEhEscalado,
 } from '../../lib/equipesConfig'
 import { DIAS_SEMANA, ehJovemAprendiz } from '../../lib/escalasConstants'
-import ConfigBaiasMapa from './escalas/ConfigBaiasMapa'
-import ConfigLaboratorio from './escalas/ConfigLaboratorio'
+import PainelSalas from './escalas/PainelSalas'
 import '../../styles/Usuarios.css'
 
 const CUSTOM = '__custom__'
@@ -28,9 +27,8 @@ export default function Usuarios() {
   const [showFormEditar, setShowFormEditar] = useState(false)
   const [usuarioEditando, setUsuarioEditando] = useState(null)
   const [filtroEquipe, setFiltroEquipe] = useState('todos')
-  const [showConfigBaias, setShowConfigBaias] = useState(false)
-  const [baiasPerfil, setBaiasPerfil] = useState({})
-  const [showConfigLaboratorio, setShowConfigLaboratorio] = useState(false)
+  const [showPainelSalas, setShowPainelSalas] = useState(false)
+  const [salas, setSalas] = useState([])
   const [laboratorioConfig, setLaboratorioConfig] = useState({ responsavelUid: null, backupUid: null })
 
   const formVazioCriar = {
@@ -88,7 +86,7 @@ export default function Usuarios() {
       }))
     }
     carregarUsuarios()
-    carregarBaiasConfig()
+    carregarSalas()
     carregarLaboratorioConfig()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userData])
@@ -120,47 +118,32 @@ export default function Usuarios() {
     return ehPerfilGestao(userData.role)
   }
 
-  // Baias só existem pro Suporte por enquanto — admin sempre pode
-  // configurar; gestor/líder só se forem dessa equipe.
-  const podeConfigurarBaias = podecriarUsuario() && (userData?.role === 'admin' || userData?.equipe === 'suporte')
-
-  const carregarBaiasConfig = async () => {
+  const carregarSalas = async () => {
     try {
-      const response = await fetch('/api/baias-config?equipe=suporte')
+      const response = await fetch('/api/salas')
       if (!response.ok) return
       const dados = await response.json()
-      setBaiasPerfil(dados.baias || {})
+      setSalas(dados.salas || [])
     } catch (error) {
-      console.error('Erro ao carregar configuração de baias:', error)
+      console.error('Erro ao carregar salas:', error)
     }
   }
 
-  // "supervisor" é um valor especial (não é um perfil de verdade) — só uma
-  // baia por vez pode ter essa marcação, então marcar uma nova já limpa
-  // qualquer outra que estivesse marcada antes. Retorna true/false (sucesso)
-  // pro ConfigBaiasMapa saber se pode fechar depois de salvar tudo.
-  const definirPerfilBaia = async (baia, perfil) => {
+  // Mudar quais equipes usam uma sala pode virar o modo de reserva dela
+  // (perfil <-> equipe) e liberar baias de quem saiu — mais simples
+  // recarregar a sala inteira do que tentar remendar o estado local.
+  const definirEquipesSala = async (salaId, equipes) => {
     try {
-      const response = await fetch('/api/baias-config', {
+      const response = await fetch(`/api/salas/${salaId}/equipes`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ equipe: 'suporte', baia, perfil: perfil || null }),
+        body: JSON.stringify({ equipes }),
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
         throw new Error(data.error || 'Falha ao salvar')
       }
-      setBaiasPerfil(prev => {
-        const proximo = { ...prev }
-        if (perfil === 'supervisor') {
-          for (const b of Object.keys(proximo)) {
-            if (b !== baia && proximo[b] === 'supervisor') delete proximo[b]
-          }
-        }
-        if (perfil) proximo[baia] = perfil
-        else delete proximo[baia]
-        return proximo
-      })
+      await carregarSalas()
       return true
     } catch (err) {
       alert(err.message)
@@ -168,8 +151,133 @@ export default function Usuarios() {
     }
   }
 
-  // Laboratório só existe pro Suporte por enquanto — mesma regra de acesso das Baias.
-  const podeConfigurarLaboratorio = podeConfigurarBaias
+  const criarSala = async (valores) => {
+    try {
+      const response = await fetch('/api/salas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(valores),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao criar')
+      }
+      await carregarSalas()
+      return true
+    } catch (err) {
+      alert(err.message)
+      return false
+    }
+  }
+
+  const editarSala = async (salaId, valores) => {
+    try {
+      const response = await fetch(`/api/salas/${salaId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(valores),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao salvar')
+      }
+      await carregarSalas()
+      return true
+    } catch (err) {
+      alert(err.message)
+      return false
+    }
+  }
+
+  const excluirSala = async (salaId) => {
+    try {
+      const response = await fetch(`/api/salas/${salaId}`, { method: 'DELETE' })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao excluir')
+      }
+      setSalas(prev => prev.filter(s => s.id !== salaId))
+      return true
+    } catch (err) {
+      alert(err.message)
+      return false
+    }
+  }
+
+  const enviarImagemSala = async (salaId, arquivo) => {
+    try {
+      const formData = new FormData()
+      formData.append('imagem', arquivo)
+      const response = await fetch(`/api/salas/${salaId}/imagem`, { method: 'POST', body: formData })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao enviar imagem')
+      }
+      await carregarSalas()
+      return true
+    } catch (err) {
+      alert(err.message)
+      return false
+    }
+  }
+
+  const removerImagemSala = async (salaId) => {
+    try {
+      const response = await fetch(`/api/salas/${salaId}/imagem`, { method: 'DELETE' })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao remover imagem')
+      }
+      await carregarSalas()
+      return true
+    } catch (err) {
+      alert(err.message)
+      return false
+    }
+  }
+
+  // Retorna true/false (sucesso) pro ConfigSala saber se pode considerar
+  // aquela baia salva. `valores` é { perfil } (sala de 1 equipe só) ou
+  // { equipe, especialidade } (sala compartilhada) — o formato certo já
+  // vem calculado pelo ConfigSala, que sabe o modoReserva da sala.
+  const definirBaiaSala = async (salaId, baia, valores) => {
+    try {
+      const response = await fetch(`/api/salas/${salaId}/baias`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baia, ...valores }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao salvar')
+      }
+      setSalas(prev => prev.map(sala => {
+        if (sala.id !== salaId) return sala
+        const proximasBaias = { ...sala.baias }
+        const livre = sala.modoReserva === 'equipe' ? !valores.equipe : !valores.perfil
+        if (livre) {
+          delete proximasBaias[baia]
+        } else if (sala.modoReserva === 'equipe') {
+          proximasBaias[baia] = { equipe: valores.equipe, especialidade: valores.especialidade || null }
+        } else {
+          proximasBaias[baia] = { perfil: valores.perfil }
+          if (valores.perfil === 'supervisor') {
+            for (const b of Object.keys(proximasBaias)) {
+              if (b !== baia && proximasBaias[b]?.perfil === 'supervisor') delete proximasBaias[b]
+            }
+          }
+        }
+        return { ...sala, baias: proximasBaias }
+      }))
+      return true
+    } catch (err) {
+      alert(err.message)
+      return false
+    }
+  }
+
+  // Laboratório só existe pro Suporte por enquanto.
+  const podeConfigurarLaboratorio = podecriarUsuario() && (userData?.role === 'admin' || userData?.equipe === 'suporte')
 
   const carregarLaboratorioConfig = async () => {
     try {
@@ -201,6 +309,8 @@ export default function Usuarios() {
       return false
     }
   }
+
+  const podeVerPainelSalas = podeConfigurarLaboratorio || salas.some(s => s.podeEditar)
 
   const equipesDisponiveis = () => {
     if (!userData) return EQUIPES
@@ -495,14 +605,9 @@ export default function Usuarios() {
           <p className="subtitle">Total de usuários: {usuarios.length}</p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
-          {podeConfigurarBaias && (
-            <button className="btn-secondary" onClick={() => setShowConfigBaias(!showConfigBaias)}>
-              {showConfigBaias ? '✕ Fechar' : '⚙️ Configurar Baias'}
-            </button>
-          )}
-          {podeConfigurarLaboratorio && (
-            <button className="btn-secondary" onClick={() => setShowConfigLaboratorio(!showConfigLaboratorio)}>
-              {showConfigLaboratorio ? '✕ Fechar' : '🧪 Configurar Laboratório'}
+          {podeVerPainelSalas && (
+            <button className="btn-secondary" onClick={() => setShowPainelSalas(!showPainelSalas)}>
+              {showPainelSalas ? '✕ Fechar' : '🏢 Salas'}
             </button>
           )}
           {podeEditar && (
@@ -513,22 +618,26 @@ export default function Usuarios() {
         </div>
       </div>
 
-      {/* CONFIGURAÇÃO DE BAIAS */}
-      {podeConfigurarBaias && showConfigBaias && (
-        <ConfigBaiasMapa
-          baiasPerfil={baiasPerfil}
-          onAlterarBaia={definirPerfilBaia}
-          onClose={() => setShowConfigBaias(false)}
-        />
-      )}
-
-      {/* CONFIGURAÇÃO DO LABORATÓRIO */}
-      {podeConfigurarLaboratorio && showConfigLaboratorio && (
-        <ConfigLaboratorio
-          tecnicos={usuarios.filter(u => u.equipe === 'suporte' && !nuncaEhEscalado(u.role)).sort((a, b) => a.nome.localeCompare(b.nome))}
-          valorInicial={laboratorioConfig}
-          onSalvar={definirLaboratorio}
-          onClose={() => setShowConfigLaboratorio(false)}
+      {/* SALAS (baias do Suporte, sala compartilhada, Laboratório) */}
+      {podeVerPainelSalas && showPainelSalas && (
+        <PainelSalas
+          salas={salas}
+          podeConfigurarLaboratorio={podeConfigurarLaboratorio}
+          laboratorioProps={{
+            tecnicos: usuarios.filter(u => u.equipe === 'suporte' && !nuncaEhEscalado(u.role)).sort((a, b) => a.nome.localeCompare(b.nome)),
+            valorInicial: laboratorioConfig,
+            onSalvar: definirLaboratorio,
+          }}
+          minhaEquipe={userData?.equipe}
+          souAdmin={souAdmin}
+          onAlterarBaiaSala={definirBaiaSala}
+          onAlterarEquipesSala={definirEquipesSala}
+          onCriarSala={criarSala}
+          onEditarSala={editarSala}
+          onExcluirSala={excluirSala}
+          onEnviarImagemSala={enviarImagemSala}
+          onRemoverImagemSala={removerImagemSala}
+          onClose={() => setShowPainelSalas(false)}
         />
       )}
 

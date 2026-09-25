@@ -78,7 +78,7 @@ function calcularOcupantesJovemAprendiz(tecnicosSuporte, uidsPresencialHoje, uid
   return ocupantesJovem
 }
 
-function calcularOcupacaoBaias(escalasSuporte, tecnicosSuporte, data, baiasPerfil) {
+function calcularOcupacaoBaias(escalasSuporte, tecnicosSuporte, data, baiasPerfil, uidNoLaboratorioHoje) {
   const uidsHomeOfficeHoje = new Set(
     escalasSuporte.filter(e => e.tipo === 'homeoffice').map(e => e.tecnicos[0])
   )
@@ -123,9 +123,11 @@ function calcularOcupacaoBaias(escalasSuporte, tecnicosSuporte, data, baiasPerfi
   // Estag/Aprendiz e Trainee nunca passam por aqui — têm sistema próprio
   // (calculado abaixo), então ficam de fora do rodízio das demais baias.
   // Quem tem um perfil com baia(s) reservada(s) só senta nelas — não pode
-  // fixar em outra baia, mesmo com "baia fixa" configurada errado.
+  // fixar em outra baia, mesmo com "baia fixa" configurada errado. Quem
+  // está no Laboratório hoje também não entra aqui — está fisicamente lá,
+  // não numa baia comum.
   const outrosFixos = tecnicosSuporte.filter(u =>
-    u.baiaFixa && u.baia && !naoEscalavel(u) && !ehJovemAprendiz(u.role) &&
+    u.baiaFixa && u.baia && !naoEscalavel(u) && !ehJovemAprendiz(u.role) && u.uid !== uidNoLaboratorioHoje &&
     (!baiasPerfil[u.baia] || baiasPerfil[u.baia] === u.role)
   )
   for (const fixo of outrosFixos) {
@@ -134,10 +136,13 @@ function calcularOcupacaoBaias(escalasSuporte, tecnicosSuporte, data, baiasPerfi
     }
   }
 
+  // "baia fixa" marcada sem nenhuma baia escolhida não conta como fixo de
+  // verdade (não tem lugar nenhum pra fixar) — trata como flutuante, senão
+  // a pessoa não entra em nenhuma das duas listas e some do mapa.
   const presenciaisNaoFixos = escalasSuporte
     .filter(e => e.tipo === 'presencial' || e.tipo === 'sabado')
     .map(e => tecnicosSuporte.find(u => u.uid === e.tecnicos[0]))
-    .filter(u => u && !u.baiaFixa && !uidsEmCursoHoje.has(u.uid) && !ehJovemAprendiz(u.role))
+    .filter(u => u && !(u.baiaFixa && u.baia) && !uidsEmCursoHoje.has(u.uid) && !ehJovemAprendiz(u.role) && u.uid !== uidNoLaboratorioHoje)
 
   const semLugar = []
   for (const usuario of presenciaisNaoFixos) {
@@ -148,15 +153,25 @@ function calcularOcupacaoBaias(escalasSuporte, tecnicosSuporte, data, baiasPerfi
     }
   }
 
-  // Quem tem um perfil com baia reservada só flutua entre as baias do
-  // próprio perfil; os demais, em qualquer baia livre que não seja
-  // reservada a outro perfil.
+  // Quem tem um perfil com baia reservada flutua primeiro entre as baias
+  // do próprio perfil; os demais, em qualquer baia livre que não seja
+  // reservada a outro perfil. Se não sobrar vaga nem ali, como último
+  // recurso ocupa qualquer outra baia reservada que esteja livre hoje —
+  // exceto as de Estag/Aprendiz, Trainee e Supervisor, que continuam
+  // exclusivas mesmo sem ninguém do perfil delas presente.
   const livrePara = (perfilUsuario) => {
     const baiasDoPerfil = baiasReservadas.filter(b => baiasPerfil[b] === perfilUsuario)
     if (baiasDoPerfil.length > 0) {
-      return baiasDoPerfil.find(n => !ocupantes[n])
+      const vaga = baiasDoPerfil.find(n => !ocupantes[n])
+      if (vaga) return vaga
+    } else {
+      const vagaComum = Array.from({ length: 9 }, (_, i) => String(i + 1)).find(n => !ocupantes[n] && !baiasReservadas.includes(n))
+      if (vagaComum) return vagaComum
     }
-    return Array.from({ length: 9 }, (_, i) => String(i + 1)).find(n => !ocupantes[n] && !baiasReservadas.includes(n))
+    return baiasReservadas.find(n =>
+      !ocupantes[n] && baiasPerfil[n] !== perfilUsuario &&
+      !ehJovemAprendiz(baiasPerfil[n]) && baiasPerfil[n] !== 'supervisor'
+    )
   }
 
   for (const usuario of semLugar) {
@@ -173,6 +188,48 @@ function calcularOcupacaoBaias(escalasSuporte, tecnicosSuporte, data, baiasPerfi
   return { ocupantes, ocupantesAprendiz, baiasJovemAprendiz, baiaSupervisor }
 }
 
+// Equipes que dividem a Sala Compartilhada (o Suporte tem sala própria,
+// calculada acima). Reserva por equipe: um técnico só ocupa uma baia
+// reservada à PRÓPRIA equipe, nunca a de outra. A especialidade que
+// eventualmente restrinja uma baia ali é só informativa na config — não
+// entra nessa conta, porque especialidade é um campo sensível (só visível
+// pro gestor da MESMA equipe do técnico) e aqui um gestor precisa ver o
+// dia inteiro, com gente de 3 equipes diferentes.
+const EQUIPES_SALA_COMPARTILHADA = ['infraestrutura', 'sistemas', 'projetos']
+
+function calcularOcupacaoSalaCompartilhada(escalasDoDia, usuarios, salaBaias) {
+  const baiasReservadas = Object.keys(salaBaias)
+  if (baiasReservadas.length === 0) return {}
+
+  const tecnicosEnvolvidos = (usuarios || []).filter(u => EQUIPES_SALA_COMPARTILHADA.includes(u.equipe))
+  const uidsPresencialHoje = new Set(
+    escalasDoDia
+      .filter(e => EQUIPES_SALA_COMPARTILHADA.includes(e.equipe) && (e.tipo === 'presencial' || e.tipo === 'sabado'))
+      .map(e => e.tecnicos[0])
+  )
+
+  const ocupantes = {}
+  const baiaDaPropriaEquipe = (baia, usuario) => salaBaias[baia]?.equipe === usuario.equipe
+
+  const fixos = tecnicosEnvolvidos.filter(u => u.baiaFixa && u.baia && baiasReservadas.includes(u.baia) && baiaDaPropriaEquipe(u.baia, u))
+  for (const fixo of fixos) {
+    if (uidsPresencialHoje.has(fixo.uid)) ocupantes[fixo.baia] = fixo.nome
+  }
+
+  const presenciaisNaoFixos = tecnicosEnvolvidos.filter(u =>
+    uidsPresencialHoje.has(u.uid) && !(u.baiaFixa && baiasReservadas.includes(u.baia) && baiaDaPropriaEquipe(u.baia, u))
+  )
+
+  const livrePara = (usuario) => baiasReservadas.find(b => !ocupantes[b] && baiaDaPropriaEquipe(b, usuario))
+
+  for (const usuario of presenciaisNaoFixos) {
+    const vaga = livrePara(usuario)
+    if (vaga) ocupantes[vaga] = usuario.nome
+  }
+
+  return ocupantes
+}
+
 function formatarDataISO(data) {
   const ano = data.getFullYear()
   const mes = String(data.getMonth() + 1).padStart(2, '0')
@@ -180,18 +237,45 @@ function formatarDataISO(data) {
   return `${ano}-${mes}-${dia}`
 }
 
-export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia, podeEditarEscala, onEditarEscala, getNomeTecnico, usuarios, baiasPerfil = {}, laboratorioConfig }) {
+export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia, podeEditarEscala, onEditarEscala, getNomeTecnico, usuarios, baiasPerfil = {}, laboratorioConfig, salaCompartilhadaBaias = {} }) {
   if (!diaDetalhado) return null
 
   const escalasSuporte = diaDetalhado.escalas.filter(e => e.equipe === 'suporte')
   const mostrarMapa = escalasSuporte.length > 0
 
+  const escalasSalaCompartilhada = diaDetalhado.escalas.filter(e => EQUIPES_SALA_COMPARTILHADA.includes(e.equipe))
+  const mostrarSalaCompartilhada = escalasSalaCompartilhada.length > 0
+  const ocupantesSalaCompartilhada = mostrarSalaCompartilhada
+    ? calcularOcupacaoSalaCompartilhada(escalasSalaCompartilhada, usuarios, salaCompartilhadaBaias)
+    : {}
+
   const tecnicosSuporte = mostrarMapa ? (usuarios || []).filter(u => u.equipe === 'suporte') : []
+  const dataISO = mostrarMapa ? formatarDataISO(diaDetalhado.data) : null
+  const nomeDoUid = (uid) => tecnicosSuporte.find(u => u.uid === uid)?.nome || null
+  const estaDeFeriasHoje = (uid) => {
+    const u = tecnicosSuporte.find(x => x.uid === uid)
+    return Boolean(u?.feriasInicio && u?.feriasFim && u.feriasInicio <= dataISO && dataISO <= u.feriasFim)
+  }
+
+  // Quem está no Laboratório hoje: o responsável fixo, a menos que ele
+  // esteja de home office ou de férias — nesses dias quem cobre é o
+  // backup. Não depende de baia nenhuma, é derivado direto da escala dele.
+  // Calculado antes do mapa da sala pra excluir essa pessoa de lá: ela
+  // está fisicamente no Laboratório, não pode aparecer também numa baia
+  // comum no mesmo dia.
+  const responsavelUid = laboratorioConfig?.responsavelUid
+  const responsavelAusenteHoje = mostrarMapa && responsavelUid &&
+    (new Set(escalasSuporte.filter(e => e.tipo === 'homeoffice').map(e => e.tecnicos[0])).has(responsavelUid) ||
+      estaDeFeriasHoje(responsavelUid))
+  const uidNoLaboratorioHoje = mostrarMapa && responsavelUid
+    ? (responsavelAusenteHoje ? laboratorioConfig.backupUid : responsavelUid)
+    : null
+  const nomeNoLaboratorio = uidNoLaboratorioHoje ? nomeDoUid(uidNoLaboratorioHoje) : null
+
   const { ocupantes: ocupantesPorBaia, ocupantesAprendiz, baiasJovemAprendiz, baiaSupervisor } = mostrarMapa
-    ? calcularOcupacaoBaias(escalasSuporte, tecnicosSuporte, diaDetalhado.data, baiasPerfil)
+    ? calcularOcupacaoBaias(escalasSuporte, tecnicosSuporte, diaDetalhado.data, baiasPerfil, uidNoLaboratorioHoje)
     : { ocupantes: {}, ocupantesAprendiz: {}, baiasJovemAprendiz: {}, baiaSupervisor: null }
 
-  const dataISO = mostrarMapa ? formatarDataISO(diaDetalhado.data) : null
   const nomesEmHomeOffice = mostrarMapa
     ? escalasSuporte
         .filter(e => e.tipo === 'homeoffice')
@@ -207,25 +291,9 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
     ? tecnicosSuporte.filter(u => estaEmDiaCurso(u, diaDetalhado.data)).map(u => u.nome)
     : []
 
-  // Quem está no Laboratório hoje: o responsável fixo, a menos que ele
-  // esteja de home office ou de férias — nesses dias quem cobre é o
-  // backup. Não depende de baia nenhuma, é derivado direto da escala dele.
-  const nomeDoUid = (uid) => tecnicosSuporte.find(u => u.uid === uid)?.nome || null
-  const estaDeFeriasHoje = (uid) => {
-    const u = tecnicosSuporte.find(x => x.uid === uid)
-    return Boolean(u?.feriasInicio && u?.feriasFim && u.feriasInicio <= dataISO && dataISO <= u.feriasFim)
-  }
-  const responsavelUid = laboratorioConfig?.responsavelUid
-  const responsavelAusenteHoje = mostrarMapa && responsavelUid &&
-    (new Set(escalasSuporte.filter(e => e.tipo === 'homeoffice').map(e => e.tecnicos[0])).has(responsavelUid) ||
-      estaDeFeriasHoje(responsavelUid))
-  const nomeNoLaboratorio = mostrarMapa && responsavelUid
-    ? (responsavelAusenteHoje ? nomeDoUid(laboratorioConfig.backupUid) : nomeDoUid(responsavelUid))
-    : null
-
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className={`modal-content ${mostrarMapa ? 'modal-content-largo' : ''}`} onClick={(e) => e.stopPropagation()}>
+      <div className={`modal-content ${(mostrarMapa || mostrarSalaCompartilhada) ? 'modal-content-largo' : ''}`} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h3>📅 Escalados em {diaDetalhado.data.toLocaleDateString('pt-BR')}</h3>
           <button className="modal-close" onClick={onClose}>✕</button>
@@ -263,6 +331,20 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
               )}
             </div>
             <MapaBaias ocupantes={ocupantesPorBaia} ocupantesAprendiz={ocupantesAprendiz} baiasJovemAprendiz={baiasJovemAprendiz} baiaSupervisor={baiaSupervisor} />
+          </div>
+        )}
+
+        {mostrarSalaCompartilhada && (
+          <div style={{ padding: '0 20px' }}>
+            <h4 style={{ margin: '0 0 10px' }}>🏢 Sala Compartilhada</h4>
+            <div className="config-baias-lista">
+              {Object.keys(salaCompartilhadaBaias).sort((a, b) => Number(a) - Number(b)).map(baia => (
+                <div key={baia} className="config-baia-linha">
+                  <span className="config-baia-linha-numero">Baia {baia}</span>
+                  <span>{ocupantesSalaCompartilhada[baia] || '—'}</span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

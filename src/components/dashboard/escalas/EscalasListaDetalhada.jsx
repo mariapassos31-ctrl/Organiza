@@ -24,6 +24,9 @@ export default function EscalasListaDetalhada({
     dataFim: '',
   })
   const [selecionadasParaExcluir, setSelecionadasParaExcluir] = useState([])
+  const [confirmandoExclusao, setConfirmandoExclusao] = useState(false)
+  const [progressoExclusao, setProgressoExclusao] = useState(null) // { total, concluidas } enquanto está apagando
+  const [resultadoExclusao, setResultadoExclusao] = useState(null) // { total, falhas } por alguns segundos, no final
 
   const aplicarFiltros = () => {
     setFiltrosAplicados({
@@ -100,22 +103,51 @@ export default function EscalasListaDetalhada({
     )
   }
 
-  const handleExcluirSelecionadas = async () => {
+  // Manda o lote inteiro numa única requisição (o servidor apaga tudo numa
+  // consulta só) — bem mais rápido que uma requisição por escala. Só
+  // divide em pedaços pra não mandar um corpo gigante de uma vez e pra
+  // conseguir atualizar a contagem na notificação flutuante conforme avança.
+  const TAMANHO_LOTE_EXCLUSAO = 250
+
+  const pedirConfirmacaoExclusao = () => {
     if (selecionadasParaExcluir.length === 0) return
-    if (!window.confirm(`Tem certeza que deseja excluir ${selecionadasParaExcluir.length} escala(s)? Essa ação não pode ser desfeita.`)) {
-      return
+    setConfirmandoExclusao(true)
+  }
+
+  const handleExcluirSelecionadas = async () => {
+    setConfirmandoExclusao(false)
+    const ids = [...selecionadasParaExcluir]
+    const total = ids.length
+    let concluidas = 0
+    let falhas = 0
+    setProgressoExclusao({ total, concluidas: 0 })
+
+    for (let i = 0; i < ids.length; i += TAMANHO_LOTE_EXCLUSAO) {
+      const lote = ids.slice(i, i + TAMANHO_LOTE_EXCLUSAO)
+      try {
+        const response = await fetch('/api/escalas/excluir-lote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: lote }),
+        })
+        const data = await response.json().catch(() => ({}))
+        if (response.ok) {
+          falhas += data.falhas || 0
+        } else {
+          falhas += lote.length
+        }
+      } catch {
+        falhas += lote.length
+      }
+      concluidas += lote.length
+      setProgressoExclusao({ total, concluidas })
     }
-    const resultados = await Promise.all(
-      selecionadasParaExcluir.map(id =>
-        fetch(`/api/escalas/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(r => r.ok)
-      )
-    )
-    const falhas = resultados.filter(ok => !ok).length
+
     await onAtualizarEscalas()
     setSelecionadasParaExcluir([])
-    alert(falhas > 0
-      ? `${resultados.length - falhas} escala(s) excluída(s). ${falhas} falharam (permissão ou já removidas).`
-      : `${resultados.length} escala(s) excluída(s) com sucesso!`)
+    setProgressoExclusao(null)
+    setResultadoExclusao({ total, falhas })
+    setTimeout(() => setResultadoExclusao(null), 6000)
   }
 
   return (
@@ -194,7 +226,7 @@ export default function EscalasListaDetalhada({
           <button
             className="btn-delete"
             disabled={selecionadasParaExcluir.length === 0}
-            onClick={handleExcluirSelecionadas}
+            onClick={pedirConfirmacaoExclusao}
           >
             🗑️ Excluir Selecionadas ({selecionadasParaExcluir.length})
           </button>
@@ -273,6 +305,48 @@ export default function EscalasListaDetalhada({
           })
         )}
       </div>
+
+      {confirmandoExclusao && (
+        <div className="confirm-overlay" onClick={() => setConfirmandoExclusao(false)}>
+          <div className="confirm-caixa" onClick={(e) => e.stopPropagation()}>
+            <h4>Excluir {selecionadasParaExcluir.length} escala(s)?</h4>
+            <p>Essa ação não pode ser desfeita.</p>
+            <div className="confirm-acoes">
+              <button type="button" className="btn-secondary" onClick={() => setConfirmandoExclusao(false)}>
+                Cancelar
+              </button>
+              <button type="button" className="btn-delete" onClick={handleExcluirSelecionadas}>
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {progressoExclusao && (
+        <div className="notificacao-flutuante">
+          <strong>🗑️ Excluindo escalas...</strong>
+          <span>{progressoExclusao.concluidas}/{progressoExclusao.total}</span>
+          <div className="notificacao-flutuante-barra">
+            <div
+              className="notificacao-flutuante-barra-preenchida"
+              style={{ width: `${(progressoExclusao.concluidas / progressoExclusao.total) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {resultadoExclusao && (
+        <div className="notificacao-flutuante">
+          <strong>{resultadoExclusao.falhas > 0 ? '⚠️ Concluído com falhas' : '✅ Concluído'}</strong>
+          <span>
+            {resultadoExclusao.falhas > 0
+              ? `${resultadoExclusao.total - resultadoExclusao.falhas} escala(s) excluída(s). ${resultadoExclusao.falhas} falharam.`
+              : `${resultadoExclusao.total} escala(s) excluída(s) com sucesso!`}
+          </span>
+          <button type="button" className="notificacao-flutuante-fechar" onClick={() => setResultadoExclusao(null)}>✕</button>
+        </div>
+      )}
     </div>
   )
 }
