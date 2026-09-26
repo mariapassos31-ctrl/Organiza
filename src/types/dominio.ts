@@ -92,13 +92,6 @@ export interface GrupoRodizio {
   salaIds: number[]
 }
 
-export interface GrupoRodizioDetalhado {
-  id: number
-  nome: string
-  salas: { id: number; nome: string }[]
-  equipes: string[]
-}
-
 export interface Sala {
   id: number
   nome: string

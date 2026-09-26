@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { mensagemDeErro } from '../../../lib/erros'
 import type { Sala, Usuario, UsuarioLogado } from '../../../types/dominio'
-import { labelEquipe } from '../../../lib/equipesConfig'
+import { EQUIPES, labelEquipe } from '../../../lib/equipesConfig'
 import {
   DURACAO_PRESETS,
   HORIZONTE_PRESETS,
@@ -63,11 +63,12 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
   // a lista normal (elegibilidade fina de home office fica a cargo do backend).
   // Os técnicos elegíveis são os de TODAS as equipes que usam a sala — se
   // ela for compartilhada por 2+ equipes, a geração já mistura todo mundo.
-  const carregarTecnicosDaSala = (sala: Sala | null | undefined, tipo: string = autoForm.tipo) => {
-    const equipesDaSala = sala?.equipes ?? []
-    const base = usuarios.filter(u => equipesDaSala.includes(u.equipe ?? '') && u.role !== 'admin' && u.role !== 'gestor' && u.baia !== '0' && u.ativo)
+  const carregarTecnicosPorEquipes = (equipesSlugs: string[], tipo: string = autoForm.tipo) => {
+    const base = usuarios.filter(u => equipesSlugs.includes(u.equipe ?? '') && u.role !== 'admin' && u.role !== 'gestor' && u.baia !== '0' && u.ativo)
     return tipo === 'sabado' ? base.filter(u => u.role !== 'analista' && u.role !== 'lider' && !u.ehAprendiz) : base
   }
+  const carregarTecnicosDaSala = (sala: Sala | null | undefined, tipo: string = autoForm.tipo) =>
+    carregarTecnicosPorEquipes(sala?.equipes ?? [], tipo)
 
   // Prioriza a sala exclusiva do Suporte como padrão (é o caso mais comum);
   // senão, a primeira sala que a pessoa pode escolher.
@@ -76,6 +77,23 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
     ?? ''
   const salaInicial = salasSelecionaveis.find(s => s.id === salaInicialId) || null
   const ehSuporteExclusivo = (sala: Sala | null) => Boolean(sala && sala.equipes.length === 1 && sala.equipes[0] === 'suporte')
+
+  // Sala com 2+ equipes: o que importa é quantas baias ela tem pra
+  // presencial (isso já está montado na configuração da sala) — não faz
+  // sentido perguntar "quantos ficam em home", porque casa lotada de gente
+  // em home é o normal ali. O resto (quem não coube na sala) que fica em
+  // home office, automaticamente.
+  const ehSalaCompartilhada = (sala: Sala | null) => Boolean(sala && sala.equipes.length > 1)
+  // Sugere a capacidade presencial de acordo com o que já está cadastrado
+  // na própria sala (a quantidade de baias reais) — não inventa um número
+  // menor só pra sempre sobrar alguém de home office; se a sala cabe todo
+  // mundo, o aviso abaixo do campo já explica que precisa reduzir pra
+  // sobrar quem revezar.
+  const capacidadePresencialDaSala = (sala: Sala | null) => {
+    if (!sala) return 1
+    const baiasReservadas = Object.keys(sala.baias).length
+    return baiasReservadas > 0 ? baiasReservadas : (sala.qtdBaias || 1)
+  }
 
   const [passoAtual, setPassoAtual] = useState(1)
   const [autoSalaId, setAutoSalaId] = useState<number | string>(salaInicialId)
@@ -90,12 +108,25 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
   const [autoTecnicosSelecionados, setAutoTecnicosSelecionados] = useState(
     carregarTecnicosDaSala(salaInicial).map(t => t.uid)
   )
+  // Sobreaviso não ocupa lugar físico nenhum — em vez de escolher uma
+  // sala (que só serviria aqui pra apontar a equipe), escolhe a equipe
+  // direto. Não-admin já começa na própria equipe; admin escolhe.
+  const equipesSelecionaveisSobreaviso = userData?.role === 'admin' ? EQUIPES : EQUIPES.filter(eq => eq.id === userData?.equipe)
+  const [autoEquipeSobreaviso, setAutoEquipeSobreaviso] = useState<string>(
+    userData?.role === 'admin' ? '' : (userData?.equipe || '')
+  )
   const [autoDiasTrabalho, setAutoDiasTrabalho] = useState([1, 2, 3, 4, 5])
   const [autoPercentualHome, setAutoPercentualHome] = useState<number | string>(50)
   // Suporte tem a regra de "sempre exatamente N pessoas" — já começa no modo
   // certo pra sala, em vez de deixar porcentagem como padrão universal.
   const [autoModoHome, setAutoModoHome] = useState(ehSuporteExclusivo(salaInicial) ? 'quantidade' : 'percentual')
   const [autoQuantidadeHome, setAutoQuantidadeHome] = useState<number | string>(2)
+  // Só usado quando a sala é compartilhada (2+ equipes) — quantidade de
+  // baias presenciais, já sugerida a partir da própria configuração da
+  // sala; o home office é sempre "o resto" e nunca perguntado.
+  const [autoQuantidadePresencial, setAutoQuantidadePresencial] = useState<number | string>(
+    capacidadePresencialDaSala(salaInicial)
+  )
   // Suporte troca a dupla de home office a cada 3 dias úteis (fica lá o
   // bloco inteiro); outras salas, por padrão, escolhem de novo todo dia.
   const [autoDuracaoBlocoHome, setAutoDuracaoBlocoHome] = useState<number | string>(ehSuporteExclusivo(salaInicial) ? 3 : 1)
@@ -117,16 +148,31 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
       ...prev,
       tipo: prev.tipo === 'sabado' && !ehSuporteExclusivo(novaSala) ? 'hibrido' : prev.tipo,
     }))
-    setAutoTecnicosSelecionados(carregarTecnicosDaSala(novaSala).map(t => t.uid))
+    const tecnicosDaNovaSala = carregarTecnicosDaSala(novaSala).map(t => t.uid)
+    setAutoTecnicosSelecionados(tecnicosDaNovaSala)
     setAutoModoHome(ehSuporteExclusivo(novaSala) ? 'quantidade' : 'percentual')
     setAutoDuracaoBlocoHome(ehSuporteExclusivo(novaSala) ? 3 : 1)
+    setAutoQuantidadePresencial(capacidadePresencialDaSala(novaSala))
+  }
+
+  const ehSobreaviso = autoForm.tipo === 'sobreaviso'
+  // Fonte dos técnicos elegíveis do passo atual — de uma sala (a maioria
+  // dos tipos) ou direto da equipe escolhida (só Sobreaviso).
+  const tecnicosDisponiveisAuto = (tipo: string = autoForm.tipo) =>
+    tipo === 'sobreaviso'
+      ? carregarTecnicosPorEquipes(autoEquipeSobreaviso ? [autoEquipeSobreaviso] : [], tipo)
+      : carregarTecnicosDaSala(salaSelecionada, tipo)
+
+  const mudarEquipeSobreaviso = (slug: string) => {
+    setAutoEquipeSobreaviso(slug)
+    setAutoTecnicosSelecionados(carregarTecnicosPorEquipes([slug]).map(t => t.uid))
   }
 
   const mudarTipoAuto = (novoTipo: string) => {
     setAutoForm(prev => ({ ...prev, tipo: novoTipo, diasPorTecnico: novoTipo === 'sabado' ? 1 : 7 }))
     // Sábado tem elegibilidade mais restrita — tira da seleção quem deixou
     // de valer (ex: Analista/Aprendiz), pra não mandar escondido pro backend.
-    const validos = new Set(carregarTecnicosDaSala(salaSelecionada, novoTipo).map(t => t.uid))
+    const validos = new Set(tecnicosDisponiveisAuto(novoTipo).map(t => t.uid))
     setAutoTecnicosSelecionados(prev => prev.filter(uid => validos.has(uid)))
   }
 
@@ -137,7 +183,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
   }
 
   const selecionarTodosTecnicosAuto = () => {
-    setAutoTecnicosSelecionados(carregarTecnicosDaSala(salaSelecionada).map(t => t.uid))
+    setAutoTecnicosSelecionados(tecnicosDisponiveisAuto().map(t => t.uid))
   }
 
   const toggleDiaTrabalho = (diaId: number) => {
@@ -149,7 +195,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
   // Monta o payload de configuração sem alertar nada — usado pela prévia ao
   // vivo, que só dispara quando os campos já fazem sentido.
   const construirPayloadAuto = () => {
-    if (!autoSalaId || !autoForm.dataInicio || autoTecnicosSelecionados.length === 0) return null
+    if ((ehSobreaviso ? !autoEquipeSobreaviso : !autoSalaId) || !autoForm.dataInicio || autoTecnicosSelecionados.length === 0) return null
 
     let dataFimEfetiva = autoForm.dataFim
     if (autoForm.semFim) {
@@ -162,6 +208,13 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
 
     if (autoForm.tipo === 'hibrido') {
       if (autoDiasTrabalho.length === 0) return null
+      // Sala compartilhada: o que se define é quanta gente cabe presencial
+      // (a sala já diz isso) — o home office é sempre o restante, calculado
+      // aqui, nunca perguntado diretamente.
+      const quantidadeHomeOfficeEfetiva = ehSalaCompartilhada(salaSelecionada)
+        ? Math.max(0, autoTecnicosSelecionados.length - Number(autoQuantidadePresencial || 0))
+        : Number(autoQuantidadeHome)
+      if (ehSalaCompartilhada(salaSelecionada) && quantidadeHomeOfficeEfetiva < 1) return null
       return {
         tipo: 'hibrido',
         salaId: Number(autoSalaId),
@@ -169,15 +222,15 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
         dataFim: dataFimEfetiva,
         tecnicoUids: autoTecnicosSelecionados,
         diasTrabalho: autoDiasTrabalho,
-        ...(autoModoHome === 'quantidade'
-          ? { quantidadeHomeOffice: Number(autoQuantidadeHome), duracaoBlocoDiasHomeOffice: Number(autoDuracaoBlocoHome), respeitarEspecialidade: autoRespeitarEspecialidade }
+        ...(ehSalaCompartilhada(salaSelecionada) || autoModoHome === 'quantidade'
+          ? { quantidadeHomeOffice: quantidadeHomeOfficeEfetiva, duracaoBlocoDiasHomeOffice: Number(autoDuracaoBlocoHome), respeitarEspecialidade: autoRespeitarEspecialidade }
           : { percentualHomeOffice: Number(autoPercentualHome) }),
       }
     }
 
     return {
       tipo: autoForm.tipo,
-      salaId: Number(autoSalaId),
+      ...(ehSobreaviso ? { equipeSlugs: [autoEquipeSobreaviso] } : { salaId: Number(autoSalaId) }),
       dataInicio: autoForm.dataInicio,
       dataFim: dataFimEfetiva,
       diasPorTecnico: Number(autoForm.diasPorTecnico),
@@ -224,16 +277,21 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
     }, 500)
     return () => clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoSalaId, autoForm, autoTecnicosSelecionados, autoDiasTrabalho, autoPercentualHome, autoModoHome, autoQuantidadeHome, autoDuracaoBlocoHome, autoRespeitarEspecialidade])
+  }, [autoSalaId, autoEquipeSobreaviso, autoForm, autoTecnicosSelecionados, autoDiasTrabalho, autoPercentualHome, autoModoHome, autoQuantidadeHome, autoQuantidadePresencial, autoDuracaoBlocoHome, autoRespeitarEspecialidade])
 
-  const nomeTecnicoAuto = (uid: string) => carregarTecnicosDaSala(salaSelecionada).find(t => t.uid === uid)?.nome || '?'
+  const nomeTecnicoAuto = (uid: string) => tecnicosDisponiveisAuto().find(t => t.uid === uid)?.nome || '?'
 
   const blocosEfetivosAuto = autoPreviewBlocos
     .map((b, i) => ({
       ...b,
       tecnicoUid: autoOverrides[i] || b.tecnicoUid,
       tecnicoNome: autoOverrides[i] ? nomeTecnicoAuto(autoOverrides[i]) : b.tecnicoNome,
-      salaId: (b.tipo === 'presencial' || b.tipo === 'sabado') && autoSalaId ? Number(autoSalaId) : null,
+      // Home office também guarda de qual sala ele veio (mesmo não ocupando
+      // baia nenhuma) — sem isso, quando a equipe está em mais de uma sala,
+      // o home office de quem foi escalado pela Sala Infra vazava pra
+      // dentro da visão da Sala do Suporte também, só por ser da equipe
+      // Suporte. Sobreaviso continua sem sala (não veio de nenhuma).
+      salaId: b.tipo !== 'sobreaviso' && autoSalaId ? Number(autoSalaId) : null,
     }))
     .filter((_, i) => !autoRemovidos[i])
 
@@ -252,7 +310,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          salaId: Number(autoSalaId),
+          ...(ehSobreaviso ? { equipeSlugs: [autoEquipeSobreaviso] } : { salaId: Number(autoSalaId) }),
           blocosManuais: blocosEfetivosAuto.map(b => ({
             dataInicio: b.dataInicio,
             dataFim: b.dataFim,
@@ -278,7 +336,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
 
   // Validação de cada passo — controla se dá pra avançar e destrava os
   // avisos de campo faltando.
-  const passo1Valido = Boolean(autoSalaId)
+  const passo1Valido = ehSobreaviso ? Boolean(autoEquipeSobreaviso) : Boolean(autoSalaId)
   const passo2Valido = autoTecnicosSelecionados.length > 0
   const passo3Valido = (() => {
     if (!autoForm.dataInicio) return false
@@ -289,6 +347,10 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
       if (!autoForm.dataFim || autoForm.dataFim < autoForm.dataInicio) return false
     }
     if (autoForm.tipo === 'hibrido' && autoDiasTrabalho.length === 0) return false
+    if (autoForm.tipo === 'hibrido' && ehSalaCompartilhada(salaSelecionada)) {
+      const home = autoTecnicosSelecionados.length - Number(autoQuantidadePresencial || 0)
+      if (home < 1) return false
+    }
     return true
   })()
 
@@ -317,34 +379,9 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
         </div>
 
         <div className="auto-form">
-          {/* PASSO 1 — SALA E TIPO */}
+          {/* PASSO 1 — TIPO E SALA */}
           {passoAtual === 1 && (
             <>
-              <div className="auto-secao">
-                <label className="auto-secao-titulo">Sala</label>
-                <div className="auto-chip-row">
-                  {salasSelecionaveis.length === 0 ? (
-                    <p className="empty-state">Nenhuma sala disponível pra você gerar escala.</p>
-                  ) : (
-                    salasSelecionaveis.map(s => (
-                      <button
-                        type="button"
-                        key={s.id}
-                        className={`auto-chip ${Number(autoSalaId) === s.id ? 'ativo' : ''}`}
-                        onClick={() => mudarSalaAuto(s.id)}
-                      >
-                        🏢 {s.nome}
-                      </button>
-                    ))
-                  )}
-                </div>
-                {salaSelecionada && salaSelecionada.equipes.length > 1 && (
-                  <small className="auto-campo-ajuda">
-                    Essa sala é usada por {salaSelecionada.equipes.map(labelEquipe).join(', ')} — a geração mistura técnicos de todas elas juntos.
-                  </small>
-                )}
-              </div>
-
               <div className="auto-secao">
                 <label className="auto-secao-titulo">O que você quer escalar?</label>
                 <div className="auto-chip-row">
@@ -366,6 +403,56 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                   </small>
                 )}
               </div>
+
+              {ehSobreaviso ? (
+                <div className="auto-secao">
+                  <label className="auto-secao-titulo">Equipe</label>
+                  <div className="auto-chip-row">
+                    {equipesSelecionaveisSobreaviso.length === 0 ? (
+                      <p className="empty-state">Nenhuma equipe disponível pra você gerar escala.</p>
+                    ) : (
+                      equipesSelecionaveisSobreaviso.map(eq => (
+                        <button
+                          type="button"
+                          key={eq.id}
+                          className={`auto-chip ${autoEquipeSobreaviso === eq.id ? 'ativo' : ''}`}
+                          onClick={() => mudarEquipeSobreaviso(eq.id)}
+                        >
+                          {eq.label}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  <small className="auto-campo-ajuda">
+                    Sobreaviso não ocupa lugar físico — só precisa saber de qual equipe tirar quem fica de plantão.
+                  </small>
+                </div>
+              ) : (
+                <div className="auto-secao">
+                  <label className="auto-secao-titulo">Sala</label>
+                  <div className="auto-chip-row">
+                    {salasSelecionaveis.length === 0 ? (
+                      <p className="empty-state">Nenhuma sala disponível pra você gerar escala.</p>
+                    ) : (
+                      salasSelecionaveis.map(s => (
+                        <button
+                          type="button"
+                          key={s.id}
+                          className={`auto-chip ${Number(autoSalaId) === s.id ? 'ativo' : ''}`}
+                          onClick={() => mudarSalaAuto(s.id)}
+                        >
+                          🏢 {s.nome}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  {salaSelecionada && salaSelecionada.equipes.length > 1 && (
+                    <small className="auto-campo-ajuda">
+                      Essa sala é usada por {salaSelecionada.equipes.map(labelEquipe).join(', ')} — a geração mistura técnicos de todas elas juntos.
+                    </small>
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -379,10 +466,10 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                 </button>
               </div>
               <div className="auto-chip-row">
-                {carregarTecnicosDaSala(salaSelecionada).length === 0 ? (
-                  <p className="empty-state">Nenhum técnico ativo nas equipes dessa sala</p>
+                {tecnicosDisponiveisAuto().length === 0 ? (
+                  <p className="empty-state">{ehSobreaviso ? 'Nenhum técnico ativo nessa equipe' : 'Nenhum técnico ativo nas equipes dessa sala'}</p>
                 ) : (
-                  carregarTecnicosDaSala(salaSelecionada).map(tecnico => (
+                  tecnicosDisponiveisAuto().map(tecnico => (
                     <button
                       type="button"
                       key={tecnico.uid}
@@ -422,6 +509,64 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                   </div>
 
                   <div className="auto-secao">
+                    {ehSalaCompartilhada(salaSelecionada) ? (
+                      <>
+                        <label className="auto-secao-titulo">Quantas pessoas ficam presenciais por dia</label>
+                        <div className="auto-chip-row">
+                          <input
+                            type="number"
+                            min="1"
+                            value={autoQuantidadePresencial}
+                            onChange={(e) => setAutoQuantidadePresencial(e.target.value)}
+                            className="auto-dias-input"
+                            title="Quantidade de pessoas presenciais por dia"
+                          />
+                        </div>
+                        {(() => {
+                          const presencial = Number(autoQuantidadePresencial) || 0
+                          const home = autoTecnicosSelecionados.length - presencial
+                          return home <= 0 ? (
+                            <small className="auto-campo-alerta">
+                              Isso não deixaria ninguém em home office — reduza a quantidade presencial (tem {autoTecnicosSelecionados.length} técnico(s) selecionado(s)).
+                            </small>
+                          ) : (
+                            <small className="auto-campo-ajuda">
+                              Todo dia de trabalho, exatamente {presencial} de {autoTecnicosSelecionados.length} técnico(s) ficam presenciais (a sala tem {capacidadePresencialDaSala(salaSelecionada)} baia(s) configurada(s)); os demais {home} ficam em home office.
+                            </small>
+                          )
+                        })()}
+
+                        <label className="campo-toggle" style={{ marginTop: 10 }}>
+                          <span className="toggle-switch">
+                            <input
+                              type="checkbox"
+                              checked={autoRespeitarEspecialidade}
+                              onChange={(e) => setAutoRespeitarEspecialidade(e.target.checked)}
+                            />
+                            <span className="toggle-switch-slider"></span>
+                          </span>
+                          <span>Nunca repetir especialidade no mesmo grupo de home office</span>
+                        </label>
+
+                        <label className="auto-secao-titulo" style={{ marginTop: 14 }}>A cada quantos dias trocar quem fica em Home Office</label>
+                        <div className="auto-chip-row">
+                          <input
+                            type="number"
+                            min="1"
+                            value={autoDuracaoBlocoHome}
+                            onChange={(e) => setAutoDuracaoBlocoHome(e.target.value)}
+                            className="auto-dias-input"
+                            title="Dias seguidos que o mesmo grupo fica em home office"
+                          />
+                        </div>
+                        <small className="auto-campo-ajuda">
+                          {Number(autoDuracaoBlocoHome) === 1
+                            ? 'O grupo em home office é escolhido de novo todo dia (pode repetir ou trocar).'
+                            : `O mesmo grupo fica em home office por ${autoDuracaoBlocoHome} dias úteis seguidos antes de passar a vez pro próximo.`}
+                        </small>
+                      </>
+                    ) : (
+                      <>
                     <label className="auto-secao-titulo">Como decidir quem fica em Home Office</label>
                     <div className="auto-chip-row">
                       <button
@@ -513,6 +658,8 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                             ? 'A dupla é escolhida de novo todo dia (pode repetir ou trocar).'
                             : `A mesma dupla fica em home office por ${autoDuracaoBlocoHome} dias úteis seguidos antes de passar a vez pra próxima.`}
                         </small>
+                      </>
+                    )}
                       </>
                     )}
                   </div>
@@ -686,7 +833,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                             value={tecnicoAtualUid}
                             onChange={(e) => setAutoOverrides(prev => ({ ...prev, [i]: e.target.value }))}
                           >
-                            {carregarTecnicosDaSala(salaSelecionada).map(t => (
+                            {tecnicosDisponiveisAuto().map(t => (
                               <option key={t.uid} value={t.uid}>{t.nome}</option>
                             ))}
                           </select>

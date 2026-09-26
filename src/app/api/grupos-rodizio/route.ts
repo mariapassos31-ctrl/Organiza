@@ -7,36 +7,13 @@ import { IMAGEM_COM_POSICOES_CONHECIDAS } from '../../../lib/salasConfig'
 
 // "Entre Salas": um grupo de 2+ salas onde as pessoas das equipes
 // selecionadas fazem rodízio de verdade entre os ambientes (dia a dia
-// muda quem senta em qual sala, não só divide baias numa sala só).
-// Qualquer gestão pode criar — mas só incluindo a própria equipe entre as
-// escolhidas (mexer só em equipes alheias continua sendo coisa de admin).
-export async function GET() {
-  const session = await auth()
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Não autorizado' }, { status: 401 })
-  }
-
-  const { rows: gruposRows } = await query('SELECT cd_grupo, nm_grupo FROM grupos_rodizio_salas ORDER BY cd_grupo')
-  const { rows: salasRows } = await query(
-    `SELECT cd_grupo_rodizio, cd_sala, nm_sala FROM salas WHERE cd_grupo_rodizio IS NOT NULL ORDER BY cd_sala`
-  )
-  const { rows: equipesRows } = await query(
-    `SELECT s.cd_grupo_rodizio, e.tp_equipe FROM sala_equipes se
-     JOIN salas s ON s.cd_sala = se.cd_sala
-     JOIN equipes e ON e.cd_equipe = se.cd_equipe
-     WHERE s.cd_grupo_rodizio IS NOT NULL`
-  )
-
-  const grupos = gruposRows.map(g => ({
-    id: g.cd_grupo,
-    nome: g.nm_grupo,
-    salas: salasRows.filter(s => s.cd_grupo_rodizio === g.cd_grupo).map(s => ({ id: s.cd_sala, nome: s.nm_sala })),
-    equipes: [...new Set(equipesRows.filter(e => e.cd_grupo_rodizio === g.cd_grupo).map(e => e.tp_equipe))],
-  }))
-
-  return NextResponse.json({ grupos })
-}
-
+// muda quem senta em qual sala, não só divide baias numa sala só). Hoje
+// só é criado pelo formato "Entre Salas" ao criar uma sala nova — não tem
+// tela de editar/gerar/excluir grupo já criado (tirada por não estar em
+// uso; se precisar de novo, dá pra reconstruir a partir do histórico do
+// git). Qualquer gestão pode criar — mas só incluindo a própria equipe
+// entre as escolhidas (mexer só em equipes alheias continua sendo coisa
+// de admin).
 export async function POST(request: Request) {
   const session = await auth()
   if (!session?.user) {

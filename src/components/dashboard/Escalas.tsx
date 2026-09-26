@@ -5,7 +5,7 @@ import { useState, useEffect, type FormEvent } from 'react'
 import { useDashboardUser } from '../../context/DashboardUserContext'
 import { EQUIPES, nuncaEhEscalado } from '../../lib/equipesConfig'
 import { mensagemDeErro } from '../../lib/erros'
-import type { Usuario, Escala, Sala, ConfigBaia, ConfigLab, FormEscala, DiaDetalhado, MarcadorSala, GrupoRodizioDetalhado } from '../../types/dominio'
+import type { Usuario, Escala, Sala, ConfigBaia, ConfigLab, FormEscala, DiaDetalhado, MarcadorSala } from '../../types/dominio'
 import { TIPOS_ESCALA, ordenarSobreavisoPrimeiro } from '../../lib/escalasConstants'
 import CalendarioEscalas from './escalas/CalendarioEscalas'
 import DiaDetalhadoModal from './escalas/DiaDetalhadoModal'
@@ -41,7 +41,6 @@ export default function Escalas() {
   const [baiasPerfil, setBaiasPerfil] = useState<Record<string, string>>({})
   const [laboratorioConfig, setLaboratorioConfig] = useState<ConfigLab>({ responsavelUid: null, backupUid: null })
   const [salas, setSalas] = useState<Sala[]>([])
-  const [grupos, setGrupos] = useState<GrupoRodizioDetalhado[]>([])
   const [showPainelSalas, setShowPainelSalas] = useState(false)
 
   const [formData, setFormData] = useState<FormEscala>({
@@ -63,7 +62,6 @@ export default function Escalas() {
     carregarEscalas()
     carregarBaiasPerfil()
     carregarLaboratorioConfig()
-    if (userData?.role === 'admin') carregarGrupos()
   }, [userData])
 
   // O mapa do dia do Suporte só entende { [baia]: perfilId } (sala de uma
@@ -236,17 +234,9 @@ export default function Escalas() {
     }
   }
 
-  const carregarGrupos = async () => {
-    try {
-      const response = await fetch('/api/grupos-rodizio')
-      if (!response.ok) return
-      const dados = await response.json()
-      setGrupos(dados.grupos || [])
-    } catch (error) {
-      console.error('Erro ao carregar rodízios entre salas:', error)
-    }
-  }
-
+  // Cria o grupo por trás do formato "Entre Salas" ao criar uma sala nova
+  // (única forma disponível hoje de colocar salas em rodízio) — refaz a
+  // lista de salas depois, que já traz o grupoRodizio de cada uma.
   const criarGrupoRodizio = async (dados: { nome: string; salaIds: number[]; equipes: string[] }) => {
     try {
       const response = await fetch('/api/grupos-rodizio', {
@@ -258,7 +248,7 @@ export default function Escalas() {
         const data = await response.json().catch(() => ({}))
         throw new Error(data.error || 'Falha ao criar')
       }
-      await Promise.all([carregarGrupos(), carregarBaiasPerfil()])
+      await carregarBaiasPerfil()
       return true
     } catch (err) {
       alert(mensagemDeErro(err))
@@ -266,64 +256,10 @@ export default function Escalas() {
     }
   }
 
-  const editarGrupoRodizio = async (grupoId: number, dados: { nome?: string; salaIds?: number[]; equipes?: string[] }) => {
-    try {
-      const response = await fetch(`/api/grupos-rodizio/${grupoId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(dados),
-      })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Falha ao salvar')
-      }
-      await Promise.all([carregarGrupos(), carregarBaiasPerfil()])
-      return true
-    } catch (err) {
-      alert(mensagemDeErro(err))
-      return false
-    }
-  }
-
-  const excluirGrupoRodizio = async (grupoId: number) => {
-    try {
-      const response = await fetch(`/api/grupos-rodizio/${grupoId}`, { method: 'DELETE' })
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Falha ao excluir')
-      }
-      await Promise.all([carregarGrupos(), carregarBaiasPerfil()])
-      return true
-    } catch (err) {
-      alert(mensagemDeErro(err))
-      return false
-    }
-  }
-
-  const gerarRodizioEntreSalas = async (grupoId: number, periodo: { dataInicio: string; dataFim: string }) => {
-    try {
-      const response = await fetch(`/api/grupos-rodizio/${grupoId}/gerar-rodizio`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(periodo),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(data.error || 'Falha ao gerar rodízio')
-      }
-      await carregarEscalas()
-      alert(data.aviso || `${data.atribuidas} escala(s) receberam sala.`)
-      return true
-    } catch (err) {
-      alert(mensagemDeErro(err))
-      return false
-    }
-  }
-
-  // Retorna true/false (sucesso) pro ConfigSala saber se pode considerar
+  // Retorna true/false (sucesso) pro ConfigurarSala saber se pode considerar
   // aquela baia salva. `valores` é { perfil } (sala de 1 equipe só) ou
   // { equipe, especialidade } (sala compartilhada) — o formato certo já
-  // vem calculado pelo ConfigSala, que sabe o modoReserva da sala.
+  // vem calculado pelo ConfigurarSala, que sabe o modoReserva da sala.
   const definirBaiaSala = async (salaId: number, baia: string, valores: DadosBaia) => {
     try {
       const response = await fetch(`/api/salas/${salaId}/baias`, {
@@ -580,8 +516,27 @@ export default function Escalas() {
   const salasComMovimento = salas.filter(s => s.equipes.length > 0)
   const salaSelecionada = salasComMovimento.find(s => s.id === salaSelecionadaId) || null
 
+  // Uma equipe vinculada a 2+ salas (ex: Infraestrutura em "Sala
+  // Compartilhada" e em "Sala Infra 2") não decide sozinha em qual sala a
+  // pessoa está — só a sala marcada na própria escala (salaId) diz isso.
+  // Sem essa checagem, as duas salas mostrariam a mesma escala duplicada.
+  const equipeEmSalaAmbigua = (equipe: string | null | undefined) =>
+    salas.filter(s => s.equipes.includes(equipe ?? '')).length > 1
+  // Sobreaviso e sábado são vistos por todo mundo, qualquer sala em foco —
+  // não são "da" sala, são informação que toda gestão precisa enxergar.
+  // Home office continua sendo "da sala que gerou ele": quando a equipe
+  // está em 2+ salas, só conta se o home office tiver essa sala marcada
+  // (a geração já grava isso) — senão o home office gerado pela Sala Infra
+  // vazava pra dentro da Sala do Suporte também, só por ser da mesma
+  // equipe. Sem sala marcada e equipe não-ambígua, conta normal.
+  const escalaPertenceASala = (e: Escala, sala: Sala) => {
+    if (e.tipo === 'sobreaviso' || e.tipo === 'sabado') return true
+    if (!sala.equipes.includes(e.equipe ?? '')) return false
+    return !equipeEmSalaAmbigua(e.equipe) || e.salaId === sala.id
+  }
+
   const contarPresencialHoje = (sala: Sala) => escalasDoDiaSemFiltro(new Date()).filter(e =>
-    sala.equipes.includes(e.equipe ?? '') && (e.tipo === 'presencial' || e.tipo === 'sabado')
+    escalaPertenceASala(e, sala) && (e.tipo === 'presencial' || e.tipo === 'sabado')
   ).length
 
   const selecionarSala = (sala: Sala) => {
@@ -591,7 +546,7 @@ export default function Escalas() {
   }
 
   const escalasParaCalendario = salaSelecionada
-    ? escalas.filter(e => salaSelecionada.equipes.includes(e.equipe ?? ''))
+    ? escalas.filter(e => escalaPertenceASala(e, salaSelecionada))
     : escalasFiltradasPorEquipe
 
   const clicarDiaCalendario = (dia: DiaDetalhado) => {
@@ -605,7 +560,7 @@ export default function Escalas() {
   const diaDetalhadoSalaFoco: DiaDetalhado | null = salaFocoAtiva
     ? {
         data: salaFocoAtiva.data,
-        escalas: escalasDoDiaSemFiltro(salaFocoAtiva.data).filter(e => salaFocoAtiva.sala.equipes.includes(e.equipe ?? '')),
+        escalas: escalasDoDiaSemFiltro(salaFocoAtiva.data).filter(e => escalaPertenceASala(e, salaFocoAtiva.sala)),
       }
     : null
 
@@ -783,11 +738,7 @@ export default function Escalas() {
           onRemoverImagemSala={removerImagemSala}
           onAjustarPosicoesSala={definirPosicoesSala}
           onAjustarMarcadoresSala={definirMarcadoresSala}
-          grupos={grupos}
           onCriarGrupoRodizio={criarGrupoRodizio}
-          onEditarGrupoRodizio={editarGrupoRodizio}
-          onExcluirGrupoRodizio={excluirGrupoRodizio}
-          onGerarRodizioEntreSalas={gerarRodizioEntreSalas}
           onClose={() => setShowPainelSalas(false)}
         />
       )}

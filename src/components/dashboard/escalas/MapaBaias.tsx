@@ -10,7 +10,7 @@ interface Posicao { top: string; left: string }
 // incluindo a mesa do Supervisor ("0" — ela já é desenhada como uma mesa à
 // parte na própria imagem, separada das outras 9). Ajustar aqui se a
 // imagem do mapa for trocada e as caixas mudarem de lugar. Exportadas
-// porque a tela de configuração (ConfigSala) reusa o mesmo layout pra
+// porque a tela de configuração (ConfigurarSala) reusa o mesmo layout pra
 // mostrar o mapa de verdade enquanto configura.
 export const POSICOES_BAIA: Record<string, Posicao> = {
   0: { top: '6.5%', left: '50%' },

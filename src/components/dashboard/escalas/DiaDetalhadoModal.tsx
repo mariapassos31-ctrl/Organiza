@@ -144,19 +144,26 @@ function calcularOcupacaoBaias(
     u.baiaFixa && u.baia && !naoEscalavel(u) && !ehJovemAprendiz(u.role) && u.uid !== uidNoLaboratorioHoje &&
     (!baiasPerfil[u.baia] || baiasPerfil[u.baia] === u.role)
   )
+  // Duas pessoas configuradas com a MESMA baia fixa (erro de cadastro) não
+  // podem fazer a segunda sumir do mapa inteiro — só a primeira a chegar
+  // aqui garante a baia; quem perder vira flutuante e ainda ganha uma vaga
+  // livre qualquer, em vez de desaparecer sem rastro.
+  const uidsQueGanharamBaiaFixa = new Set<string>()
   for (const fixo of outrosFixos) {
-    if (uidsPresencialHoje.has(fixo.uid) && !uidsEmCursoHoje.has(fixo.uid)) {
+    if (uidsPresencialHoje.has(fixo.uid) && !uidsEmCursoHoje.has(fixo.uid) && !ocupantes[fixo.baia]) {
       ocupantes[fixo.baia] = fixo.nome
+      uidsQueGanharamBaiaFixa.add(fixo.uid)
     }
   }
 
-  // "baia fixa" marcada sem nenhuma baia escolhida não conta como fixo de
-  // verdade (não tem lugar nenhum pra fixar) — trata como flutuante, senão
-  // a pessoa não entra em nenhuma das duas listas e some do mapa.
+  // "baia fixa" marcada sem nenhuma baia escolhida (ou perdida pra um
+  // colega com a mesma baia) não conta como fixo de verdade — trata como
+  // flutuante, senão a pessoa não entra em nenhuma das duas listas e some
+  // do mapa.
   const presenciaisNaoFixos = escalasSuporte
     .filter(e => e.tipo === 'presencial' || e.tipo === 'sabado')
     .map(e => tecnicosSuporte.find(u => u.uid === e.tecnicos[0]))
-    .filter((u): u is Usuario => !!u && !(u.baiaFixa && u.baia) && !uidsEmCursoHoje.has(u.uid) && !ehJovemAprendiz(u.role) && u.uid !== uidNoLaboratorioHoje)
+    .filter((u): u is Usuario => !!u && !uidsQueGanharamBaiaFixa.has(u.uid) && !uidsEmCursoHoje.has(u.uid) && !ehJovemAprendiz(u.role) && u.uid !== uidNoLaboratorioHoje)
 
   const semLugar: Usuario[] = []
   for (const usuario of presenciaisNaoFixos) {
@@ -223,7 +230,7 @@ function calcularOcupacaoSalaEquipe(
   usuarios: Usuario[] | undefined,
   sala: Sala,
   todasAsSalas: Sala[]
-): { ocupantes: Record<string, string>; semSalaDefinida: number; temEscalasHoje: boolean; nomesHomeOffice: string[] } {
+): { ocupantes: Record<string, string>; semSalaDefinida: number; temEscalasHoje: boolean; nomesHomeOffice: string[]; nomesSobreaviso: string[] } {
   const baiasReservadas = Object.keys(sala.baias)
   const tecnicosEnvolvidos = (usuarios || []).filter(u => sala.equipes.includes(u.equipe ?? ''))
 
@@ -238,15 +245,26 @@ function calcularOcupacaoSalaEquipe(
 
   // Home office não ocupa baia nenhuma, mas a sala da equipe continua
   // aparecendo no dia mesmo assim (igual já acontecia pro Suporte) — só
-  // pra mostrar que a sala existe e quem da equipe está em casa hoje.
-  const nomesHomeOffice = escalasDoDia
-    .filter(e => sala.equipes.includes(e.equipe ?? '') && e.tipo === 'homeoffice')
+  // pra mostrar que a sala existe e quem tá em casa hoje. Quando a equipe
+  // está em 2+ salas, só conta o home office que tem ESSA sala marcada
+  // (a geração já grava isso) — senão o home office gerado por uma sala
+  // vazava pra dentro da visão de outra sala da mesma equipe.
+  const homeOfficeCandidatos = escalasDoDia.filter(e => sala.equipes.includes(e.equipe ?? '') && e.tipo === 'homeoffice')
+  const nomesHomeOffice = homeOfficeCandidatos
+    .filter(e => !equipeAmbigua(e.equipe) || e.salaId === sala.id)
     .map(e => tecnicosEnvolvidos.find(u => u.uid === e.tecnicos[0])?.nome)
     .filter((n): n is string => Boolean(n))
-  const temEscalasHoje = escalasCandidatas.length > 0 || nomesHomeOffice.length > 0
+  // Sobreaviso é visto por todo mundo (não é "da" sala) — já é filtrado
+  // globalmente lá em cima no modal; aqui só entra na contagem de
+  // "essa sala teve algo hoje" pra ela não sumir da lista.
+  const nomesSobreaviso = escalasDoDia
+    .filter(e => sala.equipes.includes(e.equipe ?? '') && e.tipo === 'sobreaviso')
+    .map(e => tecnicosEnvolvidos.find(u => u.uid === e.tecnicos[0])?.nome)
+    .filter((n): n is string => Boolean(n))
+  const temEscalasHoje = escalasCandidatas.length > 0 || nomesHomeOffice.length > 0 || nomesSobreaviso.length > 0
 
   if (baiasReservadas.length === 0) {
-    return { ocupantes: {}, semSalaDefinida, temEscalasHoje, nomesHomeOffice }
+    return { ocupantes: {}, semSalaDefinida, temEscalasHoje, nomesHomeOffice, nomesSobreaviso }
   }
 
   const uidsPresencialHoje = new Set(escalasDaSala.map(e => e.tecnicos[0]))
@@ -255,12 +273,19 @@ function calcularOcupacaoSalaEquipe(
   const baiaDaPropriaEquipe = (baia: string, usuario: Usuario) => sala.baias[baia]?.equipe === usuario.equipe
 
   const fixos = tecnicosEnvolvidos.filter(u => u.baiaFixa && u.baia && baiasReservadas.includes(u.baia) && baiaDaPropriaEquipe(u.baia, u))
+  // Duas pessoas com a MESMA baia fixa cadastrada (erro de cadastro) não
+  // podem fazer a segunda sumir do mapa — só quem chega primeiro garante a
+  // baia; o resto flutua e ainda ganha uma vaga livre, em vez de sumir.
+  const uidsQueGanharamBaiaFixa = new Set<string>()
   for (const fixo of fixos) {
-    if (uidsPresencialHoje.has(fixo.uid)) ocupantes[fixo.baia] = fixo.nome
+    if (uidsPresencialHoje.has(fixo.uid) && !ocupantes[fixo.baia]) {
+      ocupantes[fixo.baia] = fixo.nome
+      uidsQueGanharamBaiaFixa.add(fixo.uid)
+    }
   }
 
   const presenciaisNaoFixos = tecnicosEnvolvidos.filter(u =>
-    uidsPresencialHoje.has(u.uid) && !(u.baiaFixa && baiasReservadas.includes(u.baia) && baiaDaPropriaEquipe(u.baia, u))
+    uidsPresencialHoje.has(u.uid) && !uidsQueGanharamBaiaFixa.has(u.uid)
   )
 
   const livrePara = (usuario: Usuario) => baiasReservadas.find(b => !ocupantes[b] && baiaDaPropriaEquipe(b, usuario))
@@ -270,7 +295,7 @@ function calcularOcupacaoSalaEquipe(
     if (vaga) ocupantes[vaga] = usuario.nome
   }
 
-  return { ocupantes, semSalaDefinida, temEscalasHoje, nomesHomeOffice }
+  return { ocupantes, semSalaDefinida, temEscalasHoje, nomesHomeOffice, nomesSobreaviso }
 }
 
 // Ocupação de uma sala de 1 equipe só (reserva por perfil), fora a sala
@@ -288,7 +313,7 @@ function calcularOcupacaoSalaPerfil(
   usuarios: Usuario[] | undefined,
   sala: Sala,
   todasAsSalas: Sala[]
-): { ocupantes: Record<string, string>; semSalaDefinida: number; temEscalasHoje: boolean; nomesHomeOffice: string[] } {
+): { ocupantes: Record<string, string>; semSalaDefinida: number; temEscalasHoje: boolean; nomesHomeOffice: string[]; nomesSobreaviso: string[] } {
   const equipeDaSala = sala.equipes[0]
   const numerosBaia = Array.from({ length: sala.qtdBaias || 9 }, (_, i) => String(i + 1))
   const tecnicosEnvolvidos = (usuarios || []).filter(u => u.equipe === equipeDaSala)
@@ -301,23 +326,36 @@ function calcularOcupacaoSalaPerfil(
 
   // Mesma lógica do modo por equipe: home office não ocupa baia, mas a
   // sala continua aparecendo no dia (mostra a planta + quem tá em casa).
+  // Se a equipe está em 2+ salas, só conta o home office com ESSA sala
+  // marcada — senão o de uma sala vazava pra visão da outra.
   const nomesHomeOffice = escalasDoDia
-    .filter(e => e.equipe === equipeDaSala && e.tipo === 'homeoffice')
+    .filter(e => e.equipe === equipeDaSala && e.tipo === 'homeoffice' && (!equipeAmbigua || e.salaId === sala.id))
     .map(e => tecnicosEnvolvidos.find(u => u.uid === e.tecnicos[0])?.nome)
     .filter((n): n is string => Boolean(n))
-  const temEscalasHoje = escalasCandidatas.length > 0 || nomesHomeOffice.length > 0
+  const nomesSobreaviso = escalasDoDia
+    .filter(e => e.equipe === equipeDaSala && e.tipo === 'sobreaviso')
+    .map(e => tecnicosEnvolvidos.find(u => u.uid === e.tecnicos[0])?.nome)
+    .filter((n): n is string => Boolean(n))
+  const temEscalasHoje = escalasCandidatas.length > 0 || nomesHomeOffice.length > 0 || nomesSobreaviso.length > 0
 
   const uidsPresencialHoje = new Set(escalasDaSala.map(e => e.tecnicos[0]))
   const ocupantes: Record<string, string> = {}
   const baiaCombinaComPerfil = (baia: string, usuario: Usuario) => !sala.baias[baia]?.perfil || sala.baias[baia].perfil === usuario.role
 
   const fixos = tecnicosEnvolvidos.filter(u => u.baiaFixa && u.baia && numerosBaia.includes(u.baia) && baiaCombinaComPerfil(u.baia, u))
+  // Duas pessoas com a MESMA baia fixa cadastrada (erro de cadastro) não
+  // podem fazer a segunda sumir do mapa — só quem chega primeiro garante a
+  // baia; o resto flutua e ainda ganha uma vaga livre, em vez de sumir.
+  const uidsQueGanharamBaiaFixa = new Set<string>()
   for (const fixo of fixos) {
-    if (uidsPresencialHoje.has(fixo.uid)) ocupantes[fixo.baia] = fixo.nome
+    if (uidsPresencialHoje.has(fixo.uid) && !ocupantes[fixo.baia]) {
+      ocupantes[fixo.baia] = fixo.nome
+      uidsQueGanharamBaiaFixa.add(fixo.uid)
+    }
   }
 
   const presenciaisNaoFixos = tecnicosEnvolvidos.filter(u =>
-    uidsPresencialHoje.has(u.uid) && !(u.baiaFixa && numerosBaia.includes(u.baia) && baiaCombinaComPerfil(u.baia, u))
+    uidsPresencialHoje.has(u.uid) && !uidsQueGanharamBaiaFixa.has(u.uid)
   )
 
   const livrePara = (usuario: Usuario) => {
@@ -332,7 +370,7 @@ function calcularOcupacaoSalaPerfil(
     if (vaga) ocupantes[vaga] = usuario.nome
   }
 
-  return { ocupantes, semSalaDefinida, temEscalasHoje, nomesHomeOffice }
+  return { ocupantes, semSalaDefinida, temEscalasHoje, nomesHomeOffice, nomesSobreaviso }
 }
 
 function formatarDataISO(data: Date) {
@@ -360,6 +398,19 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
   todasAsSalas?: Sala[]
 }) {
   if (!diaDetalhado) return null
+
+  // Sobreaviso e sábado não são "de" uma sala — são informação que toda
+  // gestão precisa ver, então aparecem sempre, olhando TODAS as escalas
+  // do dia (todas as equipes), iguais não importa qual sala esteja em
+  // foco. Home office NÃO entra aqui — cada sala/equipe vê só a sua
+  // própria, sem misturar (é tratado à parte, por sala, mais abaixo).
+  const nomeGlobalDoUid = (uid: string) => (usuarios || []).find(u => u.uid === uid)?.nome || null
+  const nomesGlobaisPorTipo = (tipo: string) => diaDetalhado.escalas
+    .filter(e => e.tipo === tipo)
+    .map(e => nomeGlobalDoUid(e.tecnicos[0]))
+    .filter((n): n is string => Boolean(n))
+  const nomesGlobaisSobreaviso = nomesGlobaisPorTipo('sobreaviso')
+  const nomesGlobaisSabado = nomesGlobaisPorTipo('sabado')
 
   // O mapa fixo do Suporte só pode aparecer se a sala com aquela imagem
   // específica estiver de fato entre as salas sendo mostradas agora — só
@@ -444,6 +495,25 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
           <div className="dia-detalhado-navegacao">
             <button type="button" className="btn-secondary" onClick={() => onNavegarDia(-1)}>← Dia anterior</button>
             <button type="button" className="btn-secondary" onClick={() => onNavegarDia(1)}>Próximo dia →</button>
+          </div>
+        )}
+
+        {(nomesGlobaisSobreaviso.length > 0 || nomesGlobaisSabado.length > 0) && (
+          <div style={{ padding: '0 20px' }}>
+            <div className="mapa-baias-legendas">
+              {nomesGlobaisSobreaviso.length > 0 && (
+                <div className="mapa-baias-legenda-coluna">
+                  <strong>🚨 Em sobreaviso</strong>
+                  <span>{nomesGlobaisSobreaviso.join(', ')}</span>
+                </div>
+              )}
+              {nomesGlobaisSabado.length > 0 && (
+                <div className="mapa-baias-legenda-coluna">
+                  <strong>📅 Escala Sábado</strong>
+                  <span>{nomesGlobaisSabado.join(', ')}</span>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

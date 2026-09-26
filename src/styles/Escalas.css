@@ -969,6 +969,10 @@
   padding: 8px;
   background: white;
   transition: background 0.3s;
+  /* Item de grid nasce com min-width:auto, ou seja, não encolhe abaixo do
+     conteúdo. Com nome de técnico dentro (sem quebra), as 7 colunas
+     exigiam ~1300px e o calendário estourava a tela em notebook e tablet. */
+  min-width: 0;
 }
 
 .calendar-day:hover {
@@ -978,6 +982,13 @@
 .calendar-day.empty {
   background: #f8f9fa;
   border: none;
+}
+
+/* O dia inteiro (não só o numerozinho) abre o detalhe — vale em qualquer
+   tamanho de tela, já que no celular a bolinha de 9px de cada escala é
+   pequena demais pra mirar. */
+.calendar-day-clicavel {
+  cursor: pointer;
 }
 
 .calendar-day-feriado {
@@ -1115,6 +1126,19 @@
   text-overflow: ellipsis;
   pointer-events: none;
   z-index: 5;
+}
+
+/* Rótulo de equipe na visualização de sala (VisualizarSala) — diferente
+   do nome de pessoa (curto, sempre cabe), o nome de uma equipe como
+   "Infraestrutura" precisa de mais espaço; em vez de cortar com "...",
+   deixa a caixa crescer e quebrar linha. Sem fundo — só o texto, igual
+   ao resto dos rótulos do mapa. */
+.mapa-baias-etiqueta-equipe {
+  max-width: 20%;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  font-size: 10px;
 }
 
 .mapa-baias-supervisor {
@@ -1617,6 +1641,10 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Sem isso o "..." nunca aparecia: item flex não encolhe abaixo do
+     texto por padrão, então o nome empurrava a largura da coluna inteira
+     em vez de ser cortado. */
+  min-width: 0;
 }
 
 /* ESCALAS DETALHADAS */

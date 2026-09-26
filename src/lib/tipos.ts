@@ -36,7 +36,7 @@ export interface ErroPlano {
 }
 
 export interface PlanoEscala {
-  salaId: number
+  salaId: number | null
   equipeSlugs: string[]
   blocos: BlocoEscala[]
   avisos?: AvisoEscala[]

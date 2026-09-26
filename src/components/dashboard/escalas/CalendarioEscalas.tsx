@@ -86,11 +86,20 @@ export default function CalendarioEscalas({
         ? escalasDodia.filter(e => e.tipo !== 'presencial')
         : escalasDodia
 
+      // O dia inteiro abre o detalhe, não só o numerozinho — no celular as
+      // escalas viram bolinhas de 9px e não dá pra mirar nelas; no
+      // computador continua valendo clicar direto na etiqueta pra editar
+      // (ela para a propagação logo abaixo).
+      const abrirDia = () => escalasDodia.length > 0 && onDiaClick({ data: dataAtual, escalas: escalasDodia })
+
       days.push(
-        <div key={day} className={`calendar-day ${feriado ? 'calendar-day-feriado' : ''}`}>
+        <div
+          key={day}
+          className={`calendar-day ${feriado ? 'calendar-day-feriado' : ''} ${escalasDodia.length > 0 ? 'calendar-day-clicavel' : ''}`}
+          onClick={abrirDia}
+        >
           <div
             className={`day-number ${escalasDodia.length > 0 ? 'day-number-clicavel' : ''}`}
-            onClick={() => escalasDodia.length > 0 && onDiaClick({ data: dataAtual, escalas: escalasDodia })}
             title={escalasDodia.length > 0 ? 'Ver todos os escalados do dia' : ''}
           >
             {day}
@@ -112,8 +121,8 @@ export default function CalendarioEscalas({
                   key={escala.id}
                   className="escala-badge-beautiful"
                   style={{ backgroundColor: tipo?.cor }}
-                  onClick={() => onEditarEscala(escala)}
-                  title={podeEditarEscala(escala) ? 'Clique para editar' : 'Clique para ver detalhes'}
+                  onClick={(e) => { e.stopPropagation(); onEditarEscala(escala) }}
+                  title={`${nomeTecnico}${podeEditarEscala(escala) ? ' — clique para editar' : ''}`}
                 >
                   <span className="badge-tipo-beautiful">{tipo?.label.split(' ')[0]}</span>
                   <span className="badge-tecnico-beautiful">{nomeTecnico}</span>

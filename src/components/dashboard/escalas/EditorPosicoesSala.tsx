@@ -138,6 +138,23 @@ export default function EditorPosicoesSala({ sala, todasAsSalas = [], onSalvarPo
   const [confirmandoSaida, setConfirmandoSaida] = useState(false)
   const plantaRef = useRef<HTMLDivElement>(null)
 
+  // Histórico pra Ctrl+Z — guarda uma foto de como soquetes/atribuições/
+  // marcadores estavam ANTES de cada ação que move ou cria algo, pra dar
+  // pra voltar se a pessoa clicar errado ou arrastar pro lugar errado.
+  const historicoRef = useRef<{ soquetes: Soquete[]; atribuicoes: Record<string, string>; marcadores: MarcadorSala[] }[]>([])
+  const registrarHistorico = () => {
+    historicoRef.current.push({ soquetes, atribuicoes, marcadores })
+    if (historicoRef.current.length > 50) historicoRef.current.shift()
+  }
+  const desfazer = () => {
+    const anterior = historicoRef.current.pop()
+    if (!anterior) return
+    setSoquetes(anterior.soquetes)
+    setAtribuicoes(anterior.atribuicoes)
+    setMarcadores(anterior.marcadores)
+    setSelecionado(null)
+  }
+
   const numeroDoSoquete = (id: string) => atribuicoes[id]
   const soqueteDoNumero = (numero: string) => Object.keys(atribuicoes).find(id => atribuicoes[id] === numero) || null
   const numerosNaBandeja = numeros.filter(n => !soqueteDoNumero(n))
@@ -216,19 +233,66 @@ export default function EditorPosicoesSala({ sala, todasAsSalas = [], onSalvarPo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [arrastando, soquetes])
 
+  // Setas do teclado empurram o soquete/marcador selecionado de 1% em 1%
+  // (segurando Shift, 5% de uma vez, igual ao passo do arraste) — pra
+  // ajuste fino sem precisar acertar o arraste com o mouse. Ctrl+Z desfaz
+  // a última ação. Os dois ficam desligados enquanto o foco está num campo
+  // de texto (o rótulo do marcador), pra não brigar com o cursor ou o
+  // desfazer nativo do navegador ali.
+  useEffect(() => {
+    const focoEmCampoDeTexto = () => {
+      const ativo = document.activeElement
+      return !!ativo && (ativo.tagName === 'INPUT' || ativo.tagName === 'TEXTAREA')
+    }
+    const handler = (e: KeyboardEvent) => {
+      if (focoEmCampoDeTexto()) return
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault()
+        desfazer()
+        return
+      }
+      if (!selecionado) return
+      const deltas: Record<string, [number, number]> = {
+        ArrowUp: [0, -1],
+        ArrowDown: [0, 1],
+        ArrowLeft: [-1, 0],
+        ArrowRight: [1, 0],
+      }
+      const delta = deltas[e.key]
+      if (!delta) return
+      e.preventDefault()
+      const passo = e.shiftKey ? PASSO_GRADE : 1
+      const [dx, dy] = delta
+      const mover = (valor: string, d: number) => `${Math.max(0, Math.min(100, parseFloat(valor) + d * passo))}%`
+      registrarHistorico()
+      if (selecionado.tipo === 'soquete') {
+        setSoquetes(prev => prev.map(s => s.id === selecionado.id ? { ...s, left: mover(s.left, dx), top: mover(s.top, dy) } : s))
+      } else {
+        setMarcadores(prev => prev.map(m => m.id === selecionado.id ? { ...m, left: mover(m.left, dx), top: mover(m.top, dy) } : m))
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selecionado, soquetes, marcadores, atribuicoes])
+
   const pararPropagacao = (e: { stopPropagation: () => void }) => e.stopPropagation()
 
-  const criarSoquete = (e: ReactMouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const left = colarNaGrade(((e.clientX - rect.left) / rect.width) * 100) + '%'
-    const top = colarNaGrade(((e.clientY - rect.top) / rect.height) * 100) + '%'
-    const novo: Soquete = { id: idAleatorio('sk'), top, left }
+  // Só cria soquete extra por esse botão explícito (não mais clicando em
+  // qualquer lugar da planta) — clicar sem querer perto de um soquete que
+  // já existe criava um soquete fantasma do lado, fazendo o número
+  // encaixar no lugar errado. Entra sempre no meio, pra não coincidir com
+  // nenhum soquete real; é só arrastar pro lugar certo depois.
+  const adicionarSoqueteExtra = () => {
+    registrarHistorico()
+    const novo: Soquete = { id: idAleatorio('sk'), top: '50%', left: '50%' }
     setSoquetes(prev => [...prev, novo])
     setSelecionado({ tipo: 'soquete', id: novo.id })
   }
 
   const mouseDownNoSoquete = (e: ReactMouseEvent, soquete: Soquete) => {
     e.stopPropagation()
+    registrarHistorico()
     setSelecionado({ tipo: 'soquete', id: soquete.id })
     const numero = numeroDoSoquete(soquete.id)
     if (numero) {
@@ -240,11 +304,13 @@ export default function EditorPosicoesSala({ sala, todasAsSalas = [], onSalvarPo
 
   const mouseDownNaBandeja = (e: ReactMouseEvent, numero: string) => {
     e.preventDefault()
+    registrarHistorico()
     setArrastando({ tipo: 'numero', numero, origemSoqueteId: null, x: e.clientX, y: e.clientY })
   }
 
   const removerSoqueteSelecionado = () => {
     if (selecionado?.tipo !== 'soquete') return
+    registrarHistorico()
     const id = selecionado.id
     setSoquetes(prev => prev.filter(s => s.id !== id))
     setAtribuicoes(prev => {
@@ -256,6 +322,7 @@ export default function EditorPosicoesSala({ sala, todasAsSalas = [], onSalvarPo
   }
 
   const adicionarMarcador = (tipoMarcador: TipoMarcador) => {
+    registrarHistorico()
     const novo: MarcadorSala = {
       id: idAleatorio('mk'),
       tipo: tipoMarcador,
@@ -271,6 +338,7 @@ export default function EditorPosicoesSala({ sala, todasAsSalas = [], onSalvarPo
 
   const removerMarcadorSelecionado = () => {
     if (!marcadorSelecionado) return
+    registrarHistorico()
     setMarcadores(prev => prev.filter(m => m.id !== marcadorSelecionado.id))
     setSelecionado(null)
   }
@@ -317,14 +385,26 @@ export default function EditorPosicoesSala({ sala, todasAsSalas = [], onSalvarPo
         </div>
 
         <div style={{ padding: '0 20px 20px' }}>
+          <p className="editor-posicoes-aviso-celular">
+            📱 Ajustar posição no celular é ingrato — a planta fica pequena e o arraste erra o alvo fácil.
+            Dá pra fazer, mas se puder, deixe essa parte pro computador.
+          </p>
           <p className="config-baias-explicacao">
             Todo número já vem com um soquete e um palpite de posição — arraste cada um pro lugar certo em cima da planta.
-            Se precisar de mais soquetes (ex: um layout bem diferente), clique num espaço vazio da planta e depois arraste o número certo pra dentro dele.
+            Clique num soquete ou item pra selecionar e use as <strong>setas do teclado</strong> pra ajustar fino (segure <strong>Shift</strong> pra andar mais rápido). <strong>Ctrl+Z</strong> desfaz a última ação.
             <br />
             {soquetes.length} soquete(s), {numeros.length - numerosNaBandeja.length} de {numeros.length} números já encaixados.
           </p>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <button type="button" className="btn-secondary" onClick={adicionarSoqueteExtra} disabled={salvando}>
+              ➕ Soquete extra
+            </button>
+            <button type="button" className="btn-secondary" onClick={desfazer} disabled={salvando || historicoRef.current.length === 0}>
+              ↩️ Desfazer (Ctrl+Z)
+            </button>
+          </div>
 
-          <div className="mapa-baias-wrapper editor-posicoes-planta" ref={plantaRef} onClick={criarSoquete}>
+          <div className="mapa-baias-wrapper editor-posicoes-planta" ref={plantaRef}>
             <img src={sala.imagem ?? undefined} alt={`Planta de ${sala.nome}`} className="mapa-baias-imagem" />
             {soquetes.map(s => {
               const numero = numeroDoSoquete(s.id)
@@ -345,7 +425,7 @@ export default function EditorPosicoesSala({ sala, todasAsSalas = [], onSalvarPo
                 key={m.id}
                 className={`editor-marcador-item${selecionado?.tipo === 'marcador' && selecionado.id === m.id ? ' editor-marcador-item-ativo' : ''}`}
                 style={{ top: m.top, left: m.left }}
-                onMouseDown={(e) => { e.stopPropagation(); setSelecionado({ tipo: 'marcador', id: m.id }); setArrastando({ tipo: 'marcador', id: m.id }) }}
+                onMouseDown={(e) => { e.stopPropagation(); registrarHistorico(); setSelecionado({ tipo: 'marcador', id: m.id }); setArrastando({ tipo: 'marcador', id: m.id }) }}
                 onClick={pararPropagacao}
               >
                 <span className="editor-marcador-icone">{emojiDoMarcador(m.tipo)}</span>

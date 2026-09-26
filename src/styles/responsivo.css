@@ -1,0 +1,509 @@
+/* =====================================================================
+   Visão de celular.
+
+   O site nasceu só pra computador: faixa lateral fixa de 96px, calendário
+   de 7 colunas com nome de pessoa dentro de cada dia, tabelas de 10
+   colunas e janelas centralizadas. Nada disso cabe num celular.
+
+   Aqui fica TODA a adaptação pra tela pequena, num arquivo só, pra não
+   ficar espalhada em oito folhas diferentes. O corte é 768px — o mesmo
+   do "md" do Tailwind usado na barra de navegação, pra as duas coisas
+   virarem ao mesmo tempo e nunca existir um estado meio-termo quebrado.
+
+   Regra de ouro daqui: nada de esconder informação que só existe numa
+   das visões. O que muda é a FORMA (barra embaixo, dia vira bolinha,
+   tabela rola de lado, janela vira folha), nunca o CONTEÚDO.
+   ===================================================================== */
+
+/* A faixa lateral vira barra inferior. A altura é fixada numa variável e
+   usada NOS DOIS lados (altura da barra e respiro do conteúdo) — se
+   fossem números soltos, bastava um deles mudar pra última linha do
+   conteúdo ficar escondida atrás da barra, que foi exatamente o que
+   aconteceu na primeira medição (barra 75px, respiro 64px). */
+@media (max-width: 767px) {
+  :root {
+    --altura-barra-celular: 76px;
+  }
+
+  .app-area-conteudo {
+    padding-bottom: calc(var(--altura-barra-celular) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .app-sidebar {
+    height: calc(var(--altura-barra-celular) + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* ── Respiro das páginas ──────────────────────────────────────────── */
+  body .dashboard-content .escalas-container,
+  body .dashboard-content .usuarios-container,
+  body .dashboard-content .trocas-container,
+  body .dashboard-content .relatorios-container,
+  body .dashboard-content .minha-agenda-container,
+  body .dashboard-content .manual-container,
+  body .dashboard-content .page-home {
+    padding: 1rem 0.875rem;
+  }
+
+  body .dashboard-content .escalas-header h2,
+  body .dashboard-content .usuarios-header h2,
+  body .dashboard-content .trocas-header h2,
+  body .dashboard-content .relatorios-header h2,
+  body .dashboard-content .agenda-header h2,
+  body .dashboard-content .manual-header h2 {
+    font-size: 1.375rem;
+  }
+
+  /* ── Cabeçalho da página: título em cima, botões embaixo ocupando a
+        largura toda (alvo de toque decente em vez de botãozinho). ────── */
+  .escalas-header,
+  .usuarios-header,
+  .trocas-header,
+  .relatorios-header,
+  .agenda-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .escalas-header-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .escalas-header-actions > button,
+  .usuarios-header > button,
+  .trocas-header > button {
+    flex: 1 1 140px;
+    min-height: 44px;
+  }
+
+  /* ── Barra de filtros: cada filtro numa linha, campo largo ────────── */
+  .escalas-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px 14px;
+  }
+
+  .escalas-filters {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .escalas-filters select,
+  .filter-select {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .escalas-legenda {
+    gap: 10px 14px;
+    font-size: 12px;
+  }
+
+  /* ── "Salas hoje": fileira que desliza de lado, sem quebrar linha e
+        sem empurrar o calendário pra baixo. ───────────────────────────── */
+  .escalas-salas-do-dia {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+
+  .escalas-salas-do-dia::-webkit-scrollbar {
+    display: none;
+  }
+
+  .escalas-salas-do-dia-titulo {
+    flex-shrink: 0;
+  }
+
+  .escalas-salas-do-dia-chip {
+    flex-shrink: 0;
+    min-height: 40px;
+  }
+
+  /* ── Calendário ───────────────────────────────────────────────────────
+     Sete colunas num celular dão ~45px por dia: nome de ninguém cabe ali.
+     Então o mês vira um panorama de bolinhas coloridas (uma por escala,
+     na cor do tipo) e o dia inteiro fica clicável pra abrir o detalhe —
+     que é onde os nomes aparecem de verdade. Mesmo padrão de qualquer
+     app de calendário de celular. */
+  .calendario-container {
+    padding: 10px;
+    border-radius: 10px;
+  }
+
+  .calendario-header {
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .calendario-header button {
+    padding: 8px 10px;
+    font-size: 12px;
+    min-height: 40px;
+  }
+
+  .calendario-selector {
+    order: -1;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .calendario-weekdays,
+  .calendario-days {
+    gap: 4px;
+  }
+
+  .weekday {
+    padding: 5px 0;
+    font-size: 10px;
+    border-radius: 3px;
+  }
+
+  .calendar-day {
+    min-height: 58px;
+    padding: 4px 3px;
+    border-radius: 5px;
+  }
+
+  .day-number {
+    margin-bottom: 4px;
+    font-size: 12px;
+  }
+
+  .day-number-clicavel {
+    padding: 1px 4px;
+    gap: 2px;
+  }
+
+  .day-number-icone {
+    display: none;
+  }
+
+  .dia-feriado-badge {
+    font-size: 8px;
+    padding: 2px 3px;
+    margin-bottom: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── Janelas: viram folha subindo do rodapé, ocupando a largura toda ── */
+  .modal-overlay {
+    align-items: flex-end;
+  }
+
+  .modal-content,
+  .modal-content-largo,
+  .auto-modal {
+    width: 100%;
+    max-width: none;
+    max-height: 92vh;
+    border-radius: 16px 16px 0 0;
+  }
+
+  .modal-header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: white;
+  }
+
+  .modal-header h3 {
+    font-size: 15px;
+  }
+
+  /* Os botões de ação ficam sempre alcançáveis, mesmo com a janela
+     rolando — sem isso, em formulário longo, "Salvar" fica lá no fim. */
+  .form-actions-modal,
+  .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    flex-wrap: wrap;
+    gap: 8px;
+    background: white;
+    border-top: 1px solid #eef0f3;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .form-actions-modal > button,
+  .form-actions > button {
+    flex: 1 1 120px;
+    min-height: 44px;
+  }
+
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+
+  .dia-detalhado-lista {
+    max-height: none;
+    padding: 12px;
+  }
+
+  .dia-detalhado-navegacao {
+    padding: 0 12px 10px;
+  }
+
+  .dia-detalhado-item {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+
+  /* ── Assistente de nova escala: passos e chips em tela estreita ────── */
+  .auto-passos {
+    padding: 12px 12px 0;
+  }
+
+  .auto-passo-label {
+    display: none;
+  }
+
+  .auto-passo.atual .auto-passo-label {
+    display: inline;
+  }
+
+  .auto-form {
+    padding: 12px;
+  }
+
+  .auto-chip {
+    min-height: 40px;
+  }
+
+  .auto-preview-item {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* ── Tabelas: rolam de lado em vez de serem cortadas ──────────────── */
+  .usuarios-table-wrapper,
+  .tabela-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .usuarios-table {
+    min-width: 760px;
+  }
+
+  /* ── Mapa da sala: a planta encolhe junto com a tela, então as
+        etiquetas de nome precisam encolher também pra não virar sopa. ── */
+  .mapa-baias-etiqueta {
+    font-size: 9px;
+    padding: 1px 3px;
+    max-width: 24%;
+  }
+
+  .mapa-baias-etiqueta-equipe {
+    font-size: 8px;
+    max-width: 26%;
+  }
+
+  .editor-marcador-item {
+    font-size: 9px;
+  }
+
+  .mapa-baias-legendas {
+    gap: 8px;
+  }
+
+  .mapa-baias-legenda-coluna {
+    min-width: 0;
+    flex: 1 1 140px;
+  }
+
+  /* ── Configuração de baia: rótulo em cima, campo embaixo ──────────── */
+  .config-baia-linha {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .config-baia-linha select {
+    flex: 1 1 100%;
+    min-height: 40px;
+  }
+
+  /* ── Aviso flutuante (ex: progresso da exclusão em massa) ────────────
+     Ficava colado no rodapé direito com 260px fixos — no celular isso
+     ficava ESCONDIDO atrás da barra de navegação e ainda estourava a
+     largura. Agora ocupa a linha toda, logo acima da barra. */
+  .notificacao-flutuante {
+    left: 12px;
+    right: 12px;
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    min-width: 0;
+    max-width: none;
+  }
+
+  /* ── Listas e filtros da lista detalhada ─────────────────────────── */
+  .escalas-list-header,
+  .escalas-list-controls {
+    flex-direction: column;
+    align-items: stretch;
+    min-width: 0;
+  }
+
+  .escala-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .escala-actions {
+    width: 100%;
+  }
+
+  /* ── Painel de salas: linha da sala + engrenagem sem espremer ─────── */
+  .painel-salas-linha {
+    gap: 6px;
+  }
+
+  .painel-salas-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 10px 12px;
+  }
+
+  /* ── Relatórios / cartões: uma coluna quando não cabe ─────────────── */
+  .relatorio-duas-colunas {
+    grid-template-columns: 1fr;
+  }
+
+  .usuarios-stats {
+    grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  }
+
+  /* ── Minha Agenda: mesmo tratamento do calendário principal ───────── */
+  .calendario-grid,
+  .calendario-dias-semana {
+    gap: 3px;
+  }
+
+  .calendario-dia {
+    min-height: 54px;
+    padding: 3px;
+    font-size: 11px;
+  }
+
+  .dia-numero {
+    font-size: 11px;
+    margin-bottom: 2px;
+  }
+
+  .dia-status {
+    max-height: none;
+    gap: 2px;
+  }
+
+  .escala-info {
+    padding: 1px 2px;
+  }
+
+  .escala-info-nome {
+    font-size: 9px;
+    line-height: 1.2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .escala-info-tipo,
+  .badge-escalado {
+    font-size: 8px;
+  }
+}
+
+/* =====================================================================
+   Calendário: nome de pessoa x bolinha.
+
+   Este corte é DIFERENTE do corte da navegação (768px) de propósito. O
+   que manda aqui não é "é celular?", e sim "o nome cabe?". São 7 colunas
+   fixas: pra um nome ser legível a coluna precisa de ~115px, o que só
+   acontece a partir de ~1000px de tela. Abaixo disso o nome era cortado
+   em uma ou duas letras ("L", "J") — pior que inútil, porque parece
+   informação e não é.
+
+   Então, abaixo de 1000px, cada escala vira uma bolinha na cor do tipo:
+   o mês continua dando o panorama (quantos e de que tipo por dia) e o
+   nome aparece de verdade ao tocar no dia, no detalhe. Tablet e celular
+   usam a mesma regra; muda só o tamanho.
+   ===================================================================== */
+@media (max-width: 999px) {
+  .day-escalas {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 3px;
+  }
+
+  .escala-badge-beautiful {
+    width: 11px;
+    height: 11px;
+    min-width: 11px;
+    padding: 0;
+    margin: 0;
+    border-radius: 50%;
+    gap: 0;
+    overflow: hidden;
+    box-shadow: none;
+  }
+
+  .escala-badge-beautiful:hover {
+    transform: none;
+  }
+
+  /* O texto continua no DOM (leitor de tela, Ctrl+F e o "title" do
+     mouse continuam achando o nome), só não ocupa espaço visual. */
+  .escala-badge-beautiful .badge-tipo-beautiful,
+  .escala-badge-beautiful .badge-tecnico-beautiful {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 767px) {
+  .escala-badge-beautiful {
+    width: 9px;
+    height: 9px;
+    min-width: 9px;
+  }
+}
+
+/* O editor de posições depende de arrastar com precisão — isso não
+   funciona em tela de toque pequena, e deixar a pessoa tentar (e sair
+   com as baias todas embaralhadas) é pior que avisar. */
+@media (max-width: 767px) {
+  .editor-posicoes-planta {
+    touch-action: pan-y;
+  }
+
+  .editor-posicoes-aviso-celular {
+    display: block;
+  }
+}
+
+.editor-posicoes-aviso-celular {
+  display: none;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff7e6;
+  border: 1px solid #f0c674;
+  color: #8a5a00;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}

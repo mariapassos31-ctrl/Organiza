@@ -1,5 +1,5 @@
 import 'server-only'
-import { query, getPool } from './db'
+import { query, getPool, equipeIdFromSlug } from './db'
 import { addDays, getSabados, indiceContinuacao, construirBlocosRodizio, construirBlocosHibrido } from './escalasRodizio'
 import { construirBlocosHomeOfficePar } from './escalasHomeOfficePar'
 import { ehJovemAprendiz } from './escalasConstants'
@@ -140,19 +140,41 @@ async function buscarOcupacaoHomeOfficeExistente(equipeIds: number[], dataInicio
   return porDia
 }
 
+// Sobreaviso não ocupa lugar físico nenhum — em vez de vir de uma sala
+// (que só serviria aqui pra apontar a equipe), aceita a(s) equipe(s)
+// direto. Os demais tipos continuam vindo de uma sala (é dela que se sabe
+// a equipe, e no caso de Presencial/Sábado é também onde a pessoa senta).
+async function resolverEquipesDoPlano(salaId: unknown, equipeSlugsBody: unknown): Promise<{ equipeIds: number[]; equipeSlugs: string[] } | null> {
+  if (salaId) return carregarEquipesDaSala(Number(salaId))
+  if (!Array.isArray(equipeSlugsBody) || equipeSlugsBody.length === 0) return null
+  const equipeIds: number[] = []
+  const equipeSlugs: string[] = []
+  for (const slug of equipeSlugsBody) {
+    const id = await equipeIdFromSlug(slug)
+    if (!id) return null
+    equipeIds.push(id)
+    equipeSlugs.push(slug)
+  }
+  return { equipeIds, equipeSlugs }
+}
+
 // Modo "rodízio" — usado para tipos de dono único por vez (Sábado,
 // Sobreaviso, ou Presencial/Home Office isolados): um técnico ocupa um
 // bloco de dias, depois passa a vez para o próximo, continuando de onde
-// a última geração desse mesmo tipo (nas equipes da sala) parou. Quando a
-// sala liga mais de uma equipe, todo mundo entra na MESMA fila de rodízio.
+// a última geração desse mesmo tipo (nas equipes da sala/equipe) parou.
+// Quando a sala liga mais de uma equipe, todo mundo entra na MESMA fila
+// de rodízio.
 export async function montarPlanoAuto({ role, userEquipe, body }: ArgsPlano): Promise<ResultadoPlano> {
-  const { tipo, dataInicio, dataFim, diasPorTecnico, tecnicoUids, salaId } = body
+  const { tipo, dataInicio, dataFim, diasPorTecnico, tecnicoUids, salaId, equipeSlugs: equipeSlugsBody } = body
 
-  if (!salaId || !tipo || !dataInicio || !dataFim) {
-    return { error: 'Sala, tipo e período são obrigatórios', status: 400 }
+  if (!tipo || !dataInicio || !dataFim) {
+    return { error: 'Tipo e período são obrigatórios', status: 400 }
   }
   if (!TIPOS_VALIDOS.includes(tipo)) {
     return { error: 'Tipo de escala inválido', status: 400 }
+  }
+  if (!salaId && !(Array.isArray(equipeSlugsBody) && equipeSlugsBody.length > 0)) {
+    return { error: tipo === 'sobreaviso' ? 'Escolha ao menos uma equipe' : 'Sala é obrigatória', status: 400 }
   }
   if (dataFim < dataInicio) {
     return { error: 'A data final não pode ser antes da data inicial', status: 400 }
@@ -165,13 +187,13 @@ export async function montarPlanoAuto({ role, userEquipe, body }: ArgsPlano): Pr
     return { error: 'Selecione ao menos um técnico', status: 400 }
   }
 
-  const salaEquipes = await carregarEquipesDaSala(Number(salaId))
+  const salaEquipes = await resolverEquipesDoPlano(salaId, equipeSlugsBody)
   if (!salaEquipes) {
-    return { error: 'Sala não encontrada ou sem equipe vinculada', status: 404 }
+    return { error: salaId ? 'Sala não encontrada ou sem equipe vinculada' : 'Equipe não encontrada', status: 404 }
   }
   const { equipeIds, equipeSlugs } = salaEquipes
   if (role !== 'admin' && !(userEquipe && equipeSlugs.includes(userEquipe))) {
-    return { error: 'Você só pode gerar escalas pra uma sala que a sua equipe usa', status: 403 }
+    return { error: 'Você só pode gerar escalas pra uma equipe que você faz parte', status: 403 }
   }
 
   if (tipo === 'sabado' && !(equipeSlugs.length === 1 && equipeSlugs[0] === 'suporte')) {
@@ -241,7 +263,7 @@ export async function montarPlanoAuto({ role, userEquipe, body }: ArgsPlano): Pr
 
   const { blocos, avisos } = construirBlocosRodizio({ participantes, tipo, dataInicio, dataFim, bloco, indiceInicial, sabados })
 
-  return { salaId: Number(salaId), equipeSlugs, blocos: anexarEquipePorBloco(blocos, participantes), avisos }
+  return { salaId: salaId ? Number(salaId) : null, equipeSlugs, blocos: anexarEquipePorBloco(blocos, participantes), avisos }
 }
 
 // Modo "híbrido" (Presencial + Home Office divididos): a cada dia de
@@ -359,22 +381,22 @@ export async function montarPlanoHibrido({ role, userEquipe, body }: ArgsPlano):
 // Recebe uma lista de blocos já decididos (ex: prévia editada manualmente
 // pelo usuário) e valida cada um antes de criar, sem recalcular nada.
 export async function montarPlanoManual({ role, userEquipe, body }: ArgsPlano): Promise<ResultadoPlano> {
-  const { blocosManuais, salaId } = body
+  const { blocosManuais, salaId, equipeSlugs: equipeSlugsBody } = body
 
-  if (!salaId) {
-    return { error: 'Sala é obrigatória', status: 400 }
+  if (!salaId && !(Array.isArray(equipeSlugsBody) && equipeSlugsBody.length > 0)) {
+    return { error: 'Sala ou equipe são obrigatórias', status: 400 }
   }
   if (!Array.isArray(blocosManuais) || blocosManuais.length === 0) {
     return { error: 'Nenhuma escala para criar', status: 400 }
   }
 
-  const salaEquipes = await carregarEquipesDaSala(Number(salaId))
+  const salaEquipes = await resolverEquipesDoPlano(salaId, equipeSlugsBody)
   if (!salaEquipes) {
-    return { error: 'Sala não encontrada ou sem equipe vinculada', status: 404 }
+    return { error: salaId ? 'Sala não encontrada ou sem equipe vinculada' : 'Equipe não encontrada', status: 404 }
   }
   const { equipeIds, equipeSlugs } = salaEquipes
   if (role !== 'admin' && !(userEquipe && equipeSlugs.includes(userEquipe))) {
-    return { error: 'Você só pode gerar escalas pra uma sala que a sua equipe usa', status: 403 }
+    return { error: 'Você só pode gerar escalas pra uma equipe que você faz parte', status: 403 }
   }
 
   const { rows: tecnicosEquipes } = await query(
@@ -405,7 +427,7 @@ export async function montarPlanoManual({ role, userEquipe, body }: ArgsPlano): 
     }
     let cdSala: number | null = null
     if (b.salaId !== undefined && b.salaId !== null && b.salaId !== '') {
-      if (Number(b.salaId) !== Number(salaId)) {
+      if (!salaId || Number(b.salaId) !== Number(salaId)) {
         return { error: 'Uma das escalas aponta pra uma sala diferente da escolhida', status: 400 }
       }
       cdSala = Number(b.salaId)
@@ -426,7 +448,7 @@ export async function montarPlanoManual({ role, userEquipe, body }: ArgsPlano): 
     }
   }
 
-  return { salaId: Number(salaId), equipeSlugs, blocos }
+  return { salaId: salaId ? Number(salaId) : null, equipeSlugs, blocos }
 }
 
 // Único ponto de despacho — usado tanto pela prévia quanto pela geração

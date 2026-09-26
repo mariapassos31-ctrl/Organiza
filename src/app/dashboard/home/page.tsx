@@ -34,8 +34,10 @@ export default function DashboardHome() {
         <h1 className="text-3xl font-black italic tracking-tight text-brand">
           Bem-vindo, {userData?.nome}!
         </h1>
+        {/* "ao lado" só vale no computador — no celular o menu fica na
+            barra de baixo, então o texto muda junto com a barra. */}
         <p className="mt-1 text-sm text-slate-400">
-          Use o menu ao lado para gerenciar escalas, trocas e usuários.
+          Use o menu <span className="md:hidden">abaixo</span><span className="hidden md:inline">ao lado</span> para gerenciar escalas, trocas e usuários.
         </p>
       </header>
     </div>

@@ -241,7 +241,11 @@
   background: white;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
+  /* Eram 10 colunas dentro de um "overflow: hidden": em tela estreita as
+     últimas colunas (inclusive "Ações") ficavam cortadas, sem rolagem e
+     sem jeito de chegar nelas. Agora rola de lado quando não couber. */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .usuarios-table-wrapper::-webkit-scrollbar {
@@ -473,6 +477,14 @@
   font-weight: bold;
   color: white;
   display: inline-block;
+  /* "Infraestrutura" é bem mais comprido que as outras equipes — sem um
+     limite, o tema (letter-spacing + maiúsculas) deixava o selo largo
+     demais e ele estourava pra cima da coluna vizinha na tabela. */
+  max-width: 130px;
+  white-space: normal;
+  word-break: break-word;
+  text-align: center;
+  line-height: 1.3;
 }
 
 .form-group.checkbox {
