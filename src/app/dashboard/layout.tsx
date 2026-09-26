@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { useAuthUser } from '../../hooks/useAuthUser'
 import { DashboardUserProvider } from '../../context/DashboardUserContext'
+import { NotificacaoProvider } from '../../context/NotificacaoContext'
 import { ehPerfilGestao, labelPerfil } from '../../lib/equipesConfig'
 import { Sidebar, type ItemMenu } from '../../components/layout/Sidebar'
-import { LayoutDashboard, Users, CalendarDays, Repeat, BarChart3, BookOpen } from 'lucide-react'
+import { LayoutDashboard, Users, CalendarDays, Repeat, BarChart3, BookOpen, Trash2 } from 'lucide-react'
 import '../../styles/Escalas.css'
 import '../../styles/Dashboard.css'
 import '../../styles/argos-theme.css'
@@ -92,6 +93,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         escalas,
         trocas,
         { label: 'Relatórios', href: '/dashboard/relatorios', icon: BarChart3 },
+        { label: 'Lixeira', href: '/dashboard/lixeira', icon: Trash2 },
         manual,
       ]
     : [escalas, trocas, manual]
@@ -109,7 +111,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       <div className="app-area-conteudo flex min-h-screen w-full min-w-0 flex-1 flex-col md:ml-24">
       <main className="dashboard-content w-full min-w-0">
         <DashboardUserProvider value={{ user: userData, userData }}>
-          {children}
+          <NotificacaoProvider>
+            {children}
+          </NotificacaoProvider>
         </DashboardUserProvider>
       </main>
       </div>

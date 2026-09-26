@@ -1,31 +1,10 @@
-import type { PoolClient } from 'pg'
 import { mensagemDeErro } from '@/lib/erros'
 import { NextResponse } from 'next/server'
 import { query, getPool } from '../../../../lib/db'
 import { auth } from '../../../../auth'
-
-function addDays(dateStr: string, delta: number): string {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  const dt = new Date(y, m - 1, d)
-  dt.setDate(dt.getDate() + delta)
-  const yy = dt.getFullYear()
-  const mm = String(dt.getMonth() + 1).padStart(2, '0')
-  const dd = String(dt.getDate()).padStart(2, '0')
-  return `${yy}-${mm}-${dd}`
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function criarEscalaSegmento(client: PoolClient, escala: any, dtInicio: string, dtFim: string, cdTecnico: number | string) {
-  const { rows } = await client.query(
-    `INSERT INTO escalas (tp_escala, cd_equipe, dt_inicio, dt_fim, ds_descricao, tp_status, cd_usuario_criador)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING cd_escala`,
-    [escala.tp_escala, escala.cd_equipe, dtInicio, dtFim, escala.ds_descricao, escala.escala_tp_status, escala.cd_usuario_criador]
-  )
-  const novaEscalaId = rows[0].cd_escala
-  await client.query('INSERT INTO escala_tecnicos (cd_escala, cd_tecnico) VALUES ($1, $2)', [novaEscalaId, cdTecnico])
-  return novaEscalaId
-}
+import { motivoInelegibilidadeParaTipo } from '../../../../lib/escalasConstants'
+import { quemColideEspecialidadeNoHomeOffice, listarNomes } from '../../../../lib/elegibilidadeHomeOffice'
+import { substituirTecnicoNoPeriodo } from '../../../../lib/escalaSegmento'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
@@ -49,11 +28,23 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
               to_char(es.dt_inicio, 'YYYY-MM-DD') AS escala_dt_inicio,
               to_char(es.dt_fim, 'YYYY-MM-DD') AS escala_dt_fim,
               ts.cd_usuario AS solicitante_usuario_id,
-              td.cd_usuario AS destino_usuario_id
+              td.cd_usuario AS destino_usuario_id,
+              usol.tp_role AS solicitante_role,
+              ts.nr_baia AS solicitante_nr_baia, ts.ds_especialidade AS solicitante_especialidade,
+              ts.sn_elegivel_home_office AS solicitante_elegivel,
+              udest.tp_role AS destino_role,
+              td.nr_baia AS destino_nr_baia, td.ds_especialidade AS destino_especialidade,
+              td.sn_elegivel_home_office AS destino_elegivel,
+              esol.tp_escala AS solicitada_tp_escala,
+              to_char(esol.dt_inicio, 'YYYY-MM-DD') AS solicitada_dt_inicio,
+              to_char(esol.dt_fim, 'YYYY-MM-DD') AS solicitada_dt_fim
        FROM trocas_escala te
-       JOIN escalas es ON es.cd_escala = te.cd_escala
+       JOIN escalas es ON es.cd_escala = te.cd_escala AND es.tp_status != 'cancelada'
        JOIN tecnicos ts ON ts.cd_tecnico = te.cd_tecnico_solicitante
+       JOIN usuarios usol ON usol.cd_usuario = ts.cd_usuario
        LEFT JOIN tecnicos td ON td.cd_tecnico = te.cd_tecnico_destino
+       LEFT JOIN usuarios udest ON udest.cd_usuario = td.cd_usuario
+       LEFT JOIN escalas esol ON esol.cd_escala = te.cd_escala_solicitada
        WHERE te.cd_troca_escala = $1`,
       [id]
     )
@@ -88,6 +79,56 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return NextResponse.json({ ok: true })
   }
 
+  // Reconfere a elegibilidade na hora do aceite (não só na criação do
+  // pedido) — o perfil de qualquer um dos dois pode ter mudado entre o
+  // pedido e a resposta (virou Aprendiz, saiu de "elegível home office"
+  // etc), e é aqui que a atribuição de fato acontece.
+  const motivoDestino = motivoInelegibilidadeParaTipo(troca.tp_escala, {
+    role: troca.destino_role,
+    ehSupervisor: troca.destino_nr_baia === 0,
+    especialidade: troca.destino_especialidade,
+    elegivelHomeOffice: troca.destino_elegivel !== false,
+  })
+  if (motivoDestino) {
+    return NextResponse.json({ error: motivoDestino }, { status: 400 })
+  }
+  if (troca.tp_escala === 'homeoffice') {
+    const dia = troca.dt_dia
+    const quemColide = await quemColideEspecialidadeNoHomeOffice(
+      troca.cd_equipe, dia || troca.escala_dt_inicio, dia || troca.escala_dt_fim,
+      troca.destino_especialidade, troca.cd_tecnico_solicitante
+    )
+    if (quemColide.length > 0) {
+      return NextResponse.json(
+        { error: `Pessoas com a mesma especialidade não podem ficar em home office juntas: ${listarNomes(quemColide)} já está(ão) em home office nesse período` },
+        { status: 400 }
+      )
+    }
+  }
+  if (troca.cd_escala_solicitada) {
+    const motivoSolicitante = motivoInelegibilidadeParaTipo(troca.solicitada_tp_escala, {
+      role: troca.solicitante_role,
+      ehSupervisor: troca.solicitante_nr_baia === 0,
+      especialidade: troca.solicitante_especialidade,
+      elegivelHomeOffice: troca.solicitante_elegivel !== false,
+    })
+    if (motivoSolicitante) {
+      return NextResponse.json({ error: `O solicitante não pode receber essa escala: ${motivoSolicitante}` }, { status: 400 })
+    }
+    if (troca.solicitada_tp_escala === 'homeoffice') {
+      const quemColideMutua = await quemColideEspecialidadeNoHomeOffice(
+        troca.cd_equipe, troca.solicitada_dt_inicio, troca.solicitada_dt_fim,
+        troca.solicitante_especialidade, troca.cd_tecnico_destino
+      )
+      if (quemColideMutua.length > 0) {
+        return NextResponse.json(
+          { error: `Pessoas com a mesma especialidade não podem ficar em home office juntas: ${listarNomes(quemColideMutua)} já está(ão) em home office no período pedido` },
+          { status: 400 }
+        )
+      }
+    }
+  }
+
   // aceitar
   const client = await getPool().connect()
   try {
@@ -98,30 +139,27 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       [troca.cd_tecnico_destino, id]
     )
 
-    const dia = troca.dt_dia
-    const inicio = troca.escala_dt_inicio
-    const fim = troca.escala_dt_fim
+    await substituirTecnicoNoPeriodo(
+      client,
+      {
+        cd_escala: troca.cd_escala,
+        tp_escala: troca.tp_escala,
+        cd_equipe: troca.cd_equipe,
+        ds_descricao: troca.ds_descricao,
+        tp_status: troca.escala_tp_status,
+        cd_usuario_criador: troca.cd_usuario_criador,
+        dt_inicio: troca.escala_dt_inicio,
+        dt_fim: troca.escala_dt_fim,
+      },
+      troca.dt_dia,
+      troca.cd_tecnico_solicitante,
+      troca.cd_tecnico_destino
+    )
 
-    if (!dia || (dia === inicio && dia === fim)) {
-      // troca da escala inteira (ou escala de um único dia)
-      await client.query(
-        'UPDATE escala_tecnicos SET cd_tecnico = $1 WHERE cd_escala = $2 AND cd_tecnico = $3',
-        [troca.cd_tecnico_destino, troca.cd_escala, troca.cd_tecnico_solicitante]
-      )
-    } else if (dia === inicio) {
-      await criarEscalaSegmento(client, troca, dia, dia, troca.cd_tecnico_destino)
-      await client.query('UPDATE escalas SET dt_inicio = $1 WHERE cd_escala = $2', [addDays(dia, 1), troca.cd_escala])
-    } else if (dia === fim) {
-      await criarEscalaSegmento(client, troca, dia, dia, troca.cd_tecnico_destino)
-      await client.query('UPDATE escalas SET dt_fim = $1 WHERE cd_escala = $2', [addDays(dia, -1), troca.cd_escala])
-    } else {
-      await criarEscalaSegmento(client, troca, dia, dia, troca.cd_tecnico_destino)
-      await criarEscalaSegmento(client, troca, addDays(dia, 1), fim, troca.cd_tecnico_solicitante)
-      await client.query('UPDATE escalas SET dt_fim = $1 WHERE cd_escala = $2', [addDays(dia, -1), troca.cd_escala])
-    }
-
-    // Troca mútua: a escala que o solicitante pediu do destino vai inteira
-    // pro solicitante (sempre em bloco completo, sem recorte por dia).
+    // Troca mútua: a escala que o solicitante pediu já foi recortada pro
+    // tamanho exato (dias específicos ou inteira) lá na criação do pedido
+    // — aqui é sempre uma troca de escala inteira mesmo, do tamanho que já
+    // é o certo.
     if (troca.cd_escala_solicitada) {
       await client.query(
         'UPDATE escala_tecnicos SET cd_tecnico = $1 WHERE cd_escala = $2 AND cd_tecnico = $3',

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, type ComponentProps } from 'react'
+import { useNotificacao } from '../../../context/NotificacaoContext'
 import type { MarcadorSala, PosicaoBaia, Sala } from '../../../types/dominio'
 import ConfigurarSala from './ConfigurarSala'
 import VisualizarSala from './VisualizarSala'
@@ -205,6 +206,7 @@ function CriarSala({ minhaEquipe, salas, onCriar, onClose }: {
   onCriar: (dados: { nome: string; qtdBaias: number; equipes: string[]; entreSalas?: { salaIds: number[]; nomeRodizio: string } }) => Resultado
   onClose: () => void
 }) {
+  const { notificar } = useNotificacao()
   const [modo, setModo] = useState<ModoCriacao>('unica')
   const [nome, setNome] = useState('')
   const [qtdBaias, setQtdBaias] = useState<number | string>(9)
@@ -242,32 +244,32 @@ function CriarSala({ minhaEquipe, salas, onCriar, onClose }: {
 
   const criar = async () => {
     if (!nome.trim()) {
-      alert('Dê um nome pra sala.')
+      notificar('Dê um nome pra sala.')
       return
     }
     if (modo === 'unica') {
       if (!equipeUnica) {
-        alert('Escolha a equipe dessa sala.')
+        notificar('Escolha a equipe dessa sala.')
         return
       }
     } else if (modo === 'compartilhada') {
       if (equipes.length < 2) {
-        alert('Escolha pelo menos 2 equipes.')
+        notificar('Escolha pelo menos 2 equipes.')
         return
       }
     } else {
       // entre_salas: pode ser só 1 equipe se revezando entre 2+ salas dela
       // mesma (ex: Suporte com duas salas físicas), ou 2+ equipes também.
       if (equipes.length === 0) {
-        alert('Escolha pelo menos uma equipe.')
+        notificar('Escolha pelo menos uma equipe.')
         return
       }
       if (salasParaAgrupar.length === 0) {
-        alert('Escolha pelo menos 1 sala já existente pra revezar com essa.')
+        notificar('Escolha pelo menos 1 sala já existente pra revezar com essa.')
         return
       }
       if (!nomeRodizio.trim()) {
-        alert('Dê um nome pro rodízio entre salas.')
+        notificar('Dê um nome pro rodízio entre salas.')
         return
       }
     }

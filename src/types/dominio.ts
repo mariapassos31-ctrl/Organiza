@@ -59,10 +59,26 @@ export interface Troca {
   destinoNome: string | null
   dataCriacao: string
   dataAceite: string | null
+  // Troca direta de admin/gestor (sem pedido de aceite) — distinguível de
+  // uma troca de verdade entre colegas pra aparecer com um selo no
+  // histórico.
+  direta: boolean
   escalaSolicitadaId: string | null
   escalaSolicitadaTipo: string | null
   escalaSolicitadaDataInicio: string | null
   escalaSolicitadaDataFim: string | null
+}
+
+export interface EscalaLixeira {
+  id: string
+  tipo: string
+  dataInicio: string
+  dataFim: string
+  descricao: string | null
+  equipe: string | null
+  tecnicosNomes: string[]
+  dataExclusao: string
+  diasRestantes: number
 }
 
 export interface ConfigBaia {

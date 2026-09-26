@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useNotificacao } from '../../../context/NotificacaoContext'
 import { POSICOES_BAIA } from './MapaBaias'
 import EditorPosicoesSala, { emojiDoMarcador } from './EditorPosicoesSala'
 import { EQUIPES, labelEquipe, PERFIS, especialidadesPorEquipe } from '../../../lib/equipesConfig'
@@ -48,6 +49,7 @@ export default function ConfigurarSala({ sala, minhaEquipe, souAdmin, onSalvarDe
   todasAsSalas: Sala[]
   onClose: () => void
 }) {
+  const { notificar } = useNotificacao()
   const [passoAtual, setPassoAtual] = useState(1)
 
   // Passo 1 — detalhes
@@ -107,7 +109,7 @@ export default function ConfigurarSala({ sala, minhaEquipe, souAdmin, onSalvarDe
 
   const salvarDetalhesEIr = async (proximoPasso: number) => {
     if (!nome.trim()) {
-      alert('Dê um nome pra sala.')
+      notificar('Dê um nome pra sala.')
       return
     }
     setSalvandoDetalhes(true)
@@ -122,7 +124,7 @@ export default function ConfigurarSala({ sala, minhaEquipe, souAdmin, onSalvarDe
 
   const salvarEquipesEIr = async (proximoPasso: number) => {
     if (equipes.length === 0) {
-      alert('Escolha pelo menos uma equipe.')
+      notificar('Escolha pelo menos uma equipe.')
       return
     }
     setSalvandoEquipes(true)

@@ -1,0 +1,107 @@
+.lixeira-container {
+  padding: 20px;
+  background: white;
+  min-height: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  width: 95%;
+}
+
+.lixeira-header {
+  margin-bottom: 20px;
+}
+
+.lixeira-header h2 {
+  font-size: 24px;
+  color: #333;
+  margin: 0 0 4px 0;
+}
+
+.lixeira-header .subtitle {
+  color: #666;
+  font-size: 14px;
+  margin: 0;
+}
+
+.lixeira-barra-lote {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: #f3f4f6;
+  border-radius: 8px;
+}
+
+.lixeira-selecionar-todas {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+}
+
+.lixeira-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.lixeira-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  background: #fafafa;
+  flex-wrap: wrap;
+}
+
+.lixeira-checkbox {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.lixeira-info {
+  flex: 1;
+  min-width: 200px;
+}
+
+.lixeira-info p {
+  margin: 0;
+}
+
+.lixeira-info p:first-child {
+  font-size: 15px;
+  color: #2c3e50;
+  margin-bottom: 4px;
+}
+
+.lixeira-detalhe {
+  font-size: 13px;
+  color: #777;
+}
+
+.lixeira-prazo-urgente {
+  color: #c0392b;
+  font-weight: bold;
+}
+
+.lixeira-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.empty-state {
+  text-align: center;
+  color: #999;
+  padding: 20px;
+  font-size: 13px;
+}

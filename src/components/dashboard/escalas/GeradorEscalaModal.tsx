@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useNotificacao } from '../../../context/NotificacaoContext'
 import { mensagemDeErro } from '../../../lib/erros'
 import type { Sala, Usuario, UsuarioLogado } from '../../../types/dominio'
 import { EQUIPES, labelEquipe } from '../../../lib/equipesConfig'
@@ -35,6 +36,11 @@ interface AvisoPreview {
   data: string
   mensagem: string
 }
+
+// Presencial, home office e sábado são "onde a pessoa está fisicamente" —
+// nunca podem coexistir pro mesmo técnico no mesmo dia (mesma regra do
+// backend em escalasAuto.ts).
+const TIPOS_PRESENCA_FISICA = new Set(['presencial', 'homeoffice', 'sabado'])
 
 const PASSOS = [
   { n: 1, label: 'Tipo' },
@@ -78,6 +84,16 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
   const salaInicial = salasSelecionaveis.find(s => s.id === salaInicialId) || null
   const ehSuporteExclusivo = (sala: Sala | null) => Boolean(sala && sala.equipes.length === 1 && sala.equipes[0] === 'suporte')
 
+  // Sábado ocupa lugar de verdade (a pessoa senta numa baia), então
+  // precisa de uma sala — mas hoje só existe UMA equipe que pode ter
+  // escala de sábado (Suporte, e só numa sala exclusiva dela; o backend
+  // recusa qualquer outra combinação). Como a resposta já é sempre a
+  // mesma, não faz sentido perguntar "qual sala" — só "qual equipe" (que,
+  // na prática, tem uma opção só), e a sala é resolvida sozinha.
+  const salaExclusivaDaEquipe = (equipeSlug: string) =>
+    salasSelecionaveis.find(s => s.equipes.length === 1 && s.equipes[0] === equipeSlug) || null
+  const equipesParaSabado = EQUIPES.filter(eq => eq.id === 'suporte' && salaExclusivaDaEquipe(eq.id))
+
   // Sala com 2+ equipes: o que importa é quantas baias ela tem pra
   // presencial (isso já está montado na configuração da sala) — não faz
   // sentido perguntar "quantos ficam em home", porque casa lotada de gente
@@ -95,6 +111,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
     return baiasReservadas > 0 ? baiasReservadas : (sala.qtdBaias || 1)
   }
 
+  const { notificar } = useNotificacao()
   const [passoAtual, setPassoAtual] = useState(1)
   const [autoSalaId, setAutoSalaId] = useState<number | string>(salaInicialId)
   const [autoForm, setAutoForm] = useState<AutoForm>({
@@ -156,8 +173,11 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
   }
 
   const ehSobreaviso = autoForm.tipo === 'sobreaviso'
+  const ehSabado = autoForm.tipo === 'sabado'
   // Fonte dos técnicos elegíveis do passo atual — de uma sala (a maioria
-  // dos tipos) ou direto da equipe escolhida (só Sobreaviso).
+  // dos tipos) ou direto da equipe escolhida (Sobreaviso, e agora Sábado
+  // também — só que pra Sábado a "equipe" já resolve pra uma sala fixa
+  // por baixo dos panos, porque ali a pessoa senta de verdade).
   const tecnicosDisponiveisAuto = (tipo: string = autoForm.tipo) =>
     tipo === 'sobreaviso'
       ? carregarTecnicosPorEquipes(autoEquipeSobreaviso ? [autoEquipeSobreaviso] : [], tipo)
@@ -168,8 +188,25 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
     setAutoTecnicosSelecionados(carregarTecnicosPorEquipes([slug]).map(t => t.uid))
   }
 
+  // Escolher a equipe do Sábado só decide a sala por baixo dos panos (ela
+  // já é única pra cada equipe elegível) — dali em diante segue igual a
+  // qualquer sala escolhida (mesmos técnicos, mesmo payload).
+  const mudarEquipeSabado = (slug: string) => {
+    const sala = salaExclusivaDaEquipe(slug)
+    if (!sala) return
+    setAutoSalaId(sala.id)
+    setAutoTecnicosSelecionados(carregarTecnicosDaSala(sala, 'sabado').map(t => t.uid))
+  }
+
   const mudarTipoAuto = (novoTipo: string) => {
     setAutoForm(prev => ({ ...prev, tipo: novoTipo, diasPorTecnico: novoTipo === 'sabado' ? 1 : 7 }))
+    // Ao entrar em Sábado, já resolve a equipe (e a sala dela) sozinho —
+    // hoje só existe uma opção válida, não faz sentido deixar em branco
+    // esperando um clique que só tem uma resposta possível.
+    if (novoTipo === 'sabado' && equipesParaSabado[0]) {
+      mudarEquipeSabado(equipesParaSabado[0].id)
+      return
+    }
     // Sábado tem elegibilidade mais restrita — tira da seleção quem deixou
     // de valer (ex: Analista/Aprendiz), pra não mandar escondido pro backend.
     const validos = new Set(tecnicosDisponiveisAuto(novoTipo).map(t => t.uid))
@@ -302,8 +339,32 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
     resumoPorTecnicoAuto[b.tecnicoNome][b.tipo] = (resumoPorTecnicoAuto[b.tecnicoNome][b.tipo] || 0) + dias
   }
 
+  // Trocar o técnico de um bloco individual (linha abaixo) pode deixar
+  // alguém com duas escalas físicas (presencial/home office/sábado) no
+  // mesmo dia sem ninguém perceber — o backend recusa na hora de confirmar,
+  // mas é bem melhor avisar já na prévia, com o item destacado, do que só
+  // descobrir depois de tentar salvar.
+  const indicesComConflitoAuto = new Set<number>()
+  for (let i = 0; i < autoPreviewBlocos.length; i++) {
+    if (autoRemovidos[i]) continue
+    const a = autoPreviewBlocos[i]
+    if (!TIPOS_PRESENCA_FISICA.has(a.tipo)) continue
+    const tecnicoA = autoOverrides[i] || a.tecnicoUid
+    for (let j = i + 1; j < autoPreviewBlocos.length; j++) {
+      if (autoRemovidos[j]) continue
+      const b = autoPreviewBlocos[j]
+      if (!TIPOS_PRESENCA_FISICA.has(b.tipo)) continue
+      const tecnicoB = autoOverrides[j] || b.tecnicoUid
+      if (tecnicoA !== tecnicoB) continue
+      if (a.dataInicio <= b.dataFim && b.dataInicio <= a.dataFim) {
+        indicesComConflitoAuto.add(i)
+        indicesComConflitoAuto.add(j)
+      }
+    }
+  }
+
   const confirmarGeracaoAuto = async () => {
-    if (blocosEfetivosAuto.length === 0) return
+    if (blocosEfetivosAuto.length === 0 || indicesComConflitoAuto.size > 0) return
     setAutoGerando(true)
     try {
       const response = await fetch('/api/escalas/auto', {
@@ -326,9 +387,9 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
       }
       await onAtualizarEscalas()
       onClose()
-      alert(`${data.criadas} escala(s) gerada(s) com sucesso!`)
+      notificar(`${data.criadas} escala(s) gerada(s) com sucesso!`, { tipo: 'sucesso' })
     } catch (error) {
-      alert(mensagemDeErro(error))
+      notificar(mensagemDeErro(error), { tipo: 'erro' })
     } finally {
       setAutoGerando(false)
     }
@@ -385,7 +446,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
               <div className="auto-secao">
                 <label className="auto-secao-titulo">O que você quer escalar?</label>
                 <div className="auto-chip-row">
-                  {tiposGeracaoDisponiveis(ehSuporteExclusivo(salaSelecionada)).map(tipo => (
+                  {tiposGeracaoDisponiveis(equipesParaSabado.length > 0).map(tipo => (
                     <button
                       type="button"
                       key={tipo.id}
@@ -425,6 +486,29 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                   </div>
                   <small className="auto-campo-ajuda">
                     Sobreaviso não ocupa lugar físico — só precisa saber de qual equipe tirar quem fica de plantão.
+                  </small>
+                </div>
+              ) : ehSabado ? (
+                <div className="auto-secao">
+                  <label className="auto-secao-titulo">Equipe</label>
+                  <div className="auto-chip-row">
+                    {equipesParaSabado.length === 0 ? (
+                      <p className="empty-state">Nenhuma equipe com sala exclusiva disponível pra escala de sábado.</p>
+                    ) : (
+                      equipesParaSabado.map(eq => (
+                        <button
+                          type="button"
+                          key={eq.id}
+                          className={`auto-chip ${salaSelecionada?.equipes[0] === eq.id ? 'ativo' : ''}`}
+                          onClick={() => mudarEquipeSabado(eq.id)}
+                        >
+                          {eq.label}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  <small className="auto-campo-ajuda">
+                    Sábado ocupa baia de verdade — a sala já é a exclusiva dessa equipe, não precisa escolher.
                   </small>
                 </div>
               ) : (
@@ -627,7 +711,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                           />
                         </div>
                         <small className="auto-campo-ajuda">
-                          Todo dia de trabalho, exatamente {autoQuantidadeHome} pessoa(s) ficam em home office. O sistema nunca escala Estag/Aprendiz, Trainee ou Supervisor, nunca coloca 2 pessoas que entram às 07:00 juntas no mesmo dia, e evita colocar a mesma dupla de baia junta.
+                          Todo dia de trabalho, exatamente {autoQuantidadeHome} pessoa(s) ficam em home office. O sistema nunca escala Estag/Aprendiz, Trainee ou Supervisor, nunca coloca 2 pessoas que entram às 07:00 juntas no mesmo dia, e evita colocar a mesma dupla de especialidade junta.
                         </small>
 
                         <label className="campo-toggle" style={{ marginTop: 10 }}>
@@ -814,12 +898,19 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                     ))}
                   </div>
 
+                  {indicesComConflitoAuto.size > 0 && (
+                    <p className="auto-preview-erro">
+                      ⚠️ Tem gente com duas escalas físicas (presencial/home office/sábado) no mesmo dia depois das trocas feitas abaixo — ajuste os itens marcados antes de confirmar.
+                    </p>
+                  )}
+
                   <div className="auto-preview-lista">
                     {autoPreviewBlocos.map((b, i) => {
                       if (autoRemovidos[i]) return null
                       const tecnicoAtualUid = autoOverrides[i] || b.tecnicoUid
+                      const emConflito = indicesComConflitoAuto.has(i)
                       return (
-                        <div key={i} className="auto-preview-item">
+                        <div key={i} className={`auto-preview-item${emConflito ? ' auto-preview-item-conflito' : ''}`}>
                           <span className="auto-preview-tipo">
                             {b.tipo === 'presencial' ? '🏢' : b.tipo === 'homeoffice' ? '🏠' : b.tipo === 'sabado' ? '📅' : '🚨'}
                           </span>
@@ -845,6 +936,11 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                           >
                             ✕
                           </button>
+                          {emConflito && (
+                            <small className="auto-preview-item-conflito-aviso">
+                              ⚠️ {b.tipo === 'presencial' ? '🏢' : b.tipo === 'homeoffice' ? '🏠' : '📅'} duplicado pra essa pessoa nesse período
+                            </small>
+                          )}
                         </div>
                       )
                     })}
@@ -871,7 +967,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
               </button>
             )}
             {passoAtual === 4 && (
-              <button type="button" className="btn-success" disabled={autoGerando || blocosEfetivosAuto.length === 0} onClick={confirmarGeracaoAuto}>
+              <button type="button" className="btn-success" disabled={autoGerando || blocosEfetivosAuto.length === 0 || indicesComConflitoAuto.size > 0} onClick={confirmarGeracaoAuto}>
                 {autoGerando
                   ? 'Gerando...'
                   : blocosEfetivosAuto.length > 0

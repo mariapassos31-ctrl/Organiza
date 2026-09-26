@@ -23,6 +23,54 @@
   color: #333;
 }
 
+.campo-toggle-trocar-direto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 12px;
+  padding: 8px 12px;
+  background: #fff8e1;
+  border: 1px solid #ffe082;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #5d4a00;
+  cursor: pointer;
+}
+
+.campo-toggle-trocar-direto input {
+  flex-shrink: 0;
+}
+
+.troca-dias-checklist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 10px 12px;
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+/* !important necessário: ".form-group label" (argos-theme.css, carregado
+   depois deste arquivo) tem 2 seletores de especificidade contra o 1 daqui
+   — sem isso, essas caixinhas herdavam o estilo de rótulo de campo comum
+   (maiúsculo, 10px, letter-spacing largo), que cortava e desfigurava as
+   abreviações de dia da semana ("seg" virava um retângulo ilegível). */
+.troca-dias-checklist-item {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px !important;
+  font-weight: 400 !important;
+  letter-spacing: normal !important;
+  text-transform: none !important;
+  color: #333 !important;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 .toggle-switch {
   position: relative;
   display: inline-block;
@@ -721,6 +769,18 @@
   background: #fde8e8;
 }
 
+.auto-preview-item-conflito {
+  background: #fdecea;
+  border: 1px solid #e74c3c;
+  flex-wrap: wrap;
+}
+
+.auto-preview-item-conflito-aviso {
+  flex-basis: 100%;
+  color: #c0392b;
+  font-weight: 600;
+}
+
 .auto-preview-secao {
   border-top: 1px solid #ecf0f1;
   padding-top: 16px;
@@ -1102,6 +1162,14 @@
   width: 100%;
   margin: 0 0 16px;
   line-height: 0;
+  /* Container query: o nome escalado precisa crescer e encolher NA MESMA
+     PROPORÇÃO da planta (que também é 100% do wrapper). Antes o
+     font-size era um valor fixo em px — então quando a planta encolhia
+     no celular, a caixa branca desenhada na foto encolhia junto mas a
+     letra continuava do mesmo tamanho, ficando desproporcional/grande
+     demais pra caixa. Com "cqw" a letra acompanha a largura real da
+     planta em qualquer tela; o clamp() só garante um piso legível. */
+  container-type: inline-size;
 }
 
 .mapa-baias-imagem {
@@ -1116,7 +1184,7 @@
   transform: translate(-50%, -50%);
   max-width: 19%;
   padding: 2px 6px;
-  font-size: 14px;
+  font-size: clamp(8px, 1.6cqw, 14px);
   line-height: 1.2;
   font-weight: 700;
   color: #0d2b52;
@@ -1138,23 +1206,34 @@
   white-space: normal;
   overflow: visible;
   text-overflow: unset;
-  font-size: 10px;
+  font-size: clamp(8px, 1.2cqw, 10px);
 }
 
 .mapa-baias-supervisor {
   color: #c62828;
-  font-size: 11px;
+  font-size: clamp(8px, 1.3cqw, 11px);
   max-width: 22%;
 }
 
 .mapa-baias-etiqueta-aprendiz {
   pointer-events: auto;
   cursor: pointer;
-  max-width: 20%;
-  font-size: 10px;
+  /* A caixa em branco desenhada na própria foto pra esse rótulo mede uns
+     10% da largura da imagem (medido nos pixels da imagem) — bem mais
+     estreita que a largura de nome comum. "Trainee" cabe numa linha só;
+     "Estag/Aprendiz" só cabe numa linha em telas grandes o bastante (a
+     planta em tamanho de computador) — no celular a planta encolhe tanto
+     que ele sempre quebra em "Estag/" + "Aprendiz" (ver override de
+     transform no mobile, em responsivo.css, que desloca a ancoragem pra
+     não sobrepor a etiqueta "BAIA N" quando isso acontece). */
+  max-width: 12%;
+  padding: 1px 2px;
+  font-size: clamp(7px, 1.3cqw, 11px);
   white-space: normal;
+  overflow-wrap: break-word;
   transition: color 0.15s;
   overflow: visible;
+  transform: translate(-50%, -50%);
 }
 
 .mapa-baias-etiqueta-aprendiz:hover {
@@ -2065,3 +2144,32 @@
   border-radius: 8px;
   padding: 10px 14px;
 }
+
+/* Troca direta: tudo mais compacto — os blocos "X oferece"/checklist ficam
+   coladinhos, sem o respiro grande de .form-group padrão. */
+.troca-form .troca-explicacao {
+  margin: 10px 0 6px;
+  padding: 6px 12px;
+}
+
+.troca-form .troca-explicacao:first-child {
+  margin-top: 0;
+}
+
+.troca-form .form-group {
+  margin-bottom: 8px;
+}
+
+.troca-dias-checklist-item-travado {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.troca-dias-contagem-ok {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #2e7d32;
+}
+

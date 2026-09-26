@@ -209,10 +209,16 @@
     border-radius: 16px 16px 0 0;
   }
 
+  /* z-index 30: precisa vencer TUDO que rola por baixo dele dentro da
+     janela — as etiquetas do mapa de baias (z-index 5), o "arrastando"
+     do editor de posições (z-index 6) e até o popover do Jovem Aprendiz
+     (z-index 20, o mais alto que já existia). Sem isso, ao rolar uma
+     janela com mapa de sala comprida, o nome de alguém passava POR CIMA
+     do cabeçalho fixo em vez de ficar escondido atrás dele. */
   .modal-header {
     position: sticky;
     top: 0;
-    z-index: 2;
+    z-index: 30;
     background: white;
   }
 
@@ -226,7 +232,7 @@
   .form-actions {
     position: sticky;
     bottom: 0;
-    z-index: 2;
+    z-index: 30;
     flex-wrap: wrap;
     gap: 8px;
     background: white;
@@ -295,17 +301,40 @@
     min-width: 760px;
   }
 
-  /* ── Mapa da sala: a planta encolhe junto com a tela, então as
-        etiquetas de nome precisam encolher também pra não virar sopa. ── */
+  /* ── Mapa da sala: o font-size agora é "cqw" (Escalas.css) — acompanha
+        a largura real da planta em qualquer tela, então não precisa mais
+        de um valor fixo aqui pro celular. Só a margem de segurança do
+        max-width continua sendo ajustada: como a etiqueta fica
+        centralizada em cima do ponto (translate -50%), a METADE dessa
+        largura precisa caber até a borda da imagem — baias perto da
+        borda (ex: baia 1 a 88% da largura) só têm ~12% de sobra, e a
+        largura de computador deixava margem curta demais no celular. ── */
   .mapa-baias-etiqueta {
-    font-size: 9px;
     padding: 1px 3px;
-    max-width: 24%;
+    max-width: 17%;
+  }
+
+  .mapa-baias-supervisor {
+    max-width: 20%;
+  }
+
+  /* No celular a planta fica tão pequena que "Estag/Aprendiz" sempre
+     precisa quebrar em 2 linhas (a caixa real da foto não tem altura pra
+     2 linhas centralizadas sem a de cima invadir a etiqueta "BAIA N" —
+     ver nota em Escalas.css). No computador a imagem é grande o
+     suficiente pra caber numa linha só, aí a centralização normal (do
+     resto das etiquetas) fica certa.
+     Repete o max-width daqui (em vez de só herdar do Escalas.css) porque
+     ".mapa-baias-etiqueta" (a regra genérica, 3 linhas acima) tem a MESMA
+     especificidade CSS e vem depois no arquivo — sem repetir aqui, o
+     valor genérico (17%) ganhava da regra mais específica do aprendiz. */
+  .mapa-baias-etiqueta-aprendiz {
+    max-width: 12%;
+    transform: translate(-50%, -20%);
   }
 
   .mapa-baias-etiqueta-equipe {
-    font-size: 8px;
-    max-width: 26%;
+    max-width: 22%;
   }
 
   .editor-marcador-item {

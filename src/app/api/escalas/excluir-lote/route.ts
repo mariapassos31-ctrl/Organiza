@@ -46,7 +46,7 @@ export async function POST(request: Request) {
          LEFT JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
          LEFT JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
          LEFT JOIN usuarios u ON u.cd_usuario = t.cd_usuario
-         WHERE es.cd_escala = ANY($1::int[])
+         WHERE es.cd_escala = ANY($1::int[]) AND es.tp_status != 'cancelada'
          GROUP BY es.cd_escala, eq.tp_equipe`,
         [ids, String(meuId)]
       )
@@ -59,7 +59,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ excluidas: 0, falhas: ids.length })
     }
 
-    await query('DELETE FROM escalas WHERE cd_escala = ANY($1::int[])', [idsParaExcluir])
+    // Vai pra lixeira (recuperável por 7 dias), não apaga na hora — mesmo
+    // reaproveitamento de tp_status do delete único (ver comentário lá).
+    await query(
+      `UPDATE escalas SET tp_status = 'cancelada', dt_atualizacao = now() WHERE cd_escala = ANY($1::int[])`,
+      [idsParaExcluir]
+    )
 
     return NextResponse.json({ excluidas: idsParaExcluir.length, falhas: ids.length - idsParaExcluir.length })
   } catch (error) {

@@ -101,6 +101,16 @@
   color: #721c24;
 }
 
+.troca-badge-direta {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: bold;
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
 .empty-state {
   text-align: center;
   color: #999;

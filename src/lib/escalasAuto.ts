@@ -7,6 +7,14 @@ import type { Participante, BlocoEscala, AvisoEscala, ArgsPlano, ResultadoPlano 
 
 const TIPOS_VALIDOS = ['presencial', 'homeoffice', 'sabado', 'sobreaviso']
 
+// Presencial, home office e sábado são "onde a pessoa está fisicamente" —
+// nunca podem coexistir pro mesmo técnico no mesmo dia (mesmo sendo de tipos
+// diferentes entre si). Sobreaviso não ocupa lugar físico nenhum, então não
+// entra nessa exclusão (pode existir junto com qualquer um dos outros).
+const TIPOS_PRESENCA_FISICA = new Set(['presencial', 'homeoffice', 'sabado'])
+const periodosSeSobrepoe = (aInicio: string, aFim: string, bInicio: string, bFim: string) =>
+  aInicio <= bFim && bInicio <= aFim
+
 export { addDays, getSabados }
 
 export async function resolverEquipeGestor(sessionUser: { id: string; equipe?: string | null }): Promise<string | null> {
@@ -87,7 +95,7 @@ async function buscarContagensHomeOffice(equipeIds: number[], tecnicoUids: Array
      JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
      JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
      JOIN usuarios u ON u.cd_usuario = t.cd_usuario
-     WHERE es.cd_equipe = ANY($1::int[]) AND es.tp_escala = 'homeoffice' AND u.cd_usuario = ANY($2::int[])
+     WHERE es.cd_equipe = ANY($1::int[]) AND es.tp_escala = 'homeoffice' AND es.tp_status != 'cancelada' AND u.cd_usuario = ANY($2::int[])
      GROUP BY u.cd_usuario`,
     [equipeIds, tecnicoUids.map(Number)]
   )
@@ -106,7 +114,7 @@ async function buscarContagensHomeOfficeAntes(equipeIds: number[], tecnicoUids: 
      JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
      JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
      JOIN usuarios u ON u.cd_usuario = t.cd_usuario
-     WHERE es.cd_equipe = ANY($1::int[]) AND es.tp_escala = 'homeoffice' AND es.dt_fim < $2 AND u.cd_usuario = ANY($3::int[])
+     WHERE es.cd_equipe = ANY($1::int[]) AND es.tp_escala = 'homeoffice' AND es.tp_status != 'cancelada' AND es.dt_fim < $2 AND u.cd_usuario = ANY($3::int[])
      GROUP BY u.cd_usuario`,
     [equipeIds, antesDe, tecnicoUids.map(Number)]
   )
@@ -124,7 +132,7 @@ async function buscarOcupacaoHomeOfficeExistente(equipeIds: number[], dataInicio
     `SELECT to_char(es.dt_inicio, 'YYYY-MM-DD') AS dt_inicio,
             to_char(es.dt_fim, 'YYYY-MM-DD') AS dt_fim
      FROM escalas es
-     WHERE es.cd_equipe = ANY($1::int[]) AND es.tp_escala = 'homeoffice'
+     WHERE es.cd_equipe = ANY($1::int[]) AND es.tp_escala = 'homeoffice' AND es.tp_status != 'cancelada'
        AND es.dt_inicio <= $3 AND es.dt_fim >= $2`,
     [equipeIds, dataInicio, dataFim]
   )
@@ -225,7 +233,7 @@ export async function montarPlanoAuto({ role, userEquipe, body }: ArgsPlano): Pr
   if (ehSabado) {
     const { rows: conflitos } = await query(
       `SELECT cd_escala FROM escalas
-       WHERE cd_equipe = ANY($1::int[]) AND tp_escala = $2 AND dt_inicio = ANY($3::date[])
+       WHERE cd_equipe = ANY($1::int[]) AND tp_escala = $2 AND tp_status != 'cancelada' AND dt_inicio = ANY($3::date[])
        LIMIT 1`,
       [equipeIds, tipo, sabados]
     )
@@ -235,7 +243,7 @@ export async function montarPlanoAuto({ role, userEquipe, body }: ArgsPlano): Pr
   } else {
     const { rows: conflitos } = await query(
       `SELECT cd_escala FROM escalas
-       WHERE cd_equipe = ANY($1::int[]) AND tp_escala = $2 AND dt_inicio <= $4 AND dt_fim >= $3
+       WHERE cd_equipe = ANY($1::int[]) AND tp_escala = $2 AND tp_status != 'cancelada' AND dt_inicio <= $4 AND dt_fim >= $3
        LIMIT 1`,
       [equipeIds, tipo, dataInicio, dataFim]
     )
@@ -253,7 +261,7 @@ export async function montarPlanoAuto({ role, userEquipe, body }: ArgsPlano): Pr
      JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
      JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
      JOIN usuarios u ON u.cd_usuario = t.cd_usuario
-     WHERE es.cd_equipe = ANY($1::int[]) AND es.tp_escala = $2
+     WHERE es.cd_equipe = ANY($1::int[]) AND es.tp_escala = $2 AND es.tp_status != 'cancelada'
      ORDER BY es.dt_fim DESC, es.cd_escala DESC
      LIMIT 1`,
     [equipeIds, tipo]
@@ -365,7 +373,7 @@ export async function montarPlanoHibrido({ role, userEquipe, body }: ArgsPlano):
       const { rows: conflitos } = await query(
         `SELECT es.cd_escala FROM escalas es
          JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
-         WHERE et.cd_tecnico = $1 AND es.tp_escala = $2 AND es.dt_inicio <= $4 AND es.dt_fim >= $3
+         WHERE et.cd_tecnico = $1 AND es.tp_escala = $2 AND es.tp_status != 'cancelada' AND es.dt_inicio <= $4 AND es.dt_fim >= $3
          LIMIT 1`,
         [p.cd_tecnico, tipo, dataInicio, dataFim]
       )
@@ -400,13 +408,14 @@ export async function montarPlanoManual({ role, userEquipe, body }: ArgsPlano): 
   }
 
   const { rows: tecnicosEquipes } = await query(
-    `SELECT u.cd_usuario, t.cd_tecnico, t.cd_equipe
+    `SELECT u.cd_usuario, t.cd_tecnico, t.cd_equipe, t.nm_tecnico
      FROM tecnicos t
      JOIN usuarios u ON u.cd_usuario = t.cd_usuario
      WHERE t.sn_ativo = true AND t.cd_equipe = ANY($1::int[])`,
     [equipeIds]
   )
   const tecnicoPorUid = new Map(tecnicosEquipes.map(t => [String(t.cd_usuario), t]))
+  const nomePorCdTecnico = new Map(tecnicosEquipes.map(t => [t.cd_tecnico, t.nm_tecnico]))
 
   const sabadoPermitido = equipeSlugs.length === 1 && equipeSlugs[0] === 'suporte'
 
@@ -435,16 +444,37 @@ export async function montarPlanoManual({ role, userEquipe, body }: ArgsPlano): 
     blocos.push({ dtInicio: b.dataInicio, dtFim: b.dataFim, cdTecnico: tecnico.cd_tecnico, cdEquipe: tecnico.cd_equipe, tipo: b.tipo, cdSala })
   }
 
+  // A prévia deixa trocar o técnico de cada bloco individualmente (ex:
+  // passar um turno de home office pra outra pessoa) — sem essa checagem,
+  // dava pra deixar alguém com dois blocos físicos (presencial/home
+  // office/sábado) no mesmo dia sem ninguém perceber, porque cada bloco só
+  // era validado contra o banco, nunca contra os outros blocos do mesmo
+  // lote. Aqui compara todo mundo com todo mundo dentro do próprio lote.
+  for (let i = 0; i < blocos.length; i++) {
+    for (let j = i + 1; j < blocos.length; j++) {
+      const a = blocos[i]
+      const b = blocos[j]
+      if (a.cdTecnico !== b.cdTecnico) continue
+      if (!TIPOS_PRESENCA_FISICA.has(a.tipo) || !TIPOS_PRESENCA_FISICA.has(b.tipo)) continue
+      if (periodosSeSobrepoe(a.dtInicio, a.dtFim, b.dtInicio, b.dtFim)) {
+        const nome = nomePorCdTecnico.get(a.cdTecnico) || 'Um dos técnicos'
+        return { error: `${nome} ficaria com duas escalas físicas (presencial/home office/sábado) no mesmo dia — ajuste os blocos antes de confirmar`, status: 400 }
+      }
+    }
+  }
+
   for (const b of blocos) {
+    const tiposParaChecar = TIPOS_PRESENCA_FISICA.has(b.tipo) ? Array.from(TIPOS_PRESENCA_FISICA) : [b.tipo]
     const { rows: conflitos } = await query(
       `SELECT es.cd_escala FROM escalas es
        JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
-       WHERE et.cd_tecnico = $1 AND es.tp_escala = $2 AND es.dt_inicio <= $4 AND es.dt_fim >= $3
+       WHERE et.cd_tecnico = $1 AND es.tp_escala = ANY($2::text[]) AND es.tp_status != 'cancelada' AND es.dt_inicio <= $4 AND es.dt_fim >= $3
        LIMIT 1`,
-      [b.cdTecnico, b.tipo, b.dtInicio, b.dtFim]
+      [b.cdTecnico, tiposParaChecar, b.dtInicio, b.dtFim]
     )
     if (conflitos.length > 0) {
-      return { error: 'Um dos técnicos já tem escala desse tipo nesse período', status: 400 }
+      const nome = nomePorCdTecnico.get(b.cdTecnico) || 'Um dos técnicos'
+      return { error: `${nome} já tem uma escala física (presencial/home office/sábado) nesse período`, status: 400 }
     }
   }
 
@@ -478,7 +508,7 @@ export async function recalcularHomeOfficeEquipe(equipeId: number): Promise<{ re
   const { rows: horizonteRows } = await query(
     `SELECT to_char(MAX(dt_fim), 'YYYY-MM-DD') AS horizonte
      FROM escalas
-     WHERE cd_equipe = $1 AND tp_escala IN ('homeoffice', 'presencial') AND dt_fim >= $2`,
+     WHERE cd_equipe = $1 AND tp_escala IN ('homeoffice', 'presencial') AND tp_status != 'cancelada' AND dt_fim >= $2`,
     [equipeId, dataInicioJanela]
   )
   const horizonte = horizonteRows[0]?.horizonte
@@ -490,7 +520,7 @@ export async function recalcularHomeOfficeEquipe(equipeId: number): Promise<{ re
   const { rows: diaRows } = await query(
     `SELECT to_char(MIN(dt_inicio), 'YYYY-MM-DD') AS dia
      FROM escalas
-     WHERE cd_equipe = $1 AND tp_escala = 'homeoffice' AND dt_fim >= $2`,
+     WHERE cd_equipe = $1 AND tp_escala = 'homeoffice' AND tp_status != 'cancelada' AND dt_fim >= $2`,
     [equipeId, dataInicioJanela]
   )
   const diaReferencia = diaRows[0]?.dia
@@ -501,7 +531,7 @@ export async function recalcularHomeOfficeEquipe(equipeId: number): Promise<{ re
     `SELECT COUNT(DISTINCT et.cd_tecnico) AS k
      FROM escalas es
      JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
-     WHERE es.cd_equipe = $1 AND es.tp_escala = 'homeoffice' AND es.dt_inicio <= $2 AND es.dt_fim >= $2`,
+     WHERE es.cd_equipe = $1 AND es.tp_escala = 'homeoffice' AND es.tp_status != 'cancelada' AND es.dt_inicio <= $2 AND es.dt_fim >= $2`,
     [equipeId, diaClamp]
   )
   const quantidadeHomeOffice = Number(kRows[0]?.k) || 0
@@ -511,7 +541,7 @@ export async function recalcularHomeOfficeEquipe(equipeId: number): Promise<{ re
   const { rows: blocoRows } = await query(
     `SELECT (dt_fim - dt_inicio + 1) AS dias, COUNT(*) AS qtd
      FROM escalas
-     WHERE cd_equipe = $1 AND tp_escala = 'homeoffice' AND dt_fim >= $2
+     WHERE cd_equipe = $1 AND tp_escala = 'homeoffice' AND tp_status != 'cancelada' AND dt_fim >= $2
      GROUP BY dias
      ORDER BY qtd DESC, dias DESC
      LIMIT 1`,

@@ -3,10 +3,11 @@
 import { useState, useEffect, type FormEvent } from 'react'
 
 import { useDashboardUser } from '../../context/DashboardUserContext'
+import { useNotificacao } from '../../context/NotificacaoContext'
 import { EQUIPES, nuncaEhEscalado } from '../../lib/equipesConfig'
 import { mensagemDeErro } from '../../lib/erros'
 import type { Usuario, Escala, Sala, ConfigBaia, ConfigLab, FormEscala, DiaDetalhado, MarcadorSala } from '../../types/dominio'
-import { TIPOS_ESCALA, ordenarSobreavisoPrimeiro } from '../../lib/escalasConstants'
+import { TIPOS_ESCALA, ordenarSobreavisoPrimeiro, motivoInelegibilidadeParaTipo } from '../../lib/escalasConstants'
 import CalendarioEscalas from './escalas/CalendarioEscalas'
 import DiaDetalhadoModal from './escalas/DiaDetalhadoModal'
 import EscalaEditModal from './escalas/EscalaEditModal'
@@ -19,6 +20,7 @@ type DadosBaia = { equipe?: string | null; especialidade?: string | null; perfil
 
 export default function Escalas() {
   const { userData } = useDashboardUser()
+  const { notificar, confirmar } = useNotificacao()
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [escalas, setEscalas] = useState<Escala[]>([])
   const [loading, setLoading] = useState(true)
@@ -33,11 +35,16 @@ export default function Escalas() {
   const [autoModalOpen, setAutoModalOpen] = useState(false)
   const [mostrarListaDetalhada, setMostrarListaDetalhada] = useState(false)
   const [mostrarFormTroca, setMostrarFormTroca] = useState(false)
-  const [tipoTroca, setTipoTroca] = useState('completa')
-  const [diaTroca, setDiaTroca] = useState('')
+  const [tipoTroca, setTipoTroca] = useState<'completa' | 'dias'>('completa')
+  const [diasTroca, setDiasTroca] = useState<string[]>([])
+  const [diasSolicitadaTroca, setDiasSolicitadaTroca] = useState<string[]>([])
   const [destinoTroca, setDestinoTroca] = useState('')
   const [enviandoTroca, setEnviandoTroca] = useState(false)
   const [escalaOferecidaId, setEscalaOferecidaId] = useState('')
+  const [trocarDireto, setTrocarDireto] = useState(false)
+  const [diasTrocaDireta, setDiasTrocaDireta] = useState<string[]>([])
+  const [escalaParTrocaDireta, setEscalaParTrocaDireta] = useState('')
+  const [diasTrocaParDireta, setDiasTrocaParDireta] = useState<string[]>([])
   const [baiasPerfil, setBaiasPerfil] = useState<Record<string, string>>({})
   const [laboratorioConfig, setLaboratorioConfig] = useState<ConfigLab>({ responsavelUid: null, backupUid: null })
   const [salas, setSalas] = useState<Sala[]>([])
@@ -103,7 +110,7 @@ export default function Escalas() {
       await carregarBaiasPerfil()
       return true
     } catch (err) {
-      alert(mensagemDeErro(err))
+      notificar(mensagemDeErro(err), { tipo: 'erro' })
       return false
     }
   }
@@ -125,7 +132,7 @@ export default function Escalas() {
       await carregarBaiasPerfil()
       return data.id as number
     } catch (err) {
-      alert(mensagemDeErro(err))
+      notificar(mensagemDeErro(err), { tipo: 'erro' })
       return false
     }
   }
@@ -144,7 +151,7 @@ export default function Escalas() {
       await carregarBaiasPerfil()
       return true
     } catch (err) {
-      alert(mensagemDeErro(err))
+      notificar(mensagemDeErro(err), { tipo: 'erro' })
       return false
     }
   }
@@ -159,7 +166,7 @@ export default function Escalas() {
       setSalas(prev => prev.filter(s => s.id !== salaId))
       return true
     } catch (err) {
-      alert(mensagemDeErro(err))
+      notificar(mensagemDeErro(err), { tipo: 'erro' })
       return false
     }
   }
@@ -176,7 +183,7 @@ export default function Escalas() {
       await carregarBaiasPerfil()
       return true
     } catch (err) {
-      alert(mensagemDeErro(err))
+      notificar(mensagemDeErro(err), { tipo: 'erro' })
       return false
     }
   }
@@ -191,7 +198,7 @@ export default function Escalas() {
       await carregarBaiasPerfil()
       return true
     } catch (err) {
-      alert(mensagemDeErro(err))
+      notificar(mensagemDeErro(err), { tipo: 'erro' })
       return false
     }
   }
@@ -210,7 +217,7 @@ export default function Escalas() {
       await carregarBaiasPerfil()
       return true
     } catch (err) {
-      alert(mensagemDeErro(err))
+      notificar(mensagemDeErro(err), { tipo: 'erro' })
       return false
     }
   }
@@ -229,7 +236,7 @@ export default function Escalas() {
       await carregarBaiasPerfil()
       return true
     } catch (err) {
-      alert(mensagemDeErro(err))
+      notificar(mensagemDeErro(err), { tipo: 'erro' })
       return false
     }
   }
@@ -251,7 +258,7 @@ export default function Escalas() {
       await carregarBaiasPerfil()
       return true
     } catch (err) {
-      alert(mensagemDeErro(err))
+      notificar(mensagemDeErro(err), { tipo: 'erro' })
       return false
     }
   }
@@ -291,7 +298,7 @@ export default function Escalas() {
       }))
       return true
     } catch (err) {
-      alert(mensagemDeErro(err))
+      notificar(mensagemDeErro(err), { tipo: 'erro' })
       return false
     }
   }
@@ -322,7 +329,7 @@ export default function Escalas() {
       setLaboratorioConfig(valores)
       return true
     } catch (err) {
-      alert(mensagemDeErro(err))
+      notificar(mensagemDeErro(err), { tipo: 'erro' })
       return false
     }
   }
@@ -372,24 +379,82 @@ export default function Escalas() {
 
   const canEditCurrent = modalOpen && editingId ? podeEditarEscala(formData) : false
 
+  // A opção de trocar direto fica disponível assim que dá pra editar —
+  // não só depois que a pessoa já mexeu no campo de técnico. Comparado com
+  // o técnico ORIGINAL (antes de qualquer edição feita nesta sessão do
+  // modal), não com o valor anterior do próprio formData, pra saber quem
+  // é "a pessoa antiga" na hora de submeter.
+  const escalaOriginalEmEdicao = editingId ? escalas.find(e => e.id === editingId) : null
+  const tecnicoOriginalUid = escalaOriginalEmEdicao?.tecnicos?.[0] ?? null
+  const tecnicoFoiTrocado = Boolean(
+    tecnicoOriginalUid && formData.tecnicos[0] && formData.tecnicos[0] !== tecnicoOriginalUid
+  )
+  const mostrarOpcaoTrocarDireto = canEditCurrent
+
+  // Escalas que a pessoa nova (quem está entrando) já tem do MESMO tipo da
+  // escala sendo editada — é entre essas que dá pra escolher o que ela
+  // oferece em troca. Nunca a própria escala sendo editada.
+  const escalasDoDestinoParaTrocaDireta = trocarDireto && tecnicoFoiTrocado
+    ? escalas
+        .filter(e =>
+          (e.tecnicos || []).includes(formData.tecnicos[0]) &&
+          e.tipo === formData.tipo &&
+          e.id !== editingId
+        )
+        .sort((a, b) => a.dataInicio.localeCompare(b.dataInicio))
+    : []
+
+  useEffect(() => {
+    if (!mostrarOpcaoTrocarDireto) setTrocarDireto(false)
+  }, [mostrarOpcaoTrocarDireto])
+
+  // Trocando de novo o técnico no meio do processo (ou desmarcando "trocar
+  // direto"), a escala oferecida em troca escolhida antes pode não ser mais
+  // válida — mais simples pedir pra escolher de novo do que tentar
+  // adivinhar se ainda serve.
+  useEffect(() => {
+    setEscalaParTrocaDireta('')
+    setDiasTrocaParDireta([])
+  }, [formData.tecnicos[0], trocarDireto])
+
   const souTecnico = userData?.role !== 'admin' && userData?.role !== 'gestor'
   const ehMinhaEscala = modalOpen && (formData.tecnicos || []).includes(userData?.uid ?? "")
   const podeSolicitarTroca = souTecnico && ehMinhaEscala && !canEditCurrent
 
+  // Só entra na lista quem pode mesmo receber o tipo dessa escala — mesma
+  // regra do gerador automático (Supervisor nunca, Aprendiz/Trainee nunca
+  // em home office/sábado, "Externo" nunca presencial fora do sorteio).
   const colegasParaTroca = usuarios.filter(u =>
     u.equipe === userData?.equipe &&
     u.role !== 'admin' && u.role !== 'gestor' &&
     u.uid !== userData?.uid &&
-    u.ativo
+    u.ativo &&
+    (!formData.tipo || !motivoInelegibilidadeParaTipo(formData.tipo, {
+      role: u.role,
+      ehSupervisor: u.ehSupervisor,
+      especialidade: u.especialidade,
+      elegivelHomeOffice: u.elegivelHomeOffice,
+    }))
   )
 
   // Escala de um colega (não minha, não editável por mim) — dá pra propor
-  // trocar uma escala minha por essa, em vez de só entregar a minha.
+  // trocar uma escala minha por essa, em vez de só entregar a minha. Só
+  // faz sentido se eu (quem propõe) puder mesmo receber o tipo dessa
+  // escala — senão o pedido nunca vai poder ser aceito.
   const donoDaEscalaAberta = usuarios.find(u => u.uid === formData.tecnicos?.[0])
+  const euMesmo = usuarios.find(u => u.uid === userData?.uid)
   const podePropinTroca = Boolean(
     souTecnico && modalOpen && !ehMinhaEscala && !canEditCurrent &&
     donoDaEscalaAberta &&
-    colegasParaTroca.some(c => c.uid === donoDaEscalaAberta.uid)
+    donoDaEscalaAberta.equipe === userData?.equipe &&
+    donoDaEscalaAberta.role !== 'admin' && donoDaEscalaAberta.role !== 'gestor' &&
+    donoDaEscalaAberta.ativo &&
+    (!formData.tipo || !euMesmo || !motivoInelegibilidadeParaTipo(formData.tipo, {
+      role: euMesmo.role,
+      ehSupervisor: euMesmo.ehSupervisor,
+      especialidade: euMesmo.especialidade,
+      elegivelHomeOffice: euMesmo.elegivelHomeOffice,
+    }))
   )
 
   const minhasEscalasParaOferecer = escalas
@@ -400,11 +465,15 @@ export default function Escalas() {
 
   const enviarPropostaTroca = async () => {
     if (!escalaOferecidaId) {
-      alert('Selecione qual das suas escalas você quer oferecer em troca')
+      notificar('Selecione qual das suas escalas você quer oferecer em troca')
       return
     }
-    if (tipoTroca === 'dia' && !diaTroca) {
-      alert('Selecione o dia que deseja oferecer')
+    if (diasTroca.length === 0) {
+      notificar('Selecione pelo menos um dia que deseja oferecer')
+      return
+    }
+    if (diasSolicitadaTroca.length !== diasTroca.length) {
+      notificar(`Selecione exatamente ${diasTroca.length} dia(s) que você está pedindo, pra ficar equivalente`)
       return
     }
     setEnviandoTroca(true)
@@ -416,17 +485,18 @@ export default function Escalas() {
           escalaId: escalaOferecidaId,
           tecnicoDestinoUid: donoDaEscalaAberta?.uid,
           escalaSolicitadaId: editingId,
-          dia: tipoTroca === 'dia' ? diaTroca : undefined,
+          dias: diasTroca,
+          diasSolicitada: diasSolicitadaTroca,
         }),
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
         throw new Error(data.error || 'Falha ao propor a troca')
       }
-      alert('Proposta de troca enviada! Acompanhe em "Trocas".')
+      notificar('Proposta de troca enviada! Acompanhe em "Trocas".', { tipo: 'sucesso' })
       handleCancel()
     } catch (error) {
-      alert(mensagemDeErro(error))
+      notificar(mensagemDeErro(error), { tipo: 'erro' })
     } finally {
       setEnviandoTroca(false)
     }
@@ -434,11 +504,11 @@ export default function Escalas() {
 
   const enviarSolicitacaoTroca = async () => {
     if (!destinoTroca) {
-      alert('Selecione o colega com quem deseja trocar')
+      notificar('Selecione o colega com quem deseja trocar')
       return
     }
-    if (tipoTroca === 'dia' && !diaTroca) {
-      alert('Selecione o dia que deseja trocar')
+    if (tipoTroca === 'dias' && diasTroca.length === 0) {
+      notificar('Selecione pelo menos um dia que deseja trocar')
       return
     }
     setEnviandoTroca(true)
@@ -449,17 +519,17 @@ export default function Escalas() {
         body: JSON.stringify({
           escalaId: editingId,
           tecnicoDestinoUid: destinoTroca,
-          dia: tipoTroca === 'dia' ? diaTroca : undefined,
+          dias: tipoTroca === 'dias' ? diasTroca : undefined,
         }),
       })
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
         throw new Error(data.error || 'Falha ao solicitar a troca')
       }
-      alert('Solicitação de troca enviada! Acompanhe em "Trocas".')
+      notificar('Solicitação de troca enviada! Acompanhe em "Trocas".', { tipo: 'sucesso' })
       handleCancel()
     } catch (error) {
-      alert(mensagemDeErro(error))
+      notificar(mensagemDeErro(error), { tipo: 'erro' })
     } finally {
       setEnviandoTroca(false)
     }
@@ -573,14 +643,85 @@ export default function Escalas() {
     })
   }
 
+  // Troca direta: as DUAS pontas são escolhidas explicitamente — a
+  // escala/dias de quem sai (a que está sendo editada) e a escala/dias de
+  // quem entra (escolhida no seletor "em troca, o que ele(a) oferece"),
+  // ambas do mesmo tipo. Sem pedido de aceite: quem está editando já tem
+  // permissão de gestão.
+  const formatarBR = (iso: string) => new Date(iso + 'T00:00:00').toLocaleDateString('pt-BR')
+
+  const formatarPeriodo = (p: { dias?: string[]; dataInicio?: string; dataFim?: string }) => {
+    if (p.dias && p.dias.length > 0) {
+      const datas = [...p.dias].sort().map(formatarBR)
+      if (datas.length === 1) return datas[0]
+      return `${datas.slice(0, -1).join(', ')} e ${datas[datas.length - 1]}`
+    }
+    return `${formatarBR(p.dataInicio!)} a ${formatarBR(p.dataFim!)}`
+  }
+
+  const salvarTrocaDireta = async (): Promise<void> => {
+    if (diasTrocaDireta.length === 0) {
+      notificar('Selecione pelo menos um dia da escala atual pra trocar')
+      return
+    }
+    if (!escalaParTrocaDireta) {
+      notificar('Selecione qual escala da outra pessoa entra na troca')
+      return
+    }
+    if (diasTrocaParDireta.length !== diasTrocaDireta.length) {
+      notificar(`Selecione exatamente ${diasTrocaDireta.length} dia(s) da escala da outra pessoa, pra ficar equivalente`)
+      return
+    }
+    try {
+      const response = await fetch(`/api/escalas/${encodeURIComponent(String(editingId))}/trocar-direto`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          novoTecnicoUid: formData.tecnicos[0],
+          dias: diasTrocaDireta,
+          escalaParId: escalaParTrocaDireta,
+          diasPar: diasTrocaParDireta,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || 'Falha ao trocar escala')
+      }
+
+      const nomeAntigo = getNomeTecnico(tecnicoOriginalUid ?? '')
+      const nomeNovo = getNomeTecnico(formData.tecnicos[0])
+
+      await carregarEscalas()
+      setEditingId(null)
+      setModalOpen(false)
+      setTrocarDireto(false)
+
+      notificar(
+        `${nomeNovo} assumiu ${nomeTipoEscala(formData.tipo)} em ${formatarPeriodo(data.periodoQueSaiu)}.\n` +
+        `${nomeAntigo} foi para ${nomeTipoEscala(data.trocouCom.tipo)} em ${formatarPeriodo(data.trocouCom)}.`,
+        { tipo: 'sucesso', titulo: '🔄 Troca feita!' }
+      )
+    } catch (error) {
+      notificar(mensagemDeErro(error), { tipo: 'erro' })
+    }
+  }
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!formData.dataInicio || !formData.dataFim || formData.tecnicos.length === 0) {
-      alert('Preencha os campos obrigatórios!')
+      notificar('Preencha os campos obrigatórios!')
       return
     }
     if (!podeEditarEscala(formData)) {
-      alert('Você não tem permissão para editar esta escala')
+      notificar('Você não tem permissão para editar esta escala', { tipo: 'erro' })
+      return
+    }
+    if (trocarDireto) {
+      if (!tecnicoFoiTrocado) {
+        notificar('Escolha, no campo Técnico/Analista, a pessoa que vai entrar no lugar')
+        return
+      }
+      await salvarTrocaDireta()
       return
     }
     try {
@@ -609,10 +750,10 @@ export default function Escalas() {
       await carregarEscalas()
       setEditingId(null)
       setModalOpen(false)
-      alert('Escala atualizada com sucesso!')
+      notificar('Escala atualizada com sucesso!', { tipo: 'sucesso' })
     } catch (error) {
       console.error('Erro ao salvar escala:', error)
-      alert('Erro ao salvar escala')
+      notificar('Erro ao salvar escala', { tipo: 'erro' })
     }
   }
 
@@ -622,22 +763,27 @@ export default function Escalas() {
     setModalOpen(true)
     setMostrarFormTroca(false)
     setTipoTroca('completa')
-    setDiaTroca('')
+    setDiasTroca([])
+    setDiasSolicitadaTroca([])
     setDestinoTroca('')
     setEscalaOferecidaId('')
+    setTrocarDireto(false)
+    setDiasTrocaDireta([])
+    setEscalaParTrocaDireta('')
+    setDiasTrocaParDireta([])
   }
 
   const handleDelete = async (id: string) => {
     const escala = escalas.find(e => e.id === id)
     if (!escala) {
-      alert('Escala não encontrada')
+      notificar('Escala não encontrada', { tipo: 'erro' })
       return
     }
     if (!podeEditarEscala(escala)) {
-      alert('Você não tem permissão para deletar esta escala')
+      notificar('Você não tem permissão para deletar esta escala', { tipo: 'erro' })
       return
     }
-    if (window.confirm('Tem certeza que deseja deletar esta escala?')) {
+    if (await confirmar('Mover esta escala para a lixeira?', { titulo: 'Deletar escala', textoConfirmar: 'Mover' })) {
       try {
         const response = await fetch(`/api/escalas/${encodeURIComponent(id)}`, { method: 'DELETE' })
         if (!response.ok) {
@@ -646,10 +792,10 @@ export default function Escalas() {
         }
         await carregarEscalas()
         setModalOpen(false)
-        alert('Escala deletada com sucesso!')
+        notificar('Escala movida para a lixeira. Fica lá por 7 dias, dá pra restaurar se precisar.', { tipo: 'sucesso' })
       } catch (error) {
         console.error('Erro ao deletar escala:', error)
-        alert('Erro ao deletar escala. Tente novamente.')
+        notificar('Erro ao deletar escala. Tente novamente.', { tipo: 'erro' })
       }
     }
   }
@@ -668,6 +814,11 @@ export default function Escalas() {
       salaId: null,
     })
     setMostrarFormTroca(false)
+    setDiasSolicitadaTroca([])
+    setTrocarDireto(false)
+    setDiasTrocaDireta([])
+    setEscalaParTrocaDireta('')
+    setDiasTrocaParDireta([])
   }
 
   const getNomeTecnico = (uid: string) => {
@@ -797,8 +948,8 @@ export default function Escalas() {
         onFecharFormTroca={() => setMostrarFormTroca(false)}
         tipoTroca={tipoTroca}
         setTipoTroca={setTipoTroca}
-        diaTroca={diaTroca}
-        setDiaTroca={setDiaTroca}
+        diasTroca={diasTroca}
+        setDiasTroca={setDiasTroca}
         destinoTroca={destinoTroca}
         setDestinoTroca={setDestinoTroca}
         enviandoTroca={enviandoTroca}
@@ -808,7 +959,21 @@ export default function Escalas() {
         nomeTipoEscala={nomeTipoEscala}
         escalaOferecidaId={escalaOferecidaId}
         setEscalaOferecidaId={setEscalaOferecidaId}
+        diasSolicitadaTroca={diasSolicitadaTroca}
+        setDiasSolicitadaTroca={setDiasSolicitadaTroca}
         onEnviarPropostaTroca={enviarPropostaTroca}
+        mostrarOpcaoTrocarDireto={mostrarOpcaoTrocarDireto}
+        nomeTecnicoOriginal={getNomeTecnico(tecnicoOriginalUid ?? '')}
+        tecnicoFoiTrocado={tecnicoFoiTrocado}
+        trocarDireto={trocarDireto}
+        setTrocarDireto={setTrocarDireto}
+        diasTrocaDireta={diasTrocaDireta}
+        setDiasTrocaDireta={setDiasTrocaDireta}
+        escalasDoDestinoParaTrocaDireta={escalasDoDestinoParaTrocaDireta}
+        escalaParTrocaDireta={escalaParTrocaDireta}
+        setEscalaParTrocaDireta={setEscalaParTrocaDireta}
+        diasTrocaParDireta={diasTrocaParDireta}
+        setDiasTrocaParDireta={setDiasTrocaParDireta}
       />
 
       {autoModalOpen && (

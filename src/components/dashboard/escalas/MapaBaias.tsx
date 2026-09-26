@@ -46,11 +46,14 @@ export function criarExibidorDeNome(nomes: string[]) {
   return (nomeCompleto: string) => (contagem[primeiroNome(nomeCompleto)] > 1 ? nomeCompleto : primeiroNome(nomeCompleto))
 }
 
-// ocupantesBaia: [{ nome, turno }] — até 2 (um de manhã, um de tarde).
-// Clique abre uma janelinha flutuante com os nomes (não tenta espremer o
-// texto dentro da etiqueta, que é pequena demais pra isso).
+// ocupantesBaia: [{ nome, turno }] — até 2 (um de manhã, um de tarde). Uma
+// baia fixa (o caso comum) só tem 1 pessoa: mostra o nome dela direto, sem
+// precisar clicar. Só quando há 2 pessoas (turnos diferentes) ou nenhuma,
+// mostra o rótulo do perfil (Trainee/Estag/Aprendiz) — clique abre uma
+// janelinha flutuante com os nomes de quem reveza ali.
 function EtiquetaRestrita({ ocupantesBaia, posicao, rotulo }: { ocupantesBaia: OcupanteAprendiz[]; posicao: Posicao; rotulo: string }) {
   const [revelado, setRevelado] = useState(false)
+  const textoEtiqueta = ocupantesBaia.length === 1 ? primeiroNome(ocupantesBaia[0].nome) : rotulo
 
   return (
     <div
@@ -59,7 +62,7 @@ function EtiquetaRestrita({ ocupantesBaia, posicao, rotulo }: { ocupantesBaia: O
       onClick={() => setRevelado(r => !r)}
       title="Clique para ver quem está nessa mesa"
     >
-      {rotulo}
+      {textoEtiqueta}
       {revelado && (
         <div className="mapa-baias-popover">
           {ocupantesBaia.length === 0 ? (
@@ -104,7 +107,7 @@ export default function MapaBaias({ ocupantes, ocupantesAprendiz, baiasJovemApre
             key={baia}
             ocupantesBaia={ocupantesAprendiz?.[baia] || []}
             posicao={pos}
-            rotulo={semEmoji(labelPerfil(baiasJovemAprendiz[baia]))}
+            rotulo={semEmoji(labelPerfil(baiasJovemAprendiz[baia])).replace('/', '/​')}
           />
         ) : (
           <div

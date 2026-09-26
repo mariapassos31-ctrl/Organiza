@@ -27,6 +27,35 @@ export function ehJovemAprendiz(role: string | null | undefined): boolean {
   return PERFIS_JOVEM_APRENDIZ.includes(role ?? "")
 }
 
+// Mesmas regras de elegibilidade que o gerador automático aplica (nunca
+// escala Estag/Aprendiz/Trainee/Supervisor em home office, nunca deixa
+// Analista/Analista G./Estag/Aprendiz/Trainee em sábado, Supervisor nunca
+// entra em tipo nenhum, "Externo" só aparece presencial quando sorteado
+// pro home office) — reaproveitado pela troca de escala, que faz o mesmo
+// tipo de atribuição manualmente e não pode contornar essas regras.
+// Devolve o motivo do bloqueio, ou null se a pessoa pode receber esse tipo.
+export function motivoInelegibilidadeParaTipo(
+  tipoEscala: string,
+  pessoa: { role?: string | null; ehSupervisor?: boolean; especialidade?: string | null; elegivelHomeOffice?: boolean }
+): string | null {
+  if (pessoa.ehSupervisor) {
+    return 'Quem está na baia do Supervisor não participa de nenhum tipo de escala'
+  }
+  const aprendiz = ehJovemAprendiz(pessoa.role)
+  if (tipoEscala === 'homeoffice') {
+    if (aprendiz) return 'Estag/Aprendiz e Trainee nunca ficam em home office'
+    if (pessoa.elegivelHomeOffice === false) return 'Essa pessoa está marcada como não elegível para home office'
+  }
+  if (tipoEscala === 'sabado') {
+    if (aprendiz) return 'Estag/Aprendiz e Trainee nunca fazem escala de Sábado'
+    if (pessoa.role === 'analista' || pessoa.role === 'lider') return 'Analista e Analista G. nunca fazem escala de Sábado'
+  }
+  if (tipoEscala === 'presencial' && pessoa.especialidade === 'Externo') {
+    return 'Especialidade Externo só aparece na escala nos dias sorteados para home office'
+  }
+  return null
+}
+
 // Estag/Aprendiz ou Trainee com dia de curso configurado (diaCurso: 0=domingo..
 // 6=sábado) e a data caindo nesse dia da semana → está no curso, não
 // presencial. Usa o sinalizador "ehAprendiz" (já calculado a partir do
