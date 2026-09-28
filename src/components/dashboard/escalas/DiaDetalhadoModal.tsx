@@ -91,11 +91,14 @@ function calcularOcupacaoBaias(
   tecnicosSuporte: Usuario[],
   data: Date,
   baiasPerfil: Record<string, string>,
-  uidNoLaboratorioHoje: string | null,
-  estaDeFeriasHoje: (uid: string) => boolean
+  uidNoLaboratorioHoje: string | null
 ) {
   const uidsHomeOfficeHoje = new Set(
     escalasSuporte.filter(e => e.tipo === 'homeoffice').map(e => e.tecnicos[0])
+  )
+  // Sábado ocupa a baia igual presencial (é gente fisicamente na sala).
+  const uidsPresencialHoje = new Set(
+    escalasSuporte.filter(e => e.tipo === 'presencial' || e.tipo === 'sabado').map(e => e.tecnicos[0])
   )
   const uidsEmCursoHoje = new Set(
     tecnicosSuporte.filter(u => estaEmDiaCurso(u, data)).map(u => u.uid)
@@ -109,28 +112,6 @@ function calcularOcupacaoBaias(
   // escala de sábado de verdade ocupa baia.
   const naoTrabalhaHoje = data.getDay() === 6 || ehFeriado(formatarDataISO(data))
   const naoEscalavel = (u: Usuario) => u.ehSupervisor || nuncaEhEscalado(u.role)
-
-  // Presencial é o padrão em dia de semana normal pra quem não tem um
-  // motivo específico de ausência registrado (home office, férias, curso)
-  // — antes disso, um "buraco" nos dados (ninguém gerou/registrou escala
-  // pra alguém naquele dia específico) fazia a pessoa simplesmente sumir
-  // do mapa inteiro, mesmo ativa e sem nenhuma ausência de verdade. Sábado
-  // e feriado continuam do jeito oposto (a maioria não trabalha nesses
-  // dias): só quem tem escala de Sábado de verdade aparece. "Externo"
-  // também é exceção — só existe na escala nos dias sorteados pro home
-  // office, nunca aparece por padrão (mesma regra do gerador automático).
-  // Supervisor, gestor fixo e Jovem Aprendiz/Trainee têm sistemas de
-  // presença próprios (calculados à parte), por isso ficam de fora daqui.
-  const uidsPresencialHoje = naoTrabalhaHoje
-    ? new Set(escalasSuporte.filter(e => e.tipo === 'sabado').map(e => e.tecnicos[0]))
-    : new Set(
-        tecnicosSuporte
-          .filter(u =>
-            !naoEscalavel(u) && !ehJovemAprendiz(u.role) && u.especialidade !== 'Externo' &&
-            !uidsHomeOfficeHoje.has(u.uid) && !uidsEmCursoHoje.has(u.uid) && !estaDeFeriasHoje(u.uid)
-          )
-          .map(u => u.uid)
-      )
 
   // A baia do Supervisor não vem do cadastro dele — vem de qual baia (do
   // mapa, incluindo a mesa "0") está marcada como "⭐ Supervisor" na config
@@ -178,12 +159,11 @@ function calcularOcupacaoBaias(
   // "baia fixa" marcada sem nenhuma baia escolhida (ou perdida pra um
   // colega com a mesma baia) não conta como fixo de verdade — trata como
   // flutuante, senão a pessoa não entra em nenhuma das duas listas e some
-  // do mapa. Vem de uidsPresencialHoje (não mais direto da escala) — assim
-  // quem está presencial "por padrão" (sem registro explícito) também
-  // flutua pra uma baia livre, em vez de só quem tem escala de verdade.
-  const presenciaisNaoFixos = tecnicosSuporte.filter(u =>
-    uidsPresencialHoje.has(u.uid) && !uidsQueGanharamBaiaFixa.has(u.uid) && u.uid !== uidNoLaboratorioHoje
-  )
+  // do mapa.
+  const presenciaisNaoFixos = escalasSuporte
+    .filter(e => e.tipo === 'presencial' || e.tipo === 'sabado')
+    .map(e => tecnicosSuporte.find(u => u.uid === e.tecnicos[0]))
+    .filter((u): u is Usuario => !!u && !uidsQueGanharamBaiaFixa.has(u.uid) && !uidsEmCursoHoje.has(u.uid) && !ehJovemAprendiz(u.role) && u.uid !== uidNoLaboratorioHoje)
 
   const semLugar: Usuario[] = []
   for (const usuario of presenciaisNaoFixos) {
@@ -485,7 +465,7 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
   const nomeNoLaboratorio = uidNoLaboratorioHoje ? nomeDoUid(uidNoLaboratorioHoje) : null
 
   const { ocupantes: ocupantesPorBaia, ocupantesAprendiz, baiasJovemAprendiz, baiaSupervisor } = mostrarMapa
-    ? calcularOcupacaoBaias(escalasSuporte, tecnicosSuporte, diaDetalhado.data, baiasPerfil, uidNoLaboratorioHoje, estaDeFeriasHoje)
+    ? calcularOcupacaoBaias(escalasSuporte, tecnicosSuporte, diaDetalhado.data, baiasPerfil, uidNoLaboratorioHoje)
     : { ocupantes: {}, ocupantesAprendiz: {}, baiasJovemAprendiz: {}, baiaSupervisor: null }
 
   const nomesEmHomeOffice = mostrarMapa
