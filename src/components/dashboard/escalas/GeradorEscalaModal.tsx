@@ -52,12 +52,15 @@ const PASSOS = [
 // Só é montado enquanto o modal está aberto (o pai renderiza condicionalmente),
 // então cada abertura é um mount novo — todo o estado abaixo já nasce
 // resetado para a equipe/usuário atual, sem precisar de um efeito de reset.
-export default function GeradorEscalaModal({ userData, usuarios, salas, onClose, onAtualizarEscalas }: {
+export default function GeradorEscalaModal({ userData, usuarios, salas, onClose, onAtualizarEscalas, dataInicial }: {
   userData: UsuarioLogado | null
   usuarios: Usuario[]
   salas: Sala[]
   onClose: () => void
   onAtualizarEscalas: () => Promise<void> | void
+  // Preenche o período (início e fim) já com essa data — usado quando o
+  // assistente é aberto a partir de um clique num dia vazio do calendário.
+  dataInicial?: string
 }) {
   // Quem não é admin só pode gerar pra uma sala que a própria equipe usa;
   // admin pode escolher qualquer sala cadastrada.
@@ -116,8 +119,8 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
   const [autoSalaId, setAutoSalaId] = useState<number | string>(salaInicialId)
   const [autoForm, setAutoForm] = useState<AutoForm>({
     tipo: 'hibrido',
-    dataInicio: '',
-    dataFim: '',
+    dataInicio: dataInicial || '',
+    dataFim: dataInicial || '',
     diasPorTecnico: 7,
     semFim: false,
     horizonteDias: 365,

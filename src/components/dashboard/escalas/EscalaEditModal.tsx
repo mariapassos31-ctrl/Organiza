@@ -51,6 +51,10 @@ export default function EscalaEditModal({
   setEscalaParTrocaDireta,
   diasTrocaParDireta,
   setDiasTrocaParDireta,
+  atribuirSemTroca,
+  setAtribuirSemTroca,
+  diasAtribuir,
+  setDiasAtribuir,
 }: {
   open: boolean
   formData: FormEscala
@@ -96,6 +100,10 @@ export default function EscalaEditModal({
   setEscalaParTrocaDireta: (valor: string) => void
   diasTrocaParDireta: string[]
   setDiasTrocaParDireta: Dispatch<SetStateAction<string[]>>
+  atribuirSemTroca: boolean
+  setAtribuirSemTroca: (valor: boolean) => void
+  diasAtribuir: string[]
+  setDiasAtribuir: Dispatch<SetStateAction<string[]>>
 }) {
   if (!open) return null
 
@@ -122,7 +130,7 @@ export default function EscalaEditModal({
               <select
                 value={formData.tipo}
                 onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
-                disabled={!canEdit || trocarDireto}
+                disabled={!canEdit || trocarDireto || atribuirSemTroca}
               >
                 {tiposDisponiveisParaEquipe(formData.equipe).map(tipo => (
                   <option key={tipo.id} value={tipo.id}>{tipo.label}</option>
@@ -135,7 +143,7 @@ export default function EscalaEditModal({
                 type="date"
                 value={formData.dataInicio}
                 onChange={(e) => setFormData({ ...formData, dataInicio: e.target.value })}
-                disabled={!canEdit || trocarDireto}
+                disabled={!canEdit || trocarDireto || atribuirSemTroca}
                 required
               />
             </div>
@@ -147,7 +155,7 @@ export default function EscalaEditModal({
                 type="date"
                 value={formData.dataFim}
                 onChange={(e) => setFormData({ ...formData, dataFim: e.target.value })}
-                disabled={!canEdit || trocarDireto}
+                disabled={!canEdit || trocarDireto || atribuirSemTroca}
                 required
               />
             </div>
@@ -164,7 +172,7 @@ export default function EscalaEditModal({
                     tecnicos: []
                   })
                 }}
-                disabled={!canEdit || !isAdmin || trocarDireto}
+                disabled={!canEdit || !isAdmin || trocarDireto || atribuirSemTroca}
               >
                 {canEdit && isAdmin ? (
                   EQUIPES.map(eq => (
@@ -210,10 +218,45 @@ export default function EscalaEditModal({
                 <input
                   type="checkbox"
                   checked={trocarDireto}
-                  onChange={(e) => setTrocarDireto(e.target.checked)}
+                  onChange={(e) => {
+                    setTrocarDireto(e.target.checked)
+                    if (e.target.checked) setAtribuirSemTroca(false)
+                  }}
                 />
                 🔄 Trocar direto — escolha o que cada um dá na troca
               </label>
+              <label className="campo-toggle campo-toggle-trocar-direto">
+                <input
+                  type="checkbox"
+                  checked={atribuirSemTroca}
+                  onChange={(e) => {
+                    setAtribuirSemTroca(e.target.checked)
+                    if (e.target.checked) setTrocarDireto(false)
+                  }}
+                />
+                👤 Atribuir sem troca — só coloca essa pessoa nesses dias, sem pegar nada em troca
+              </label>
+              {atribuirSemTroca && !tecnicoFoiTrocado && (
+                <p className="auto-campo-alerta">
+                  Escolha, no campo Técnico/Analista acima, quem vai assumir os dias.
+                </p>
+              )}
+              {atribuirSemTroca && tecnicoFoiTrocado && (
+                <div className="troca-form">
+                  <p className="troca-explicacao">
+                    Atribuir a <strong>{getNomeTecnico(formData.tecnicos[0])}</strong>:
+                  </p>
+                  <SeletorDiasSimples
+                    dias={diasAtribuir}
+                    setDias={setDiasAtribuir}
+                    dataInicio={formData.dataInicio}
+                    dataFim={formData.dataFim}
+                  />
+                  <p className="troca-explicacao-sutil">
+                    O resto do período continua com <strong>{nomeTecnicoOriginal}</strong>, sem mudar mais nada.
+                  </p>
+                </div>
+              )}
               {trocarDireto && !tecnicoFoiTrocado && (
                 <p className="auto-campo-alerta">
                   Escolha, no campo Técnico/Analista acima, a pessoa que vai entrar no lugar de <strong>{nomeTecnicoOriginal}</strong>.
@@ -245,13 +288,13 @@ export default function EscalaEditModal({
                       <option value="">Selecione a escala...</option>
                       {escalasDoDestinoParaTrocaDireta.map(e => (
                         <option key={e.id} value={e.id}>
-                          {formatarDataBR(e.dataInicio)} a {formatarDataBR(e.dataFim)}
+                          {nomeTipoEscala(e.tipo)} · {formatarDataBR(e.dataInicio)} a {formatarDataBR(e.dataFim)}
                         </option>
                       ))}
                     </select>
                     {escalasDoDestinoParaTrocaDireta.length === 0 && (
                       <small className="auto-campo-alerta">
-                        {getNomeTecnico(formData.tecnicos[0])} não tem nenhuma escala de {formData.tipo === 'homeoffice' ? 'Home Office' : formData.tipo} pra oferecer em troca.
+                        {getNomeTecnico(formData.tecnicos[0])} não tem nenhuma escala presencial, home office ou sábado pra oferecer em troca.
                       </small>
                     )}
                   </div>
@@ -271,7 +314,7 @@ export default function EscalaEditModal({
               )}
             </>
           )}
-          {!trocarDireto && mostrarSelecaoSala && (
+          {!trocarDireto && !atribuirSemTroca && mostrarSelecaoSala && (
             <div className="form-group">
               <label>Sala</label>
               <select
@@ -293,7 +336,7 @@ export default function EscalaEditModal({
               value={formData.descricao ?? ""}
               onChange={(e) => setFormData({ ...formData, descricao: e.target.value })}
               placeholder="Detalhes da escala..."
-              disabled={!canEdit || trocarDireto}
+              disabled={!canEdit || trocarDireto || atribuirSemTroca}
             />
           </div>
 
@@ -377,7 +420,7 @@ export default function EscalaEditModal({
           <div className="form-actions-modal">
             {canEdit && (
               <button type="submit" className="btn-success">
-                {trocarDireto ? '🔄 Trocar' : 'Atualizar'}
+                {trocarDireto ? '🔄 Trocar' : atribuirSemTroca ? '👤 Atribuir' : 'Atualizar'}
               </button>
             )}
             {canEdit && (

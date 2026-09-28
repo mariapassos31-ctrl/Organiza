@@ -1051,21 +1051,55 @@
   cursor: pointer;
 }
 
+/* Moldura mais forte só nos dias com gente escalada — junta o numerozinho
+   e os badges como um bloco só, visualmente separado dos dias vizinhos
+   (antes, com a borda quase invisível do dia comum, um dia com 2 badges
+   parecia se misturar com o dia ao lado, como se tivesse gente a mais). */
+.calendar-day-com-escalas {
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* Dias do mês anterior/seguinte que sobram na primeira/última semana da
+   grade — mostram a escala de verdade (não precisa mais voltar o
+   calendário pra conferir), mas com um tom mais apagado pra não confundir
+   com o mês em foco. Feriado continua com a cor de feriado por cima
+   (:not evita o cinza atropelar o amarelo). */
+.calendar-day-fora-do-mes:not(.calendar-day-feriado) {
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+}
+
+.calendar-day-fora-do-mes .day-number {
+  color: #9aa1ab;
+}
+
+.calendar-day-fora-do-mes .escala-badge-beautiful {
+  opacity: 0.75;
+}
+
 .calendar-day-feriado {
   background: #fff7e6;
   border-color: #f0c674;
 }
 
+/* Uma linha só (nome do feriado, sem repetir "Feriado" — o fundo amarelo
+   do dia já avisa isso) — trunca com reticências se não couber, o nome
+   inteiro continua disponível no title (tooltip ao passar o mouse). O
+   bloco de duas linhas de antes ocupava espaço demais junto com os badges
+   de escala do dia. */
 .dia-feriado-badge {
   font-size: 10px;
   font-weight: 700;
-  line-height: 1.3;
   color: #8a5a00;
   background: #ffe9b8;
   border-radius: 4px;
-  padding: 3px 6px;
-  margin-bottom: 6px;
+  padding: 2px 6px;
+  margin-bottom: 4px;
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .day-number {
@@ -1099,7 +1133,7 @@
 .day-escalas {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
 }
 
 .dia-detalhado-lista {
@@ -1299,6 +1333,121 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.fila-sabado-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.fila-sabado-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid #eee;
+  border-radius: 8px;
+  background: #fafafa;
+  /* position+z-index: durante a animação de reordenar (ver FLIP no
+     componente), a linha que está deslizando fica por cima das vizinhas em
+     vez de ficar escondida atrás delas. */
+  position: relative;
+  z-index: 1;
+}
+
+/* Enquanto está sendo arrastada, a linha original fica meio apagada (o
+   feedback visual de verdade é a barra indicadora de onde vai cair). */
+.fila-sabado-item-arrastando {
+  opacity: 0.35;
+}
+
+/* Alcinha de arrastar — 6 bolinhas em grade, não depende de nenhum glifo de
+   fonte (evita o problema que já tivemos com ícone de seta não aparecendo
+   em algum navegador). touch-action:none impede o celular de rolar a tela
+   junto enquanto arrasta. */
+.fila-sabado-grip {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 4px);
+  grid-auto-rows: 4px;
+  gap: 3px;
+  padding: 6px 4px;
+  cursor: grab;
+  touch-action: none;
+  flex-shrink: 0;
+}
+
+.fila-sabado-grip:active {
+  cursor: grabbing;
+}
+
+.fila-sabado-grip span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #b0b7c0;
+}
+
+/* Barra horizontal mostrando entre quais duas linhas vai cair ao soltar. */
+.fila-sabado-indicador {
+  height: 3px;
+  margin: 3px 4px;
+  border-radius: 999px;
+  background: var(--brand-primary, #6c2b3e);
+}
+
+.fila-sabado-posicao {
+  font-weight: 700;
+  color: var(--brand-primary, #6c2b3e);
+  min-width: 24px;
+}
+
+.fila-sabado-nome {
+  flex: 1;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+/* O nome vira um seletor de verdade (clica e já mostra quem mais dá pra
+   colocar ali, ou "remover") — continua parecendo texto normal até o clique,
+   só com um contorno leve pra dar a dica de que é clicável. */
+.fila-sabado-nome-select {
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.fila-sabado-nome-select:hover,
+.fila-sabado-nome-select:focus {
+  border-color: #ddd;
+  background: white;
+  outline: none;
+}
+
+.fila-sabado-adicionar {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--brand-primary, #6c2b3e);
+  background: white;
+  cursor: pointer;
+  width: 100%;
+}
+
+.fila-sabado-acoes {
+  display: flex;
+  gap: 4px;
+}
+
+.fila-sabado-acoes button {
+  padding: 4px 10px;
 }
 
 .editor-posicoes-planta {
@@ -1696,7 +1845,11 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 3px;
+  /* Borda de contraste (sempre bem mais escura que o fundo colorido do
+     badge, não importa a cor do tipo) — sem isso, dois badges da mesma cor
+     empilhados (ex: 2 pessoas em home office no mesmo dia) se misturavam
+     visualmente num bloco só, parecendo o dobro de gente. */
+  border: 1px solid rgba(0, 0, 0, 0.18);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
   cursor: pointer;
   transition: all 0.2s;
@@ -2150,6 +2303,14 @@
 .troca-form .troca-explicacao {
   margin: 10px 0 6px;
   padding: 6px 12px;
+}
+
+/* Nota discreta (ex: "o resto do período continua com fulano") — sem o
+   fundo colorido de .troca-explicacao, só um texto secundário. */
+.troca-explicacao-sutil {
+  margin: 4px 0 8px;
+  font-size: 13px;
+  color: #4b5563;
 }
 
 .troca-form .troca-explicacao:first-child {

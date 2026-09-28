@@ -7,7 +7,6 @@ import {
   construirBlocosRodizio,
   construirBlocosHibrido,
 } from './escalasRodizio'
-import { ehFeriado } from './feriados'
 
 function diasNoBloco(dtInicio: string, dtFim: string) {
   const [y1, m1, d1] = dtInicio.split('-').map(Number)
@@ -248,7 +247,7 @@ describe('construirBlocosHibrido', () => {
     }
   })
 
-  it('não gera blocos sobrepostos e cobre todos os dias úteis para cada participante', () => {
+  it('não gera blocos sobrepostos e cobre todos os dias úteis para cada participante (feriado em dia de semana conta normal)', () => {
     const n = 3
     const blocos = construirBlocosHibrido({
       participantes: participantes(n),
@@ -260,13 +259,15 @@ describe('construirBlocosHibrido', () => {
     for (let t = 0; t < n; t++) {
       const blocosDoParticipante = blocos.filter(b => b.tecnicoUid === `uid-${t}`)
       const totalDias = blocosDoParticipante.reduce((acc, b) => acc + diasNoBloco(b.dtInicio, b.dtFim), 0)
-      // conta manualmente quantos dias úteis existem no período
+      // conta manualmente quantos dias úteis existem no período — feriado
+      // (ex: Ano Novo, 01/01) não é mais excluído aqui, presencial/home
+      // office tratam feriado como dia normal (só a Escala Sábado pula).
       let count = 0
       let cursor = '2026-01-01'
       while (cursor <= '2026-01-15') {
         const [y, m, d] = cursor.split('-').map(Number)
         const dow = new Date(y, m - 1, d).getDay()
-        if ([1, 2, 3, 4, 5].includes(dow) && !ehFeriado(cursor)) count++
+        if ([1, 2, 3, 4, 5].includes(dow)) count++
         cursor = addDays(cursor, 1)
       }
       expect(totalDias).toBe(count)

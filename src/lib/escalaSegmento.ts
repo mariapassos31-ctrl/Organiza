@@ -1,6 +1,12 @@
 import type { PoolClient } from 'pg'
 import { addDays } from './escalasRodizio'
 
+// Tipos de escala que ocupam uma presença física (baia ou "em casa
+// trabalhando") — mutuamente exclusivos pro mesmo técnico no mesmo dia.
+// Sobreaviso fica de fora: não ocupa nenhum lugar físico, então não colide
+// com os outros.
+export const TIPOS_PRESENCA_FISICA = new Set(['presencial', 'homeoffice', 'sabado'])
+
 export interface EscalaParaSegmento {
   tp_escala: string
   cd_equipe: number
@@ -147,4 +153,43 @@ export async function isolarDiasComoEscalaPropria(
     throw new Error('Não foi possível isolar os dias selecionados')
   }
   return idIsolado
+}
+
+// Antes de atribuir um dia físico (presencial/home office/sábado) pra
+// alguém, remove qualquer OUTRO compromisso físico que essa pessoa já
+// tivesse nesse mesmo dia — sem isso, ela ficava com os dois ao mesmo
+// tempo (ex: home office novo + presencial antigo intocado no mesmo dia),
+// aparecendo duplicada no mapa e na legenda. Isola só o pedaço que colide
+// (o resto da escala antiga continua normal) e manda esse pedaço pra
+// lixeira — a pessoa simplesmente para de ter aquele outro compromisso
+// nesse dia específico, já que agora tem outro. Usado tanto pela troca
+// direta quanto por "atribuir sem troca".
+export async function removerConflitosFisicos(
+  client: PoolClient,
+  cdEquipe: number,
+  cdTecnico: number | string,
+  dias: string[],
+  ignorarCdEscalas: Array<number | string> = []
+): Promise<void> {
+  if (dias.length === 0) return
+  const inicio = dias.reduce((a, b) => (a < b ? a : b))
+  const fim = dias.reduce((a, b) => (a > b ? a : b))
+  const ignorar = ignorarCdEscalas.map(String)
+  const { rows } = await client.query(
+    `SELECT es.cd_escala, es.tp_escala, es.cd_equipe, es.ds_descricao, es.tp_status, es.cd_usuario_criador,
+            to_char(es.dt_inicio, 'YYYY-MM-DD') AS dt_inicio, to_char(es.dt_fim, 'YYYY-MM-DD') AS dt_fim
+     FROM escalas es
+     JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
+     WHERE et.cd_tecnico = $1 AND es.cd_equipe = $2
+       AND es.tp_escala = ANY($5::text[]) AND es.tp_status != 'cancelada'
+       AND es.dt_inicio <= $4 AND es.dt_fim >= $3
+       AND NOT (es.cd_escala::text = ANY($6::text[]))`,
+    [cdTecnico, cdEquipe, inicio, fim, Array.from(TIPOS_PRESENCA_FISICA), ignorar]
+  )
+  for (const escalaConflitante of rows) {
+    const diasQueColidem = dias.filter(d => d >= escalaConflitante.dt_inicio && d <= escalaConflitante.dt_fim)
+    if (diasQueColidem.length === 0) continue
+    const idIsolado = await isolarDiasComoEscalaPropria(client, escalaConflitante, diasQueColidem, cdTecnico)
+    await client.query(`UPDATE escalas SET tp_status = 'cancelada', dt_atualizacao = now() WHERE cd_escala = $1`, [idIsolado])
+  }
 }

@@ -8,6 +8,7 @@ import { EQUIPES, nuncaEhEscalado } from '../../lib/equipesConfig'
 import { mensagemDeErro } from '../../lib/erros'
 import type { Usuario, Escala, Sala, ConfigBaia, ConfigLab, FormEscala, DiaDetalhado, MarcadorSala } from '../../types/dominio'
 import { TIPOS_ESCALA, ordenarSobreavisoPrimeiro, motivoInelegibilidadeParaTipo } from '../../lib/escalasConstants'
+import { TIPOS_PRESENCA_FISICA } from '../../lib/escalaSegmento'
 import CalendarioEscalas from './escalas/CalendarioEscalas'
 import DiaDetalhadoModal from './escalas/DiaDetalhadoModal'
 import EscalaEditModal from './escalas/EscalaEditModal'
@@ -33,6 +34,10 @@ export default function Escalas() {
   const [salaFocoAtiva, setSalaFocoAtiva] = useState<{ sala: Sala; data: Date } | null>(null)
   const [salaSelecionadaId, setSalaSelecionadaId] = useState<number | null>(null)
   const [autoModalOpen, setAutoModalOpen] = useState(false)
+  // Preenchido quando o assistente é aberto a partir de um clique num dia
+  // vazio do calendário — null quando aberto pelo botão normal (sem data
+  // sugerida nenhuma).
+  const [dataInicialNovaEscala, setDataInicialNovaEscala] = useState<string | null>(null)
   const [mostrarListaDetalhada, setMostrarListaDetalhada] = useState(false)
   const [mostrarFormTroca, setMostrarFormTroca] = useState(false)
   const [tipoTroca, setTipoTroca] = useState<'completa' | 'dias'>('completa')
@@ -43,6 +48,11 @@ export default function Escalas() {
   const [escalaOferecidaId, setEscalaOferecidaId] = useState('')
   const [trocarDireto, setTrocarDireto] = useState(false)
   const [diasTrocaDireta, setDiasTrocaDireta] = useState<string[]>([])
+  // Atribuir sem troca: diferente do trocarDireto acima, não pega nada em
+  // troca de ninguém — só passa dia(s) específicos da escala pro técnico
+  // novo, mantendo o resto com quem já era.
+  const [atribuirSemTroca, setAtribuirSemTroca] = useState(false)
+  const [diasAtribuir, setDiasAtribuir] = useState<string[]>([])
   const [escalaParTrocaDireta, setEscalaParTrocaDireta] = useState('')
   const [diasTrocaParDireta, setDiasTrocaParDireta] = useState<string[]>([])
   const [baiasPerfil, setBaiasPerfil] = useState<Record<string, string>>({})
@@ -391,21 +401,29 @@ export default function Escalas() {
   )
   const mostrarOpcaoTrocarDireto = canEditCurrent
 
-  // Escalas que a pessoa nova (quem está entrando) já tem do MESMO tipo da
-  // escala sendo editada — é entre essas que dá pra escolher o que ela
-  // oferece em troca. Nunca a própria escala sendo editada.
+  // Escalas que a pessoa nova (quem está entrando) já tem pra oferecer em
+  // troca — do MESMO tipo da escala sendo editada, ou de outro tipo de
+  // presença física (presencial/home office/sábado também trocam entre
+  // si, já que ocupam o mesmo tipo de "vaga" — só sobreaviso fica de fora
+  // dessa flexibilidade, por não ocupar lugar físico nenhum). Nunca a
+  // própria escala sendo editada.
+  const tiposCompativeisParaTroca = (tipoA: string, tipoB: string) =>
+    tipoA === tipoB || (TIPOS_PRESENCA_FISICA.has(tipoA) && TIPOS_PRESENCA_FISICA.has(tipoB))
   const escalasDoDestinoParaTrocaDireta = trocarDireto && tecnicoFoiTrocado
     ? escalas
         .filter(e =>
           (e.tecnicos || []).includes(formData.tecnicos[0]) &&
-          e.tipo === formData.tipo &&
+          tiposCompativeisParaTroca(e.tipo, formData.tipo) &&
           e.id !== editingId
         )
         .sort((a, b) => a.dataInicio.localeCompare(b.dataInicio))
     : []
 
   useEffect(() => {
-    if (!mostrarOpcaoTrocarDireto) setTrocarDireto(false)
+    if (!mostrarOpcaoTrocarDireto) {
+      setTrocarDireto(false)
+      setAtribuirSemTroca(false)
+    }
   }, [mostrarOpcaoTrocarDireto])
 
   // Trocando de novo o técnico no meio do processo (ou desmarcando "trocar
@@ -416,6 +434,12 @@ export default function Escalas() {
     setEscalaParTrocaDireta('')
     setDiasTrocaParDireta([])
   }, [formData.tecnicos[0], trocarDireto])
+
+  // Mesma ideia pro "atribuir sem troca": trocando o técnico de novo (ou
+  // desmarcando a opção), os dias marcados antes não valem mais.
+  useEffect(() => {
+    setDiasAtribuir([])
+  }, [formData.tecnicos[0], atribuirSemTroca])
 
   const souTecnico = userData?.role !== 'admin' && userData?.role !== 'gestor'
   const ehMinhaEscala = modalOpen && (formData.tecnicos || []).includes(userData?.uid ?? "")
@@ -627,6 +651,16 @@ export default function Escalas() {
     }
   }
 
+  // Dia sem nenhuma escala: em vez de não fazer nada, abre o assistente de
+  // criação já com essa data sugerida como início.
+  const clicarDiaVazioCalendario = (data: Date) => {
+    const ano = data.getFullYear()
+    const mes = String(data.getMonth() + 1).padStart(2, '0')
+    const dia = String(data.getDate()).padStart(2, '0')
+    setDataInicialNovaEscala(`${ano}-${mes}-${dia}`)
+    setAutoModalOpen(true)
+  }
+
   const diaDetalhadoSalaFoco: DiaDetalhado | null = salaFocoAtiva
     ? {
         data: salaFocoAtiva.data,
@@ -706,6 +740,44 @@ export default function Escalas() {
     }
   }
 
+  // Atribuir sem troca: diferente de salvarTrocaDireta, só um lado é
+  // tocado — o técnico novo assume os dias escolhidos, ninguém dá nada em
+  // troca, e o resto da escala original continua com quem já era.
+  const salvarAtribuir = async (): Promise<void> => {
+    if (diasAtribuir.length === 0) {
+      notificar('Selecione pelo menos um dia pra atribuir')
+      return
+    }
+    try {
+      const response = await fetch(`/api/escalas/${encodeURIComponent(String(editingId))}/atribuir`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          novoTecnicoUid: formData.tecnicos[0],
+          dias: diasAtribuir,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || 'Falha ao atribuir escala')
+      }
+
+      const nomeNovo = getNomeTecnico(formData.tecnicos[0])
+
+      await carregarEscalas()
+      setEditingId(null)
+      setModalOpen(false)
+      setAtribuirSemTroca(false)
+
+      notificar(
+        `${nomeNovo} assumiu ${nomeTipoEscala(formData.tipo)} em ${formatarPeriodo(data.periodoAtribuido)}. O resto do período continua com ${getNomeTecnico(tecnicoOriginalUid ?? '')}, sem mais nenhuma mudança.`,
+        { tipo: 'sucesso', titulo: '👤 Atribuído!' }
+      )
+    } catch (error) {
+      notificar(mensagemDeErro(error), { tipo: 'erro' })
+    }
+  }
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     if (!formData.dataInicio || !formData.dataFim || formData.tecnicos.length === 0) {
@@ -722,6 +794,14 @@ export default function Escalas() {
         return
       }
       await salvarTrocaDireta()
+      return
+    }
+    if (atribuirSemTroca) {
+      if (!tecnicoFoiTrocado) {
+        notificar('Escolha, no campo Técnico/Analista, a pessoa que vai assumir os dias')
+        return
+      }
+      await salvarAtribuir()
       return
     }
     try {
@@ -771,6 +851,8 @@ export default function Escalas() {
     setDiasTrocaDireta([])
     setEscalaParTrocaDireta('')
     setDiasTrocaParDireta([])
+    setAtribuirSemTroca(false)
+    setDiasAtribuir([])
   }
 
   const handleDelete = async (id: string) => {
@@ -819,6 +901,8 @@ export default function Escalas() {
     setDiasTrocaDireta([])
     setEscalaParTrocaDireta('')
     setDiasTrocaParDireta([])
+    setAtribuirSemTroca(false)
+    setDiasAtribuir([])
   }
 
   const getNomeTecnico = (uid: string) => {
@@ -844,7 +928,7 @@ export default function Escalas() {
             </button>
           )}
           {podeEditar && (
-            <button className="btn-primary" onClick={() => setAutoModalOpen(true)}>
+            <button className="btn-primary" onClick={() => { setDataInicialNovaEscala(null); setAutoModalOpen(true) }}>
               🪄 Nova Escala
             </button>
           )}
@@ -878,6 +962,8 @@ export default function Escalas() {
             valorInicial: laboratorioConfig,
             onSalvar: definirLaboratorio,
           }}
+          podeConfigurarFilaSabado={podeConfigurarLaboratorio}
+          usuarios={usuarios}
           minhaEquipe={userData?.equipe}
           souAdmin={souAdmin}
           onAlterarBaiaSala={definirBaiaSala}
@@ -974,6 +1060,10 @@ export default function Escalas() {
         setEscalaParTrocaDireta={setEscalaParTrocaDireta}
         diasTrocaParDireta={diasTrocaParDireta}
         setDiasTrocaParDireta={setDiasTrocaParDireta}
+        atribuirSemTroca={atribuirSemTroca}
+        setAtribuirSemTroca={setAtribuirSemTroca}
+        diasAtribuir={diasAtribuir}
+        setDiasAtribuir={setDiasAtribuir}
       />
 
       {autoModalOpen && (
@@ -983,6 +1073,7 @@ export default function Escalas() {
           salas={salas}
           onClose={() => setAutoModalOpen(false)}
           onAtualizarEscalas={carregarEscalas}
+          dataInicial={dataInicialNovaEscala ?? undefined}
         />
       )}
 
@@ -994,6 +1085,7 @@ export default function Escalas() {
         podeEditarEscala={podeEditarEscala}
         onEditarEscala={handleEdit}
         onDiaClick={clicarDiaCalendario}
+        onDiaVazioClick={podeEditar ? clicarDiaVazioCalendario : undefined}
         usuarios={usuarios}
       />
 

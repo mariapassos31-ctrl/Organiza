@@ -21,8 +21,12 @@ export const viewport = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="pt-BR">
-      <body>
+    <html lang="pt-BR" data-scroll-behavior="smooth">
+      {/* suppressHydrationWarning: extensões de navegador (ColorZilla, Grammarly
+          etc.) injetam atributos no <body> antes do React hidratar — gera um
+          aviso inofensivo de "tree hydrated but attributes didn't match", sem
+          nenhuma relação com o código da aplicação. */}
+      <body suppressHydrationWarning>
         <SessionProvider>{children}</SessionProvider>
       </body>
     </html>

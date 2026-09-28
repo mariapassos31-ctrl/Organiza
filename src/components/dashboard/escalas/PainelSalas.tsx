@@ -2,10 +2,11 @@
 
 import { useState, type ComponentProps } from 'react'
 import { useNotificacao } from '../../../context/NotificacaoContext'
-import type { MarcadorSala, PosicaoBaia, Sala } from '../../../types/dominio'
+import type { MarcadorSala, PosicaoBaia, Sala, Usuario } from '../../../types/dominio'
 import ConfigurarSala from './ConfigurarSala'
 import VisualizarSala from './VisualizarSala'
 import ConfigLaboratorio from './ConfigLaboratorio'
+import FilaSabadoModal from './FilaSabadoModal'
 import { EQUIPES, labelEquipe } from '../../../lib/equipesConfig'
 import { IMAGEM_COM_POSICOES_CONHECIDAS } from '../../../lib/salasConfig'
 
@@ -18,12 +19,17 @@ import { IMAGEM_COM_POSICOES_CONHECIDAS } from '../../../lib/salasConfig'
 type Resultado = Promise<boolean> | boolean
 type ResultadoId = Promise<number | false> | number | false
 type DadosBaia = { equipe?: string | null; especialidade?: string | null; perfil?: string | null }
-type Aberto = { tipo: "visualizar"; id: number } | { tipo: "laboratorio" } | null
+type Aberto = { tipo: "visualizar"; id: number } | { tipo: "laboratorio" } | { tipo: "filaSabado" } | null
 
 interface PainelSalasProps {
   salas: Sala[]
   podeConfigurarLaboratorio: boolean
   laboratorioProps: Omit<ComponentProps<typeof ConfigLaboratorio>, "onClose">
+  // Fila de Sábado é a mesma regra de acesso do Laboratório (Suporte
+  // apenas), mas como conceito próprio — uma equipe podia um dia ganhar
+  // Laboratório sem ganhar Sábado, ou vice-versa.
+  podeConfigurarFilaSabado: boolean
+  usuarios: Usuario[]
   minhaEquipe: string | null | undefined
   souAdmin: boolean
   onAlterarBaiaSala: (salaId: number, baia: string, valores: DadosBaia) => Resultado
@@ -39,7 +45,7 @@ interface PainelSalasProps {
   onClose: () => void
 }
 
-export default function PainelSalas({ salas, podeConfigurarLaboratorio, laboratorioProps, minhaEquipe, souAdmin, onAlterarBaiaSala, onAlterarEquipesSala, onCriarSala, onEditarSala, onExcluirSala, onEnviarImagemSala, onRemoverImagemSala, onAjustarPosicoesSala, onAjustarMarcadoresSala, onCriarGrupoRodizio, onClose }: PainelSalasProps) {
+export default function PainelSalas({ salas, podeConfigurarLaboratorio, laboratorioProps, podeConfigurarFilaSabado, usuarios, minhaEquipe, souAdmin, onAlterarBaiaSala, onAlterarEquipesSala, onCriarSala, onEditarSala, onExcluirSala, onEnviarImagemSala, onRemoverImagemSala, onAjustarPosicoesSala, onAjustarMarcadoresSala, onCriarGrupoRodizio, onClose }: PainelSalasProps) {
   const [abrindo, setAbrindo] = useState<Aberto>(null)
   const [editandoSalaDe, setEditandoSalaDe] = useState<Sala | null>(null)
   const [criandoSala, setCriandoSala] = useState(false)
@@ -60,6 +66,10 @@ export default function PainelSalas({ salas, podeConfigurarLaboratorio, laborato
 
   if (abrindo?.tipo === 'laboratorio') {
     return <ConfigLaboratorio {...laboratorioProps} onClose={() => setAbrindo(null)} />
+  }
+
+  if (abrindo?.tipo === 'filaSabado') {
+    return <FilaSabadoModal usuarios={usuarios} onClose={() => setAbrindo(null)} />
   }
 
   if (editandoSalaDe) {
@@ -142,7 +152,7 @@ export default function PainelSalas({ salas, podeConfigurarLaboratorio, laborato
           <p className="config-baias-explicacao">Escolha o espaço que quer configurar.</p>
 
           <div className="config-baias-lista">
-            {salasVisiveis.length === 0 && !podeConfigurarLaboratorio && (
+            {salasVisiveis.length === 0 && !podeConfigurarLaboratorio && !podeConfigurarFilaSabado && (
               <p className="campo-nota">Nenhum espaço disponível pra sua equipe ainda.</p>
             )}
             {salasVisiveis.map(sala => (
@@ -172,6 +182,12 @@ export default function PainelSalas({ salas, podeConfigurarLaboratorio, laborato
               <button type="button" className="painel-salas-item" onClick={() => setAbrindo({ tipo: 'laboratorio' })}>
                 <span>🧪 Laboratório</span>
                 <span className="painel-salas-item-sub">{labelEquipe('suporte')} · Responsável fixo + backup</span>
+              </button>
+            )}
+            {podeConfigurarFilaSabado && (
+              <button type="button" className="painel-salas-item" onClick={() => setAbrindo({ tipo: 'filaSabado' })}>
+                <span>📅 Fila de Sábado</span>
+                <span className="painel-salas-item-sub">{labelEquipe('suporte')} · Ordem do rodízio</span>
               </button>
             )}
           </div>

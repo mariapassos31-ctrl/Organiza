@@ -5,7 +5,8 @@ import { auth } from '../../../../../auth'
 import { ehPerfilGestao } from '../../../../../lib/equipesConfig'
 import { motivoInelegibilidadeParaTipo } from '../../../../../lib/escalasConstants'
 import { quemColideEspecialidadeNoHomeOffice, listarNomes } from '../../../../../lib/elegibilidadeHomeOffice'
-import { isolarDiasComoEscalaPropria } from '../../../../../lib/escalaSegmento'
+import { isolarDiasComoEscalaPropria, removerConflitosFisicos, TIPOS_PRESENCA_FISICA } from '../../../../../lib/escalaSegmento'
+import { addDays } from '../../../../../lib/escalasRodizio'
 
 // Troca direta feita por admin/gestor no modal de editar escala: escolhe
 // explicitamente as DUAS pontas da troca — a escala/dias de quem está
@@ -104,9 +105,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     // A escala que a pessoa nova está oferecendo em troca — precisa ser
-    // dela mesma, do MESMO tipo (home office com home office, presencial
-    // com presencial, sábado com sábado, sobreaviso com sobreaviso) e não
-    // pode ser a própria escala que está sendo editada.
+    // dela mesma e não pode ser a própria escala que está sendo editada.
     const { rows: parRows } = await query(
       `SELECT es.cd_escala, es.tp_escala, es.cd_equipe, es.ds_descricao, es.tp_status, es.cd_usuario_criador,
               to_char(es.dt_inicio, 'YYYY-MM-DD') AS dt_inicio,
@@ -128,8 +127,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (String(escalaPar.cd_escala) === String(escala.cd_escala)) {
       return NextResponse.json({ error: 'Escolha uma escala diferente da que está sendo editada' }, { status: 400 })
     }
-    if (escalaPar.tp_escala !== escala.tp_escala) {
-      return NextResponse.json({ error: 'A troca só pode ser feita entre escalas do mesmo tipo' }, { status: 400 })
+    // Troca entre tipos diferentes só é permitida quando os dois são tipos
+    // de presença física (presencial/home office/sábado — todos ocupam o
+    // mesmo tipo de "vaga", então trocar entre eles faz sentido). Sobreaviso
+    // só troca com sobreaviso, já que não ocupa lugar físico nenhum.
+    const tiposCompativeis = escalaPar.tp_escala === escala.tp_escala ||
+      (TIPOS_PRESENCA_FISICA.has(escalaPar.tp_escala) && TIPOS_PRESENCA_FISICA.has(escala.tp_escala))
+    if (!tiposCompativeis) {
+      return NextResponse.json({ error: 'A troca só pode ser feita entre escalas do mesmo tipo, ou entre presencial/home office/sábado' }, { status: 400 })
     }
     if (diasPar.some((d: string) => d < escalaPar.dt_inicio || d > escalaPar.dt_fim)) {
       return NextResponse.json({ error: 'Algum dos dias informados (do outro lado da troca) está fora do período da escala' }, { status: 400 })
@@ -205,6 +210,25 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       // escala inteira, já do tamanho certo.
       cdEscalaFinal = await isolarDiasComoEscalaPropria(client, escala, dias, escala.tecnico_antigo_cd)
       cdEscalaParFinal = await isolarDiasComoEscalaPropria(client, escalaPar, diasPar, novo.cd_tecnico)
+
+      // Antes de reatribuir, remove qualquer outro compromisso físico
+      // (presencial/home office/sábado) que cada lado já tivesse nos dias
+      // que está prestes a receber — feito ANTES das atribuições abaixo
+      // pra não confundir com a escala que cada um está prestes a receber.
+      // Quando nenhum dia específico foi escolhido de um lado, a troca foi
+      // do período inteiro daquela escala — usa o período inteiro pra
+      // checar colisão também.
+      const diasParEfetivo = diasPar.length > 0 ? diasPar : (() => {
+        const todos: string[] = []
+        for (let d = escalaPar.dt_inicio; d <= escalaPar.dt_fim; d = addDays(d, 1)) todos.push(d)
+        return todos
+      })()
+      if (TIPOS_PRESENCA_FISICA.has(escala.tp_escala)) {
+        await removerConflitosFisicos(client, escala.cd_equipe, novo.cd_tecnico, dias, [cdEscalaFinal, cdEscalaParFinal])
+      }
+      if (TIPOS_PRESENCA_FISICA.has(escalaPar.tp_escala)) {
+        await removerConflitosFisicos(client, escala.cd_equipe, escala.tecnico_antigo_cd, diasParEfetivo, [cdEscalaFinal, cdEscalaParFinal])
+      }
 
       await client.query(
         'UPDATE escala_tecnicos SET cd_tecnico = $1 WHERE cd_escala = $2 AND cd_tecnico = $3',

@@ -3,6 +3,8 @@ import { query, getPool, equipeIdFromSlug } from './db'
 import { addDays, getSabados, indiceContinuacao, construirBlocosRodizio, construirBlocosHibrido } from './escalasRodizio'
 import { construirBlocosHomeOfficePar } from './escalasHomeOfficePar'
 import { ehJovemAprendiz } from './escalasConstants'
+import { buscarFilaSabado } from './filaSabado'
+import { TIPOS_PRESENCA_FISICA } from './escalaSegmento'
 import type { Participante, BlocoEscala, AvisoEscala, ArgsPlano, ResultadoPlano } from './tipos'
 
 const TIPOS_VALIDOS = ['presencial', 'homeoffice', 'sabado', 'sobreaviso']
@@ -11,7 +13,6 @@ const TIPOS_VALIDOS = ['presencial', 'homeoffice', 'sabado', 'sobreaviso']
 // nunca podem coexistir pro mesmo técnico no mesmo dia (mesmo sendo de tipos
 // diferentes entre si). Sobreaviso não ocupa lugar físico nenhum, então não
 // entra nessa exclusão (pode existir junto com qualquer um dos outros).
-const TIPOS_PRESENCA_FISICA = new Set(['presencial', 'homeoffice', 'sabado'])
 const periodosSeSobrepoe = (aInicio: string, aFim: string, bInicio: string, bFim: string) =>
   aInicio <= bFim && bInicio <= aFim
 
@@ -221,6 +222,24 @@ export async function montarPlanoAuto({ role, userEquipe, body }: ArgsPlano): Pr
     : participantesSelecionados
   if (ehSabado && participantes.length === 0) {
     return { error: 'Nenhum dos técnicos selecionados pode entrar na escala de sábado (Analista, Analista G. e Estag/Aprendiz/Trainee não participam)', status: 400 }
+  }
+
+  // Fila customizada (cadastrada em "Fila de Sábado"): quem está nela entra
+  // nessa ordem, antes de qualquer um de fora dela — sem fila cadastrada,
+  // continua alfabético (ordem que carregarParticipantes já devolve). Quem
+  // foi selecionado pra essa geração mas não está na fila entra no final,
+  // também alfabético entre si, pra não sumir da rotação por falta de
+  // cadastro.
+  if (ehSabado) {
+    const filaCustom = await buscarFilaSabado(equipeIds[0])
+    if (filaCustom.length > 0) {
+      const posicao = new Map(filaCustom.map((cd, i) => [cd, i]))
+      participantes.sort((a, b) => {
+        const pa = posicao.get(Number(a.cd_tecnico)) ?? Infinity
+        const pb = posicao.get(Number(b.cd_tecnico)) ?? Infinity
+        return pa !== pb ? pa - pb : a.nm_tecnico.localeCompare(b.nm_tecnico)
+      })
+    }
   }
 
   const sabados = ehSabado ? getSabados(dataInicio, dataFim) : []
