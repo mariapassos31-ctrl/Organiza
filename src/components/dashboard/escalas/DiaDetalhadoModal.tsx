@@ -91,7 +91,8 @@ function calcularOcupacaoBaias(
   tecnicosSuporte: Usuario[],
   data: Date,
   baiasPerfil: Record<string, string>,
-  uidNoLaboratorioHoje: string | null
+  uidNoLaboratorioHoje: string | null,
+  uidNoExternoHoje: string | null
 ) {
   const uidsHomeOfficeHoje = new Set(
     escalasSuporte.filter(e => e.tipo === 'homeoffice').map(e => e.tecnicos[0])
@@ -138,10 +139,11 @@ function calcularOcupacaoBaias(
   // (calculado abaixo), então ficam de fora do rodízio das demais baias.
   // Quem tem um perfil com baia(s) reservada(s) só senta nelas — não pode
   // fixar em outra baia, mesmo com "baia fixa" configurada errado. Quem
-  // está no Laboratório hoje também não entra aqui — está fisicamente lá,
-  // não numa baia comum.
+  // está no Laboratório ou no Externo hoje também não entra aqui — está
+  // fisicamente em outro lugar, não numa baia comum.
   const outrosFixos = tecnicosSuporte.filter(u =>
-    u.baiaFixa && u.baia && !naoEscalavel(u) && !ehJovemAprendiz(u.role) && u.uid !== uidNoLaboratorioHoje &&
+    u.baiaFixa && u.baia && !naoEscalavel(u) && !ehJovemAprendiz(u.role) &&
+    u.uid !== uidNoLaboratorioHoje && u.uid !== uidNoExternoHoje &&
     (!baiasPerfil[u.baia] || baiasPerfil[u.baia] === u.role)
   )
   // Duas pessoas configuradas com a MESMA baia fixa (erro de cadastro) não
@@ -163,7 +165,10 @@ function calcularOcupacaoBaias(
   const presenciaisNaoFixos = escalasSuporte
     .filter(e => e.tipo === 'presencial' || e.tipo === 'sabado')
     .map(e => tecnicosSuporte.find(u => u.uid === e.tecnicos[0]))
-    .filter((u): u is Usuario => !!u && !uidsQueGanharamBaiaFixa.has(u.uid) && !uidsEmCursoHoje.has(u.uid) && !ehJovemAprendiz(u.role) && u.uid !== uidNoLaboratorioHoje)
+    .filter((u): u is Usuario =>
+      !!u && !uidsQueGanharamBaiaFixa.has(u.uid) && !uidsEmCursoHoje.has(u.uid) && !ehJovemAprendiz(u.role) &&
+      u.uid !== uidNoLaboratorioHoje && u.uid !== uidNoExternoHoje
+    )
 
   const semLugar: Usuario[] = []
   for (const usuario of presenciaisNaoFixos) {
@@ -380,7 +385,7 @@ function formatarDataISO(data: Date) {
   return `${ano}-${mes}-${dia}`
 }
 
-export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia, podeEditarEscala, onEditarEscala, getNomeTecnico, usuarios, baiasPerfil = {}, laboratorioConfig, salas = [], todasAsSalas }: {
+export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia, podeEditarEscala, onEditarEscala, getNomeTecnico, usuarios, baiasPerfil = {}, laboratorioConfig, externoConfig, salas = [], todasAsSalas }: {
   diaDetalhado: DiaDetalhado | null
   onClose: () => void
   onNavegarDia?: (delta: number) => void
@@ -390,6 +395,7 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
   usuarios?: Usuario[]
   baiasPerfil?: Record<string, string>
   laboratorioConfig?: ConfigLab
+  externoConfig?: ConfigLab
   salas?: Sala[]
   // Lista completa de salas (não só as sendo mostradas agora) — usada só
   // pra saber se a equipe de alguém está espalhada em mais de uma sala,
@@ -464,8 +470,20 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
     : null
   const nomeNoLaboratorio = uidNoLaboratorioHoje ? nomeDoUid(uidNoLaboratorioHoje) : null
 
+  // Mesma lógica do Laboratório, pro Externo: o responsável fixo, a menos
+  // que ele esteja de home office ou de férias — nesses dias quem cobre é
+  // o backup.
+  const responsavelExternoUid = externoConfig?.responsavelUid
+  const responsavelExternoAusenteHoje = mostrarMapa && responsavelExternoUid &&
+    (new Set(escalasSuporte.filter(e => e.tipo === 'homeoffice').map(e => e.tecnicos[0])).has(responsavelExternoUid) ||
+      estaDeFeriasHoje(responsavelExternoUid))
+  const uidNoExternoHoje = mostrarMapa && responsavelExternoUid
+    ? (responsavelExternoAusenteHoje ? (externoConfig?.backupUid ?? null) : responsavelExternoUid)
+    : null
+  const nomeNoExterno = uidNoExternoHoje ? nomeDoUid(uidNoExternoHoje) : null
+
   const { ocupantes: ocupantesPorBaia, ocupantesAprendiz, baiasJovemAprendiz, baiaSupervisor } = mostrarMapa
-    ? calcularOcupacaoBaias(escalasSuporte, tecnicosSuporte, diaDetalhado.data, baiasPerfil, uidNoLaboratorioHoje)
+    ? calcularOcupacaoBaias(escalasSuporte, tecnicosSuporte, diaDetalhado.data, baiasPerfil, uidNoLaboratorioHoje, uidNoExternoHoje)
     : { ocupantes: {}, ocupantesAprendiz: {}, baiasJovemAprendiz: {}, baiaSupervisor: null }
 
   const nomesEmHomeOffice = mostrarMapa
@@ -538,6 +556,12 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
                 <div className="mapa-baias-legenda-coluna">
                   <strong>🧪 No Laboratório</strong>
                   <span>{nomeNoLaboratorio}</span>
+                </div>
+              )}
+              {nomeNoExterno && (
+                <div className="mapa-baias-legenda-coluna">
+                  <strong>🧳 Externo</strong>
+                  <span>{nomeNoExterno}</span>
                 </div>
               )}
             </div>

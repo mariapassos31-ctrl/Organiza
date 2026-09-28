@@ -8,7 +8,6 @@ import { EQUIPES, nuncaEhEscalado } from '../../lib/equipesConfig'
 import { mensagemDeErro } from '../../lib/erros'
 import type { Usuario, Escala, Sala, ConfigBaia, ConfigLab, FormEscala, DiaDetalhado, MarcadorSala } from '../../types/dominio'
 import { TIPOS_ESCALA, ordenarSobreavisoPrimeiro, motivoInelegibilidadeParaTipo } from '../../lib/escalasConstants'
-import { TIPOS_PRESENCA_FISICA } from '../../lib/escalaSegmento'
 import CalendarioEscalas from './escalas/CalendarioEscalas'
 import DiaDetalhadoModal from './escalas/DiaDetalhadoModal'
 import EscalaEditModal from './escalas/EscalaEditModal'
@@ -48,15 +47,9 @@ export default function Escalas() {
   const [escalaOferecidaId, setEscalaOferecidaId] = useState('')
   const [trocarDireto, setTrocarDireto] = useState(false)
   const [diasTrocaDireta, setDiasTrocaDireta] = useState<string[]>([])
-  // Atribuir sem troca: diferente do trocarDireto acima, não pega nada em
-  // troca de ninguém — só passa dia(s) específicos da escala pro técnico
-  // novo, mantendo o resto com quem já era.
-  const [atribuirSemTroca, setAtribuirSemTroca] = useState(false)
-  const [diasAtribuir, setDiasAtribuir] = useState<string[]>([])
-  const [escalaParTrocaDireta, setEscalaParTrocaDireta] = useState('')
-  const [diasTrocaParDireta, setDiasTrocaParDireta] = useState<string[]>([])
   const [baiasPerfil, setBaiasPerfil] = useState<Record<string, string>>({})
   const [laboratorioConfig, setLaboratorioConfig] = useState<ConfigLab>({ responsavelUid: null, backupUid: null })
+  const [externoConfig, setExternoConfig] = useState<ConfigLab>({ responsavelUid: null, backupUid: null })
   const [salas, setSalas] = useState<Sala[]>([])
   const [showPainelSalas, setShowPainelSalas] = useState(false)
 
@@ -79,6 +72,7 @@ export default function Escalas() {
     carregarEscalas()
     carregarBaiasPerfil()
     carregarLaboratorioConfig()
+    carregarExternoConfig()
   }, [userData])
 
   // O mapa do dia do Suporte só entende { [baia]: perfilId } (sala de uma
@@ -344,6 +338,38 @@ export default function Escalas() {
     }
   }
 
+  // Mesmo padrão do Laboratório, pro Externo.
+  const carregarExternoConfig = async () => {
+    try {
+      const response = await fetch('/api/externo-config?equipe=suporte')
+      if (!response.ok) return
+      const dados = await response.json()
+      setExternoConfig({ responsavelUid: dados.responsavelUid || null, backupUid: dados.backupUid || null })
+    } catch (error) {
+      console.error('Erro ao carregar configuração do Externo:', error)
+    }
+  }
+
+  // Retorna true/false (sucesso) pro ConfigExterno saber se pode fechar.
+  const definirExterno = async (valores: ConfigLab) => {
+    try {
+      const response = await fetch('/api/externo-config', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ equipe: 'suporte', ...valores }),
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        throw new Error(data.error || 'Falha ao salvar')
+      }
+      setExternoConfig(valores)
+      return true
+    } catch (err) {
+      notificar(mensagemDeErro(err), { tipo: 'erro' })
+      return false
+    }
+  }
+
   const carregarUsuarios = async () => {
     try {
       const response = await fetch('/api/usuarios')
@@ -401,45 +427,18 @@ export default function Escalas() {
   )
   const mostrarOpcaoTrocarDireto = canEditCurrent
 
-  // Escalas que a pessoa nova (quem está entrando) já tem pra oferecer em
-  // troca — do MESMO tipo da escala sendo editada, ou de outro tipo de
-  // presença física (presencial/home office/sábado também trocam entre
-  // si, já que ocupam o mesmo tipo de "vaga" — só sobreaviso fica de fora
-  // dessa flexibilidade, por não ocupar lugar físico nenhum). Nunca a
-  // própria escala sendo editada.
-  const tiposCompativeisParaTroca = (tipoA: string, tipoB: string) =>
-    tipoA === tipoB || (TIPOS_PRESENCA_FISICA.has(tipoA) && TIPOS_PRESENCA_FISICA.has(tipoB))
-  const escalasDoDestinoParaTrocaDireta = trocarDireto && tecnicoFoiTrocado
-    ? escalas
-        .filter(e =>
-          (e.tecnicos || []).includes(formData.tecnicos[0]) &&
-          tiposCompativeisParaTroca(e.tipo, formData.tipo) &&
-          e.id !== editingId
-        )
-        .sort((a, b) => a.dataInicio.localeCompare(b.dataInicio))
-    : []
-
   useEffect(() => {
     if (!mostrarOpcaoTrocarDireto) {
       setTrocarDireto(false)
-      setAtribuirSemTroca(false)
     }
   }, [mostrarOpcaoTrocarDireto])
 
   // Trocando de novo o técnico no meio do processo (ou desmarcando "trocar
-  // direto"), a escala oferecida em troca escolhida antes pode não ser mais
-  // válida — mais simples pedir pra escolher de novo do que tentar
-  // adivinhar se ainda serve.
+  // direto"), os dias marcados antes podem não fazer mais sentido — mais
+  // simples pedir pra escolher de novo do que tentar adivinhar se ainda serve.
   useEffect(() => {
-    setEscalaParTrocaDireta('')
-    setDiasTrocaParDireta([])
+    setDiasTrocaDireta([])
   }, [formData.tecnicos[0], trocarDireto])
-
-  // Mesma ideia pro "atribuir sem troca": trocando o técnico de novo (ou
-  // desmarcando a opção), os dias marcados antes não valem mais.
-  useEffect(() => {
-    setDiasAtribuir([])
-  }, [formData.tecnicos[0], atribuirSemTroca])
 
   const souTecnico = userData?.role !== 'admin' && userData?.role !== 'gestor'
   const ehMinhaEscala = modalOpen && (formData.tecnicos || []).includes(userData?.uid ?? "")
@@ -695,15 +694,7 @@ export default function Escalas() {
 
   const salvarTrocaDireta = async (): Promise<void> => {
     if (diasTrocaDireta.length === 0) {
-      notificar('Selecione pelo menos um dia da escala atual pra trocar')
-      return
-    }
-    if (!escalaParTrocaDireta) {
-      notificar('Selecione qual escala da outra pessoa entra na troca')
-      return
-    }
-    if (diasTrocaParDireta.length !== diasTrocaDireta.length) {
-      notificar(`Selecione exatamente ${diasTrocaDireta.length} dia(s) da escala da outra pessoa, pra ficar equivalente`)
+      notificar('Selecione pelo menos um dia pra trocar')
       return
     }
     try {
@@ -713,8 +704,6 @@ export default function Escalas() {
         body: JSON.stringify({
           novoTecnicoUid: formData.tecnicos[0],
           dias: diasTrocaDireta,
-          escalaParId: escalaParTrocaDireta,
-          diasPar: diasTrocaParDireta,
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -724,54 +713,21 @@ export default function Escalas() {
 
       const nomeAntigo = getNomeTecnico(tecnicoOriginalUid ?? '')
       const nomeNovo = getNomeTecnico(formData.tecnicos[0])
+      const periodo = formatarPeriodo(data.periodoQueSaiu)
+      const oQueVoltou: Array<{ tipo: string; dias: string[] }> = data.oQueNovoDeuEmTroca || []
 
       await carregarEscalas()
       setEditingId(null)
       setModalOpen(false)
       setTrocarDireto(false)
 
+      const mensagemVolta = oQueVoltou.length > 0
+        ? `${nomeAntigo} assumiu ${oQueVoltou.map(f => `${nomeTipoEscala(f.tipo)} em ${formatarPeriodo({ dias: f.dias })}`).join(' e ')}.`
+        : `${nomeNovo} não tinha nada marcado nesses dias, então ${nomeAntigo} ficou sem nada nesse período.`
+
       notificar(
-        `${nomeNovo} assumiu ${nomeTipoEscala(formData.tipo)} em ${formatarPeriodo(data.periodoQueSaiu)}.\n` +
-        `${nomeAntigo} foi para ${nomeTipoEscala(data.trocouCom.tipo)} em ${formatarPeriodo(data.trocouCom)}.`,
+        `${nomeNovo} assumiu ${nomeTipoEscala(formData.tipo)} em ${periodo}.\n${mensagemVolta}`,
         { tipo: 'sucesso', titulo: '🔄 Troca feita!' }
-      )
-    } catch (error) {
-      notificar(mensagemDeErro(error), { tipo: 'erro' })
-    }
-  }
-
-  // Atribuir sem troca: diferente de salvarTrocaDireta, só um lado é
-  // tocado — o técnico novo assume os dias escolhidos, ninguém dá nada em
-  // troca, e o resto da escala original continua com quem já era.
-  const salvarAtribuir = async (): Promise<void> => {
-    if (diasAtribuir.length === 0) {
-      notificar('Selecione pelo menos um dia pra atribuir')
-      return
-    }
-    try {
-      const response = await fetch(`/api/escalas/${encodeURIComponent(String(editingId))}/atribuir`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          novoTecnicoUid: formData.tecnicos[0],
-          dias: diasAtribuir,
-        }),
-      })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        throw new Error(data.error || 'Falha ao atribuir escala')
-      }
-
-      const nomeNovo = getNomeTecnico(formData.tecnicos[0])
-
-      await carregarEscalas()
-      setEditingId(null)
-      setModalOpen(false)
-      setAtribuirSemTroca(false)
-
-      notificar(
-        `${nomeNovo} assumiu ${nomeTipoEscala(formData.tipo)} em ${formatarPeriodo(data.periodoAtribuido)}. O resto do período continua com ${getNomeTecnico(tecnicoOriginalUid ?? '')}, sem mais nenhuma mudança.`,
-        { tipo: 'sucesso', titulo: '👤 Atribuído!' }
       )
     } catch (error) {
       notificar(mensagemDeErro(error), { tipo: 'erro' })
@@ -794,14 +750,6 @@ export default function Escalas() {
         return
       }
       await salvarTrocaDireta()
-      return
-    }
-    if (atribuirSemTroca) {
-      if (!tecnicoFoiTrocado) {
-        notificar('Escolha, no campo Técnico/Analista, a pessoa que vai assumir os dias')
-        return
-      }
-      await salvarAtribuir()
       return
     }
     try {
@@ -849,10 +797,6 @@ export default function Escalas() {
     setEscalaOferecidaId('')
     setTrocarDireto(false)
     setDiasTrocaDireta([])
-    setEscalaParTrocaDireta('')
-    setDiasTrocaParDireta([])
-    setAtribuirSemTroca(false)
-    setDiasAtribuir([])
   }
 
   const handleDelete = async (id: string) => {
@@ -899,10 +843,6 @@ export default function Escalas() {
     setDiasSolicitadaTroca([])
     setTrocarDireto(false)
     setDiasTrocaDireta([])
-    setEscalaParTrocaDireta('')
-    setDiasTrocaParDireta([])
-    setAtribuirSemTroca(false)
-    setDiasAtribuir([])
   }
 
   const getNomeTecnico = (uid: string) => {
@@ -961,6 +901,12 @@ export default function Escalas() {
             tecnicos: usuarios.filter(u => u.equipe === 'suporte' && !nuncaEhEscalado(u.role)).sort((a, b) => a.nome.localeCompare(b.nome)),
             valorInicial: laboratorioConfig,
             onSalvar: definirLaboratorio,
+          }}
+          podeConfigurarExterno={podeConfigurarLaboratorio}
+          externoProps={{
+            tecnicos: usuarios.filter(u => u.equipe === 'suporte' && !nuncaEhEscalado(u.role)).sort((a, b) => a.nome.localeCompare(b.nome)),
+            valorInicial: externoConfig,
+            onSalvar: definirExterno,
           }}
           podeConfigurarFilaSabado={podeConfigurarLaboratorio}
           usuarios={usuarios}
@@ -1055,15 +1001,6 @@ export default function Escalas() {
         setTrocarDireto={setTrocarDireto}
         diasTrocaDireta={diasTrocaDireta}
         setDiasTrocaDireta={setDiasTrocaDireta}
-        escalasDoDestinoParaTrocaDireta={escalasDoDestinoParaTrocaDireta}
-        escalaParTrocaDireta={escalaParTrocaDireta}
-        setEscalaParTrocaDireta={setEscalaParTrocaDireta}
-        diasTrocaParDireta={diasTrocaParDireta}
-        setDiasTrocaParDireta={setDiasTrocaParDireta}
-        atribuirSemTroca={atribuirSemTroca}
-        setAtribuirSemTroca={setAtribuirSemTroca}
-        diasAtribuir={diasAtribuir}
-        setDiasAtribuir={setDiasAtribuir}
       />
 
       {autoModalOpen && (
@@ -1099,6 +1036,7 @@ export default function Escalas() {
         usuarios={usuarios}
         baiasPerfil={baiasPerfil}
         laboratorioConfig={laboratorioConfig}
+        externoConfig={externoConfig}
         salas={salas}
         todasAsSalas={salas}
       />
@@ -1113,6 +1051,7 @@ export default function Escalas() {
         usuarios={usuarios}
         baiasPerfil={baiasPerfil}
         laboratorioConfig={laboratorioConfig}
+        externoConfig={externoConfig}
         salas={salaFocoAtiva ? [salaFocoAtiva.sala] : []}
         todasAsSalas={salas}
       />

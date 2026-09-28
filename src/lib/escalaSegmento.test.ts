@@ -137,8 +137,8 @@ describe('substituirTecnicoNoPeriodo', () => {
 describe('isolarDiasComoEscalaPropria', () => {
   it('sem dias informados, devolve a própria escala sem mexer em nada', async () => {
     const { client, escalas } = criarClienteFake()
-    const id = await isolarDiasComoEscalaPropria(client, escalaBase, null, 'A')
-    expect(id).toBe(1)
+    const ids = await isolarDiasComoEscalaPropria(client, escalaBase, null, 'A')
+    expect(ids).toEqual([1])
     expect(mapaPorDia(escalas)).toEqual({
       '2026-09-28': 'A', '2026-09-29': 'A', '2026-09-30': 'A',
     })
@@ -146,24 +146,25 @@ describe('isolarDiasComoEscalaPropria', () => {
 
   it('escolhendo todos os dias, devolve a própria escala sem recortar', async () => {
     const { client, escalas } = criarClienteFake()
-    const id = await isolarDiasComoEscalaPropria(client, escalaBase, ['2026-09-28', '2026-09-29', '2026-09-30'], 'A')
-    expect(id).toBe(1)
+    const ids = await isolarDiasComoEscalaPropria(client, escalaBase, ['2026-09-28', '2026-09-29', '2026-09-30'], 'A')
+    expect(ids).toEqual([1])
     expect(Object.keys(escalas)).toEqual(['1'])
   })
 
   it('isolando só o dia do meio, mantém o mesmo dono nos três pedaços e devolve o id do meio', async () => {
     const { client, escalas } = criarClienteFake()
-    const id = await isolarDiasComoEscalaPropria(client, escalaBase, ['2026-09-29'], 'A')
+    const ids = await isolarDiasComoEscalaPropria(client, escalaBase, ['2026-09-29'], 'A')
     expect(mapaPorDia(escalas)).toEqual({
       '2026-09-28': 'A', '2026-09-29': 'A', '2026-09-30': 'A',
     })
-    expect(escalas[String(id)]).toEqual({ dt_inicio: '2026-09-29', dt_fim: '2026-09-29', tecnico: 'A' })
+    expect(ids).toHaveLength(1)
+    expect(escalas[String(ids[0])]).toEqual({ dt_inicio: '2026-09-29', dt_fim: '2026-09-29', tecnico: 'A' })
   })
 
   it('isolando o primeiro dia, devolve o id da linha original (que agora é só aquele dia)', async () => {
     const { client, escalas } = criarClienteFake()
-    const id = await isolarDiasComoEscalaPropria(client, escalaBase, ['2026-09-28'], 'A')
-    expect(id).toBe(1)
+    const ids = await isolarDiasComoEscalaPropria(client, escalaBase, ['2026-09-28'], 'A')
+    expect(ids).toEqual([1])
     expect(escalas['1']).toEqual({ dt_inicio: '2026-09-28', dt_fim: '2026-09-28', tecnico: 'A' })
   })
 
@@ -171,12 +172,31 @@ describe('isolarDiasComoEscalaPropria', () => {
     const escala5dias = { ...escalaBase, dt_inicio: '2026-09-28', dt_fim: '2026-10-02' }
     const { client, escalas } = criarClienteFake()
     escalas[1] = { dt_inicio: '2026-09-28', dt_fim: '2026-10-02', tecnico: 'A' }
-    const id = await isolarDiasComoEscalaPropria(client, escala5dias, ['2026-09-30', '2026-10-01'], 'A')
+    const ids = await isolarDiasComoEscalaPropria(client, escala5dias, ['2026-09-30', '2026-10-01'], 'A')
     expect(mapaPorDia(escalas)).toEqual({
       '2026-09-28': 'A', '2026-09-29': 'A',
       '2026-09-30': 'A', '2026-10-01': 'A',
       '2026-10-02': 'A',
     })
-    expect(escalas[String(id)]).toEqual({ dt_inicio: '2026-09-30', dt_fim: '2026-10-01', tecnico: 'A' })
+    expect(ids).toHaveLength(1)
+    expect(escalas[String(ids[0])]).toEqual({ dt_inicio: '2026-09-30', dt_fim: '2026-10-01', tecnico: 'A' })
+  })
+
+  // Dias não-contíguos formam MAIS de um pedaço selecionado (ex: primeiro e
+  // último dia, pulando o do meio) — a função precisa devolver TODOS os ids
+  // que fazem parte da seleção, não só o último. Um bug aqui passava batido
+  // silenciosamente: quem chamasse só reatribuía o ÚLTIMO pedaço, deixando
+  // os dias anteriores selecionados presos com o dono antigo sem erro
+  // nenhum (a pessoa via "troca feita com sucesso" mas só um dos dias
+  // realmente mudou de mão).
+  it('isolando dias não-contíguos (primeiro e último, pulando o do meio), devolve os DOIS ids', async () => {
+    const { client, escalas } = criarClienteFake()
+    const ids = await isolarDiasComoEscalaPropria(client, escalaBase, ['2026-09-28', '2026-09-30'], 'A')
+    expect(mapaPorDia(escalas)).toEqual({
+      '2026-09-28': 'A', '2026-09-29': 'A', '2026-09-30': 'A',
+    })
+    expect(ids).toHaveLength(2)
+    expect(escalas[String(ids[0])]).toEqual({ dt_inicio: '2026-09-28', dt_fim: '2026-09-28', tecnico: 'A' })
+    expect(escalas[String(ids[1])]).toEqual({ dt_inicio: '2026-09-30', dt_fim: '2026-09-30', tecnico: 'A' })
   })
 })

@@ -5,6 +5,23 @@ import { auth } from '../../../auth'
 import { motivoInelegibilidadeParaTipo } from '../../../lib/escalasConstants'
 import { quemColideEspecialidadeNoHomeOffice, listarNomes } from '../../../lib/elegibilidadeHomeOffice'
 import { isolarDiasComoEscalaPropria } from '../../../lib/escalaSegmento'
+import { addDays } from '../../../lib/escalasRodizio'
+
+// O pedido de troca guarda cada lado numa ÚNICA escala (cd_escala /
+// cd_escala_solicitada são colunas simples, não uma lista) — então os dias
+// escolhidos precisam ser um bloco contínuo. Dias não-contíguos (ex: só
+// segunda e quarta, pulando terça) viram MAIS de um pedaço isolado
+// (isolarDiasComoEscalaPropria), e só o último seria referenciado pelo
+// pedido — o(s) anterior(es) ficariam presos com o dono original sem
+// nenhum erro visível. Melhor recusar aqui do que perder dias em silêncio.
+function diasSaoContiguos(dias: string[]): boolean {
+  if (dias.length <= 1) return true
+  const ordenados = [...dias].sort()
+  for (let i = 1; i < ordenados.length; i++) {
+    if (addDays(ordenados[i - 1], 1) !== ordenados[i]) return false
+  }
+  return true
+}
 
 const SELECT_TROCAS = `
   SELECT te.cd_troca_escala,
@@ -132,6 +149,9 @@ export async function POST(request: Request) {
 
   if (!escalaId || !tecnicoDestinoUid) {
     return NextResponse.json({ error: 'Escala e técnico de destino são obrigatórios' }, { status: 400 })
+  }
+  if (!diasSaoContiguos(dias) || !diasSaoContiguos(diasSolicitada)) {
+    return NextResponse.json({ error: 'Escolha um bloco contínuo de dias (sem pular nenhum no meio)' }, { status: 400 })
   }
 
   try {
@@ -305,9 +325,10 @@ export async function POST(request: Request) {
     let cdEscalaSolicitadaFinal: number | string | null = null
     try {
       await client.query('BEGIN')
-      cdEscalaFinal = await isolarDiasComoEscalaPropria(client, escala, dias, solicitanteRow.cd_tecnico)
+      // A validação de contiguidade acima garante um único pedaço aqui.
+      ;[cdEscalaFinal] = await isolarDiasComoEscalaPropria(client, escala, dias, solicitanteRow.cd_tecnico)
       if (escalaSolicitada) {
-        cdEscalaSolicitadaFinal = await isolarDiasComoEscalaPropria(client, escalaSolicitada, diasSolicitada, destino.cd_tecnico)
+        ;[cdEscalaSolicitadaFinal] = await isolarDiasComoEscalaPropria(client, escalaSolicitada, diasSolicitada, destino.cd_tecnico)
       }
       await client.query('COMMIT')
     } catch (error) {

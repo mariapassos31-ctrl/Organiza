@@ -98,32 +98,41 @@ export async function substituirTecnicoNoPeriodo(
   }
 }
 
-// Recorta a escala pra isolar exatamente os dias escolhidos numa linha
-// própria — sem trocar quem é o dono. As outras partes do período viram
-// escalas novas, mas continuam com o MESMO técnico de antes. Devolve o
-// cd_escala que agora corresponde exatamente aos dias pedidos (a própria
-// escala original, se os dias cobrem o período inteiro, ou se nenhum dia
-// foi informado).
+// Recorta a escala pra isolar exatamente os dias escolhidos em linha(s)
+// própria(s) — sem trocar quem é o dono. As outras partes do período viram
+// escalas novas, mas continuam com o MESMO técnico de antes. Devolve os
+// cd_escala que juntos cobrem exatamente os dias pedidos — normalmente só
+// um, mas pode ser MAIS de um quando os dias escolhidos não são contíguos
+// (ex: primeiro e último dia de um período, pulando o do meio — viram dois
+// pedaços separados, cada um com seu próprio cd_escala). Devolve só a
+// própria escala original quando os dias cobrem o período inteiro, ou
+// quando nenhum dia foi informado.
 //
-// Serve pra resolver de vez, na hora do PEDIDO de troca, qual escala
-// representa "só esses dias" — assim, na hora de aceitar, trocar é sempre
-// um caso só: a escala inteira (que naquele momento já é exatamente do
-// tamanho certo) muda de dono. Evita precisar guardar uma lista de dias
-// à parte (o banco só tem uma coluna de UM dia — "dt_dia" — então isolar
-// antes é o jeito de suportar vários dias sem mudar o esquema da tabela).
+// Serve pra resolver de vez, na hora do PEDIDO de troca, qual(is) escala(s)
+// representam "só esses dias" — assim, na hora de aceitar, trocar é sempre
+// um caso de reatribuir cada um desses ids, já do tamanho certo. Evita
+// precisar guardar uma lista de dias à parte (o banco só tem uma coluna de
+// UM dia — "dt_dia" — então isolar antes é o jeito de suportar vários dias
+// sem mudar o esquema da tabela).
+//
+// Devolver só o ÚLTIMO pedaço (em vez de todos) já foi um bug de verdade:
+// com dias não-contíguos, quem chamava só reatribuía esse último, deixando
+// os pedaços anteriores presos com o dono antigo sem erro nenhum — a
+// pessoa via "troca feita com sucesso" mas só um dos dias tinha realmente
+// mudado de mão.
 export async function isolarDiasComoEscalaPropria(
   client: PoolClient,
   escala: EscalaParaSegmento & { cd_escala: number | string; dt_inicio: string; dt_fim: string },
   dias: string[] | null | undefined,
   tecnico: number | string
-): Promise<number | string> {
+): Promise<Array<number | string>> {
   const { dt_inicio: inicio, dt_fim: fim, cd_escala: escalaId } = escala
   const diasSet = new Set(dias || [])
-  if (diasSet.size === 0) return escalaId
+  if (diasSet.size === 0) return [escalaId]
 
   const todosOsDias: string[] = []
   for (let d = inicio; d <= fim; d = addDays(d, 1)) todosOsDias.push(d)
-  if (todosOsDias.every(d => diasSet.has(d))) return escalaId
+  if (todosOsDias.every(d => diasSet.has(d))) return [escalaId]
 
   type Trecho = { inicio: string; fim: string; selecionado: boolean }
   const trechos: Trecho[] = []
@@ -142,17 +151,17 @@ export async function isolarDiasComoEscalaPropria(
     'UPDATE escalas SET dt_inicio = $1, dt_fim = $2 WHERE cd_escala = $3',
     [primeiro.inicio, primeiro.fim, escalaId]
   )
-  let idIsolado: number | string | null = primeiro.selecionado ? escalaId : null
+  const idsIsolados: Array<number | string> = primeiro.selecionado ? [escalaId] : []
 
   for (const trecho of resto) {
     const novoId = await criarEscalaSegmento(client, escala, trecho.inicio, trecho.fim, tecnico)
-    if (trecho.selecionado) idIsolado = novoId
+    if (trecho.selecionado) idsIsolados.push(novoId)
   }
 
-  if (idIsolado === null) {
+  if (idsIsolados.length === 0) {
     throw new Error('Não foi possível isolar os dias selecionados')
   }
-  return idIsolado
+  return idsIsolados
 }
 
 // Antes de atribuir um dia físico (presencial/home office/sábado) pra
@@ -189,7 +198,9 @@ export async function removerConflitosFisicos(
   for (const escalaConflitante of rows) {
     const diasQueColidem = dias.filter(d => d >= escalaConflitante.dt_inicio && d <= escalaConflitante.dt_fim)
     if (diasQueColidem.length === 0) continue
-    const idIsolado = await isolarDiasComoEscalaPropria(client, escalaConflitante, diasQueColidem, cdTecnico)
-    await client.query(`UPDATE escalas SET tp_status = 'cancelada', dt_atualizacao = now() WHERE cd_escala = $1`, [idIsolado])
+    const idsIsolados = await isolarDiasComoEscalaPropria(client, escalaConflitante, diasQueColidem, cdTecnico)
+    for (const idIsolado of idsIsolados) {
+      await client.query(`UPDATE escalas SET tp_status = 'cancelada', dt_atualizacao = now() WHERE cd_escala = $1`, [idIsolado])
+    }
   }
 }

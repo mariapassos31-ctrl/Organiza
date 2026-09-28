@@ -5,20 +5,22 @@ import { auth } from '../../../../../auth'
 import { ehPerfilGestao } from '../../../../../lib/equipesConfig'
 import { motivoInelegibilidadeParaTipo } from '../../../../../lib/escalasConstants'
 import { quemColideEspecialidadeNoHomeOffice, listarNomes } from '../../../../../lib/elegibilidadeHomeOffice'
-import { isolarDiasComoEscalaPropria, removerConflitosFisicos, TIPOS_PRESENCA_FISICA } from '../../../../../lib/escalaSegmento'
-import { addDays } from '../../../../../lib/escalasRodizio'
+import { isolarDiasComoEscalaPropria, removerConflitosFisicos, TIPOS_PRESENCA_FISICA, type EscalaParaSegmento } from '../../../../../lib/escalaSegmento'
 
-// Troca direta feita por admin/gestor no modal de editar escala: escolhe
-// explicitamente as DUAS pontas da troca — a escala/dias de quem está
-// saindo (a que está sendo editada) e a escala/dias de quem está entrando
-// (escalaParId, escolhida por quem está editando, não descoberta
-// sozinha) — e troca as duas na hora, sem pedido de aceite (quem está
-// fazendo já tem permissão de gestão, não é uma negociação entre
-// colegas). Fica registrada em trocas_escala pra aparecer no histórico
-// (junto com as trocas normais entre colegas) — como "dt_criacao" e
-// "dt_aceite" saem com o mesmo "now()" da mesma transação, dá pra
-// distinguir uma troca direta de uma troca de verdade (que sempre leva um
-// tempo entre pedir e responder) sem precisar de uma coluna nova.
+// Troca direta feita por admin/gestor no modal de editar escala: escolhe só
+// o técnico novo e os dias — o sistema descobre sozinho o que esse técnico
+// já tinha marcado (de presença física) nesses mesmos dias, e devolve isso
+// pra quem estava saindo. Não precisa escolher manualmente "a escala da
+// outra pessoa" num dropdown — isso já causou troca de dias sem relação
+// nenhuma entre si (uma semana de setembro por uma de outubro, sem
+// ninguém perceber, porque o dropdown mostrava qualquer data).
+//
+// Cada dia é resolvido de forma independente: se o técnico novo não tinha
+// nada marcado num desses dias, quem estava saindo simplesmente fica sem
+// nada nesse dia (funciona como uma atribuição sem troca, só nesse ponto).
+// Fica registrada em trocas_escala (junto com as trocas normais entre
+// colegas) só quando teve de fato algo pra "voltar" — senão não é bem uma
+// troca.
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
   if (!session?.user) {
@@ -30,17 +32,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
   const { id } = await params
   const body = await request.json()
-  const { novoTecnicoUid, escalaParId } = body
+  const { novoTecnicoUid } = body
   const dias: string[] = Array.isArray(body.dias) ? body.dias.filter(Boolean) : []
-  const diasPar: string[] = Array.isArray(body.diasPar) ? body.diasPar.filter(Boolean) : []
   if (!novoTecnicoUid) {
     return NextResponse.json({ error: 'Técnico é obrigatório' }, { status: 400 })
   }
-  if (!escalaParId) {
-    return NextResponse.json({ error: 'Escolha qual escala da outra pessoa entra na troca' }, { status: 400 })
-  }
   if (dias.length === 0) {
-    return NextResponse.json({ error: 'Selecione pelo menos um dia da escala atual pra trocar' }, { status: 400 })
+    return NextResponse.json({ error: 'Selecione pelo menos um dia pra trocar' }, { status: 400 })
   }
 
   let userEquipe = sessionEquipe
@@ -104,48 +102,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Selecione um técnico diferente do atual' }, { status: 400 })
     }
 
-    // A escala que a pessoa nova está oferecendo em troca — precisa ser
-    // dela mesma e não pode ser a própria escala que está sendo editada.
-    const { rows: parRows } = await query(
-      `SELECT es.cd_escala, es.tp_escala, es.cd_equipe, es.ds_descricao, es.tp_status, es.cd_usuario_criador,
-              to_char(es.dt_inicio, 'YYYY-MM-DD') AS dt_inicio,
-              to_char(es.dt_fim, 'YYYY-MM-DD') AS dt_fim,
-              t.cd_usuario AS dono_uid
-       FROM escalas es
-       JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
-       JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
-       WHERE es.cd_escala = $1 AND es.tp_status != 'cancelada'`,
-      [escalaParId]
-    )
-    const escalaPar = parRows[0]
-    if (!escalaPar) {
-      return NextResponse.json({ error: 'Escala oferecida em troca não encontrada' }, { status: 404 })
-    }
-    if (String(escalaPar.dono_uid) !== String(novo.cd_usuario)) {
-      return NextResponse.json({ error: 'A escala oferecida em troca precisa ser da pessoa nova' }, { status: 400 })
-    }
-    if (String(escalaPar.cd_escala) === String(escala.cd_escala)) {
-      return NextResponse.json({ error: 'Escolha uma escala diferente da que está sendo editada' }, { status: 400 })
-    }
-    // Troca entre tipos diferentes só é permitida quando os dois são tipos
-    // de presença física (presencial/home office/sábado — todos ocupam o
-    // mesmo tipo de "vaga", então trocar entre eles faz sentido). Sobreaviso
-    // só troca com sobreaviso, já que não ocupa lugar físico nenhum.
-    const tiposCompativeis = escalaPar.tp_escala === escala.tp_escala ||
-      (TIPOS_PRESENCA_FISICA.has(escalaPar.tp_escala) && TIPOS_PRESENCA_FISICA.has(escala.tp_escala))
-    if (!tiposCompativeis) {
-      return NextResponse.json({ error: 'A troca só pode ser feita entre escalas do mesmo tipo, ou entre presencial/home office/sábado' }, { status: 400 })
-    }
-    if (diasPar.some((d: string) => d < escalaPar.dt_inicio || d > escalaPar.dt_fim)) {
-      return NextResponse.json({ error: 'Algum dos dias informados (do outro lado da troca) está fora do período da escala' }, { status: 400 })
-    }
-    // Troca equivalente: a mesma quantidade de dias dos dois lados — nunca
-    // um período inteiro (que pode ter qualquer tamanho) de um lado por uma
-    // quantidade diferente do outro.
-    if (dias.length !== diasPar.length) {
-      return NextResponse.json({ error: 'A troca precisa ser equivalente: a mesma quantidade de dias dos dois lados' }, { status: 400 })
-    }
-
     const motivoNovo = motivoInelegibilidadeParaTipo(escala.tp_escala, {
       role: novo.tp_role,
       ehSupervisor: novo.nr_baia === 0,
@@ -156,25 +112,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: motivoNovo }, { status: 400 })
     }
 
-    const { rows: antigoEligRows } = await query(
-      `SELECT u.tp_role, t.nr_baia, t.ds_especialidade, t.sn_elegivel_home_office
-       FROM tecnicos t JOIN usuarios u ON u.cd_usuario = t.cd_usuario
-       WHERE t.cd_tecnico = $1`,
-      [escala.tecnico_antigo_cd]
-    )
-    const antigoElig = antigoEligRows[0] || {}
-    const motivoAntigo = motivoInelegibilidadeParaTipo(escalaPar.tp_escala, {
-      role: antigoElig.tp_role,
-      ehSupervisor: antigoElig.nr_baia === 0,
-      especialidade: antigoElig.ds_especialidade,
-      elegivelHomeOffice: antigoElig.sn_elegivel_home_office !== false,
-    })
-    if (motivoAntigo) {
-      return NextResponse.json({ error: `A pessoa atual não pode entrar na outra escala: ${motivoAntigo}` }, { status: 400 })
-    }
-
-    const inicioColisao = dias.length > 0 ? dias.reduce((a, b) => (a < b ? a : b)) : escala.dt_inicio
-    const fimColisao = dias.length > 0 ? dias.reduce((a, b) => (a > b ? a : b)) : escala.dt_fim
+    const inicioColisao = dias.reduce((a, b) => (a < b ? a : b))
+    const fimColisao = dias.reduce((a, b) => (a > b ? a : b))
     if (escala.tp_escala === 'homeoffice') {
       const quemColide = await quemColideEspecialidadeNoHomeOffice(
         escala.cd_equipe, inicioColisao, fimColisao, novo.ds_especialidade, escala.tecnico_antigo_cd
@@ -186,67 +125,139 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
         )
       }
     }
-    const inicioColisaoPar = diasPar.length > 0 ? diasPar.reduce((a: string, b: string) => (a < b ? a : b)) : escalaPar.dt_inicio
-    const fimColisaoPar = diasPar.length > 0 ? diasPar.reduce((a: string, b: string) => (a > b ? a : b)) : escalaPar.dt_fim
-    if (escalaPar.tp_escala === 'homeoffice') {
-      const quemColideOutraPonta = await quemColideEspecialidadeNoHomeOffice(
-        escala.cd_equipe, inicioColisaoPar, fimColisaoPar, antigoElig.ds_especialidade, novo.cd_tecnico
-      )
-      if (quemColideOutraPonta.length > 0) {
+
+    // O que o técnico novo já tinha (de presença física) nesses mesmos
+    // dias — é isso que "volta" pra quem estava saindo. Pode ser mais de
+    // uma escala (se o técnico novo tinha tipos diferentes em dias
+    // diferentes dentro do período escolhido), ou nenhuma (se ele não
+    // tinha nada marcado nesses dias).
+    const { rows: escalasNovoRows } = await query(
+      `SELECT es.cd_escala, es.tp_escala, es.cd_equipe, es.ds_descricao, es.tp_status, es.cd_usuario_criador,
+              to_char(es.dt_inicio, 'YYYY-MM-DD') AS dt_inicio, to_char(es.dt_fim, 'YYYY-MM-DD') AS dt_fim
+       FROM escalas es
+       JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
+       WHERE et.cd_tecnico = $1 AND es.tp_status != 'cancelada'
+         AND es.tp_escala = ANY($2::text[])
+         AND es.dt_inicio <= $4 AND es.dt_fim >= $3`,
+      [novo.cd_tecnico, Array.from(TIPOS_PRESENCA_FISICA), inicioColisao, fimColisao]
+    )
+
+    const { rows: antigoEligRows } = await query(
+      `SELECT u.tp_role, t.nr_baia, t.ds_especialidade, t.sn_elegivel_home_office
+       FROM tecnicos t JOIN usuarios u ON u.cd_usuario = t.cd_usuario
+       WHERE t.cd_tecnico = $1`,
+      [escala.tecnico_antigo_cd]
+    )
+    const antigoElig = antigoEligRows[0] || {}
+
+    const fragmentos: Array<{ escala: EscalaParaSegmento & { cd_escala: number; dt_inicio: string; dt_fim: string }; dias: string[] }> = []
+    for (const r of escalasNovoRows) {
+      const diasQueColidem = dias.filter(d => d >= r.dt_inicio && d <= r.dt_fim)
+      if (diasQueColidem.length === 0) continue
+
+      const motivoAntigo = motivoInelegibilidadeParaTipo(r.tp_escala, {
+        role: antigoElig.tp_role,
+        ehSupervisor: antigoElig.nr_baia === 0,
+        especialidade: antigoElig.ds_especialidade,
+        elegivelHomeOffice: antigoElig.sn_elegivel_home_office !== false,
+      })
+      if (motivoAntigo) {
         return NextResponse.json(
-          { error: `Pessoas com a mesma especialidade não podem ficar em home office juntas: ${listarNomes(quemColideOutraPonta)} já está(ão) em home office no outro período` },
+          { error: `A pessoa atual não pode assumir o que a pessoa nova tinha marcado: ${motivoAntigo}` },
           { status: 400 }
         )
+      }
+      if (r.tp_escala === 'homeoffice') {
+        const inicioFrag = diasQueColidem.reduce((a, b) => (a < b ? a : b))
+        const fimFrag = diasQueColidem.reduce((a, b) => (a > b ? a : b))
+        const quemColideOutraPonta = await quemColideEspecialidadeNoHomeOffice(
+          escala.cd_equipe, inicioFrag, fimFrag, antigoElig.ds_especialidade, novo.cd_tecnico
+        )
+        if (quemColideOutraPonta.length > 0) {
+          return NextResponse.json(
+            { error: `Pessoas com a mesma especialidade não podem ficar em home office juntas: ${listarNomes(quemColideOutraPonta)} já está(ão) em home office no outro período` },
+            { status: 400 }
+          )
+        }
+      }
+      fragmentos.push({ escala: r, dias: diasQueColidem })
+    }
+
+    // Dado saudável nunca deveria ter dois registros ativos do técnico
+    // novo cobrindo o mesmo dia com tipo físico — mas se acontecer (dado
+    // antigo corrompido, por exemplo), reatribuir os dois pra pessoa atual
+    // a deixaria duplicada num dia só. Melhor recusar aqui do que propagar
+    // a duplicação pro outro lado da troca.
+    const diasJaVistos = new Set<string>()
+    for (const frag of fragmentos) {
+      for (const dia of frag.dias) {
+        if (diasJaVistos.has(dia)) {
+          return NextResponse.json(
+            { error: `A pessoa nova tem mais de uma escala cobrindo o dia ${dia} — corrija isso antes de trocar` },
+            { status: 400 }
+          )
+        }
+        diasJaVistos.add(dia)
       }
     }
 
     const client = await getPool().connect()
-    let cdEscalaFinal: number | string
-    let cdEscalaParFinal: number | string
+    // isolarDiasComoEscalaPropria pode devolver MAIS de um id quando os
+    // dias escolhidos não são contíguos (ex: primeiro e último dia de um
+    // período, pulando o do meio) — cada pedaço vira uma escala própria, e
+    // TODOS precisam ser reatribuídos, não só o primeiro/último.
+    let cdEscalaFinalIds: Array<number | string> = []
+    const idsIsoladosDoNovo: Array<{ id: number | string; tipo: string }> = []
     try {
       await client.query('BEGIN')
-      // Isola cada lado no tamanho exato pedido (sem trocar dono ainda) —
-      // depois disso, trocar é sempre um caso só: escala inteira com
-      // escala inteira, já do tamanho certo.
-      cdEscalaFinal = await isolarDiasComoEscalaPropria(client, escala, dias, escala.tecnico_antigo_cd)
-      cdEscalaParFinal = await isolarDiasComoEscalaPropria(client, escalaPar, diasPar, novo.cd_tecnico)
+      // Isola o lado de quem está saindo no tamanho exato pedido (sem
+      // trocar dono ainda), e isola também cada pedaço que o técnico novo
+      // já tinha nesses dias.
+      cdEscalaFinalIds = await isolarDiasComoEscalaPropria(client, escala, dias, escala.tecnico_antigo_cd)
+      for (const frag of fragmentos) {
+        const ids = await isolarDiasComoEscalaPropria(client, frag.escala, frag.dias, novo.cd_tecnico)
+        for (const id of ids) idsIsoladosDoNovo.push({ id, tipo: frag.escala.tp_escala })
+      }
+      const idsEnvolvidos = [...cdEscalaFinalIds, ...idsIsoladosDoNovo.map(f => f.id)]
 
-      // Antes de reatribuir, remove qualquer outro compromisso físico
-      // (presencial/home office/sábado) que cada lado já tivesse nos dias
-      // que está prestes a receber — feito ANTES das atribuições abaixo
-      // pra não confundir com a escala que cada um está prestes a receber.
-      // Quando nenhum dia específico foi escolhido de um lado, a troca foi
-      // do período inteiro daquela escala — usa o período inteiro pra
-      // checar colisão também.
-      const diasParEfetivo = diasPar.length > 0 ? diasPar : (() => {
-        const todos: string[] = []
-        for (let d = escalaPar.dt_inicio; d <= escalaPar.dt_fim; d = addDays(d, 1)) todos.push(d)
-        return todos
-      })()
+      // Antes de reatribuir, remove qualquer OUTRO compromisso físico que
+      // cada lado já tivesse nos dias que está prestes a receber (além do
+      // que está sendo trocado agora).
       if (TIPOS_PRESENCA_FISICA.has(escala.tp_escala)) {
-        await removerConflitosFisicos(client, escala.cd_equipe, novo.cd_tecnico, dias, [cdEscalaFinal, cdEscalaParFinal])
+        await removerConflitosFisicos(client, escala.cd_equipe, novo.cd_tecnico, dias, idsEnvolvidos)
       }
-      if (TIPOS_PRESENCA_FISICA.has(escalaPar.tp_escala)) {
-        await removerConflitosFisicos(client, escala.cd_equipe, escala.tecnico_antigo_cd, diasParEfetivo, [cdEscalaFinal, cdEscalaParFinal])
+      const diasCobertosPorNovo = fragmentos.flatMap(f => f.dias)
+      if (diasCobertosPorNovo.length > 0) {
+        await removerConflitosFisicos(client, escala.cd_equipe, escala.tecnico_antigo_cd, diasCobertosPorNovo, idsEnvolvidos)
       }
 
-      await client.query(
-        'UPDATE escala_tecnicos SET cd_tecnico = $1 WHERE cd_escala = $2 AND cd_tecnico = $3',
-        [novo.cd_tecnico, cdEscalaFinal, escala.tecnico_antigo_cd]
-      )
-      await client.query(
-        'UPDATE escala_tecnicos SET cd_tecnico = $1 WHERE cd_escala = $2 AND cd_tecnico = $3',
-        [escala.tecnico_antigo_cd, cdEscalaParFinal, novo.cd_tecnico]
-      )
+      for (const id of cdEscalaFinalIds) {
+        await client.query(
+          'UPDATE escala_tecnicos SET cd_tecnico = $1 WHERE cd_escala = $2 AND cd_tecnico = $3',
+          [novo.cd_tecnico, id, escala.tecnico_antigo_cd]
+        )
+      }
+      for (const frag of idsIsoladosDoNovo) {
+        await client.query(
+          'UPDATE escala_tecnicos SET cd_tecnico = $1 WHERE cd_escala = $2 AND cd_tecnico = $3',
+          [escala.tecnico_antigo_cd, frag.id, novo.cd_tecnico]
+        )
+      }
 
       // Registra no histórico de trocas (mesma tabela das trocas normais
       // entre colegas), já como "aceita" — não tem pedido pra aceitar,
-      // quem fez já tinha permissão de gestão.
-      await client.query(
-        `INSERT INTO trocas_escala (cd_escala, cd_tecnico_solicitante, cd_tecnico_destino, cd_tecnico_aceite, cd_escala_solicitada, tp_status, dt_aceite)
-         VALUES ($1, $2, $3, $3, $4, 'aceita', now())`,
-        [cdEscalaFinal, escala.tecnico_antigo_cd, novo.cd_tecnico, cdEscalaParFinal]
-      )
+      // quem fez já tinha permissão de gestão. Só quando teve de fato algo
+      // pra voltar (senão é uma atribuição de um lado só, que já não vira
+      // histórico de troca). Guarda só o primeiro id de cada lado — é um
+      // registro histórico informativo, não a fonte da verdade de quem
+      // ficou com o quê (isso já está correto nas escalas em si).
+      if (idsIsoladosDoNovo.length > 0) {
+        await client.query(
+          `INSERT INTO trocas_escala (cd_escala, cd_tecnico_solicitante, cd_tecnico_destino, cd_tecnico_aceite, cd_escala_solicitada, tp_status, dt_aceite)
+           VALUES ($1, $2, $3, $3, $4, 'aceita', now())`,
+          [cdEscalaFinalIds[0], escala.tecnico_antigo_cd, novo.cd_tecnico, idsIsoladosDoNovo[0].id]
+        )
+      }
 
       await client.query('COMMIT')
     } catch (error) {
@@ -258,10 +269,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
     return NextResponse.json({
       ok: true,
-      trocouCom: diasPar.length > 0
-        ? { tipo: escalaPar.tp_escala, dias: diasPar }
-        : { tipo: escalaPar.tp_escala, dataInicio: escalaPar.dt_inicio, dataFim: escalaPar.dt_fim },
-      periodoQueSaiu: dias.length > 0 ? { dias } : { dataInicio: escala.dt_inicio, dataFim: escala.dt_fim },
+      periodoQueSaiu: { dias },
+      oQueNovoDeuEmTroca: fragmentos.map(f => ({ tipo: f.escala.tp_escala, dias: f.dias })),
     })
   } catch (error) {
     return NextResponse.json({ error: mensagemDeErro(error) }, { status: 400 })
