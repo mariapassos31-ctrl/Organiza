@@ -23,6 +23,7 @@ const SELECT_ESCALAS = `
   LEFT JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
   LEFT JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
   LEFT JOIN usuarios u ON u.cd_usuario = t.cd_usuario
+  WHERE es.tp_status != 'cancelada'
   GROUP BY es.cd_escala, eq.tp_equipe, cu.nm_usuario
   ORDER BY es.dt_inicio DESC
 `

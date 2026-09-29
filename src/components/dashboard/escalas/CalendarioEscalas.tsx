@@ -21,6 +21,7 @@ export default function CalendarioEscalas({
   podeEditarEscala,
   onEditarEscala,
   onDiaClick,
+  onDiaVazioClick,
   usuarios,
 }: {
   escalas: Escala[]
@@ -30,6 +31,9 @@ export default function CalendarioEscalas({
   podeEditarEscala: (escala: Escala) => boolean
   onEditarEscala: (escala: Escala) => void
   onDiaClick: (dia: { data: Date; escalas: Escala[] }) => void
+  // Clique num dia sem nenhuma escala — abre o assistente de criação já
+  // com essa data preenchida, em vez de não fazer nada.
+  onDiaVazioClick?: (data: Date) => void
   usuarios?: Usuario[]
 }) {
   const [anoInput, setAnoInput] = useState(currentMonth.getFullYear().toString())
@@ -42,88 +46,119 @@ export default function CalendarioEscalas({
     setAnoInput(currentMonth.getFullYear().toString())
   }, [currentMonth])
 
-  const getEscalasDoMes = () => {
-    const ano = currentMonth.getFullYear()
-    const mes = currentMonth.getMonth()
-    return escalas.filter(escala => {
-      const dataInicio = new Date(escala.dataInicio)
-      const dataFim = new Date(escala.dataFim)
-      dataFim.setDate(dataFim.getDate() + 1)
-      return (
-        (dataInicio.getFullYear() === ano && dataInicio.getMonth() === mes) ||
-        (dataFim.getFullYear() === ano && dataFim.getMonth() === mes) ||
-        (dataInicio < new Date(ano, mes, 1) && dataFim > new Date(ano, mes + 1, 0))
-      )
-    })
+  // Direto contra a lista inteira de escalas (não só as "do mês") — assim
+  // funciona igual pra dia do mês atual e pros dias de mês vizinho que
+  // completam a primeira/última semana da grade.
+  const escalasDoDia = (data: Date) => ordenarSobreavisoPrimeiro(escalas.filter(escala => {
+    const dataInicio = new Date(escala.dataInicio)
+    const dataFim = new Date(escala.dataFim)
+    dataFim.setDate(dataFim.getDate() + 1)
+    return data >= dataInicio && data < dataFim
+  }))
+
+  const formatarISO = (data: Date) =>
+    `${data.getFullYear()}-${String(data.getMonth() + 1).padStart(2, '0')}-${String(data.getDate()).padStart(2, '0')}`
+
+  // Uma célula do calendário — usada tanto pros dias do mês em foco quanto
+  // pros dias de mês vizinho que sobram na primeira/última semana (esses
+  // vêm com foraDoMes=true, só pra ficar visualmente mais apagados e não
+  // confundir com o mês atual; o resto do comportamento — clicar pra ver
+  // ou criar escala — é idêntico, já que é sempre uma data real).
+  const renderDia = (dataAtual: Date, foraDoMes: boolean) => {
+    const dataISO = formatarISO(dataAtual)
+    const feriado = nomeFeriado(dataISO)
+    const escalasDodia = escalasDoDia(dataAtual)
+    // Quando o dia tem gente de home office, esconde os presenciais no
+    // calendário (são a maioria, viram poluição visual) — a lupa continua
+    // mostrando todo mundo. Dia sem home office (outras equipes/modos)
+    // mostra tudo normalmente, senão ficaria em branco.
+    const temHomeOfficeNoDia = escalasDodia.some(e => e.tipo === 'homeoffice')
+    const escalasParaExibir = temHomeOfficeNoDia
+      ? escalasDodia.filter(e => e.tipo !== 'presencial')
+      : escalasDodia
+
+    // O dia inteiro abre o detalhe, não só o numerozinho — no celular as
+    // escalas viram bolinhas de 9px e não dá pra mirar nelas; no
+    // computador continua valendo clicar direto na etiqueta pra editar
+    // (ela para a propagação logo abaixo). Dia vazio (sem nenhuma escala)
+    // abre o assistente de criação já com essa data, em vez de não fazer
+    // nada — só quando quem está vendo pode de fato criar escala.
+    const abrirDia = () => {
+      if (escalasDodia.length > 0) {
+        onDiaClick({ data: dataAtual, escalas: escalasDodia })
+      } else if (onDiaVazioClick) {
+        onDiaVazioClick(dataAtual)
+      }
+    }
+    const diaClicavel = escalasDodia.length > 0 || Boolean(onDiaVazioClick)
+
+    return (
+      <div
+        key={dataISO}
+        className={`calendar-day ${feriado ? 'calendar-day-feriado' : ''} ${diaClicavel ? 'calendar-day-clicavel' : ''} ${escalasDodia.length > 0 ? 'calendar-day-com-escalas' : ''} ${foraDoMes ? 'calendar-day-fora-do-mes' : ''}`}
+        onClick={abrirDia}
+      >
+        <div
+          className={`day-number ${escalasDodia.length > 0 ? 'day-number-clicavel' : ''}`}
+          title={escalasDodia.length > 0 ? 'Ver todos os escalados do dia' : (onDiaVazioClick ? 'Criar escala nesse dia' : '')}
+        >
+          {dataAtual.getDate()}
+          {escalasDodia.length > 0 && <span className="day-number-icone">🔍</span>}
+        </div>
+        {feriado && (
+          <div className="dia-feriado-badge" title={feriado}>
+            🎉 {feriado}
+          </div>
+        )}
+        <div className="day-escalas">
+          {escalasParaExibir.map(escala => {
+            const tecnico = (usuarios || []).find(u => u.uid === escala.tecnicos[0])
+            const emCurso = escala.tipo === 'presencial' && estaEmDiaCurso(tecnico, dataAtual)
+            const tipo = emCurso ? TIPO_CURSO : TIPOS_ESCALA.find(t => t.id === escala.tipo)
+            const nomeTecnico = getNomeTecnico(escala.tecnicos[0])
+            return (
+              <div
+                key={escala.id}
+                className="escala-badge-beautiful"
+                style={{ backgroundColor: tipo?.cor }}
+                onClick={(e) => { e.stopPropagation(); onEditarEscala(escala) }}
+                title={`${nomeTecnico}${podeEditarEscala(escala) ? ' — clique para editar' : ''}`}
+              >
+                <span className="badge-tipo-beautiful">{tipo?.label.split(' ')[0]}</span>
+                <span className="badge-tecnico-beautiful">{nomeTecnico}</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
   }
 
   const renderCalendario = () => {
     const daysInMonth = getDaysInMonth(currentMonth)
     const firstDay = getFirstDayOfMonth(currentMonth)
+    const ano = currentMonth.getFullYear()
+    const mes = currentMonth.getMonth()
     const days: ReactNode[] = []
-    const escalasDoMes = getEscalasDoMes()
 
-    for (let i = 0; i < firstDay; i++) {
-      days.push(<div key={`empty-${i}`} className="calendar-day empty"></div>)
+    // Cauda do mês anterior, preenchendo o início da primeira semana — com
+    // a escala de verdade (e info do feriado) em vez de uma célula vazia,
+    // pra não precisar voltar o calendário só pra conferir esses dias.
+    const diasInMesAnterior = getDaysInMonth(new Date(ano, mes - 1, 1))
+    for (let i = firstDay - 1; i >= 0; i--) {
+      days.push(renderDia(new Date(ano, mes - 1, diasInMesAnterior - i), true))
     }
 
     for (let day = 1; day <= daysInMonth; day++) {
-      const dataAtual = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
-      const dataISO = `${currentMonth.getFullYear()}-${String(currentMonth.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-      const feriado = nomeFeriado(dataISO)
-      const escalasDodia = ordenarSobreavisoPrimeiro(escalasDoMes.filter(escala => {
-        const dataInicio = new Date(escala.dataInicio)
-        const dataFim = new Date(escala.dataFim)
-        dataFim.setDate(dataFim.getDate() + 1)
-        return dataAtual >= dataInicio && dataAtual < dataFim
-      }))
-      // Quando o dia tem gente de home office, esconde os presenciais no
-      // calendário (são a maioria, viram poluição visual) — a lupa continua
-      // mostrando todo mundo. Dia sem home office (outras equipes/modos)
-      // mostra tudo normalmente, senão ficaria em branco.
-      const temHomeOfficeNoDia = escalasDodia.some(e => e.tipo === 'homeoffice')
-      const escalasParaExibir = temHomeOfficeNoDia
-        ? escalasDodia.filter(e => e.tipo !== 'presencial')
-        : escalasDodia
-
-      days.push(
-        <div key={day} className={`calendar-day ${feriado ? 'calendar-day-feriado' : ''}`}>
-          <div
-            className={`day-number ${escalasDodia.length > 0 ? 'day-number-clicavel' : ''}`}
-            onClick={() => escalasDodia.length > 0 && onDiaClick({ data: dataAtual, escalas: escalasDodia })}
-            title={escalasDodia.length > 0 ? 'Ver todos os escalados do dia' : ''}
-          >
-            {day}
-            {escalasDodia.length > 0 && <span className="day-number-icone">🔍</span>}
-          </div>
-          {feriado && (
-            <div className="dia-feriado-badge" title={feriado}>
-              🎉 Feriado<br />{feriado}
-            </div>
-          )}
-          <div className="day-escalas">
-            {escalasParaExibir.map(escala => {
-              const tecnico = (usuarios || []).find(u => u.uid === escala.tecnicos[0])
-              const emCurso = escala.tipo === 'presencial' && estaEmDiaCurso(tecnico, dataAtual)
-              const tipo = emCurso ? TIPO_CURSO : TIPOS_ESCALA.find(t => t.id === escala.tipo)
-              const nomeTecnico = getNomeTecnico(escala.tecnicos[0])
-              return (
-                <div
-                  key={escala.id}
-                  className="escala-badge-beautiful"
-                  style={{ backgroundColor: tipo?.cor }}
-                  onClick={() => onEditarEscala(escala)}
-                  title={podeEditarEscala(escala) ? 'Clique para editar' : 'Clique para ver detalhes'}
-                >
-                  <span className="badge-tipo-beautiful">{tipo?.label.split(' ')[0]}</span>
-                  <span className="badge-tecnico-beautiful">{nomeTecnico}</span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )
+      days.push(renderDia(new Date(ano, mes, day), false))
     }
+
+    // Início do mês seguinte, completando a última semana pelo mesmo motivo.
+    const diasRestantes = (7 - ((firstDay + daysInMonth) % 7)) % 7
+    for (let day = 1; day <= diasRestantes; day++) {
+      days.push(renderDia(new Date(ano, mes + 1, day), true))
+    }
+
     return days
   }
 

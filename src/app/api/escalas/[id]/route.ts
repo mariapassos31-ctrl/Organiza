@@ -37,7 +37,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
      LEFT JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
      LEFT JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
      LEFT JOIN usuarios u ON u.cd_usuario = t.cd_usuario
-     WHERE es.cd_escala = $1`,
+     WHERE es.cd_escala = $1 AND es.tp_status != 'cancelada'`,
     [id]
   )
   if (escalaRows.length === 0) {
@@ -162,7 +162,7 @@ try {
        LEFT JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
        LEFT JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
        LEFT JOIN usuarios u ON u.cd_usuario = t.cd_usuario
-       WHERE es.cd_escala = $1`,
+       WHERE es.cd_escala = $1 AND es.tp_status != 'cancelada'`,
       [id]
     )
     if (rows.length === 0) {
@@ -178,7 +178,16 @@ try {
       return NextResponse.json({ error: 'Você não pode excluir a própria escala' }, { status: 403 })
     }
   }
-  await query('DELETE FROM escalas WHERE cd_escala = $1', [id])
+  // "Apaga" só manda pra lixeira (tp_status='cancelada', nunca usado pela
+  // aplicação até então) — some das listas normais, mas fica recuperável
+  // por 7 dias (ver /api/escalas/lixeira). dt_atualizacao vira o carimbo de
+  // quando foi apagada, usado pra contar o prazo (não dá pra criar uma
+  // coluna nova: o usuário do banco não tem permissão de ALTER TABLE
+  // nesse schema).
+  await query(
+    `UPDATE escalas SET tp_status = 'cancelada', dt_atualizacao = now() WHERE cd_escala = $1`,
+    [id]
+  )
   return NextResponse.json({ ok: true })
 } catch (error) {
   return NextResponse.json({ error: mensagemDeErro(error) }, { status: 400 })

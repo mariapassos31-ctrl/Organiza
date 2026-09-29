@@ -4,11 +4,7 @@ import type { Dispatch, FormEvent, SetStateAction } from 'react'
 import { EQUIPES } from '../../../lib/equipesConfig'
 import type { Escala, FormEscala, Sala, Usuario } from '../../../types/dominio'
 import { tiposDisponiveisParaEquipe } from '../../../lib/escalasConstants'
-
-function formatarDataBR(dataISO: string | null | undefined) {
-  if (!dataISO) return ''
-  return new Date(dataISO + 'T00:00:00').toLocaleDateString('pt-BR')
-}
+import { formatarDataBR, SeletorPeriodoOuDias, SeletorDiasSimples, SeletorDiasProporcional } from './SeletorDiasTroca'
 
 export default function EscalaEditModal({
   open,
@@ -29,8 +25,8 @@ export default function EscalaEditModal({
   onFecharFormTroca,
   tipoTroca,
   setTipoTroca,
-  diaTroca,
-  setDiaTroca,
+  diasTroca,
+  setDiasTroca,
   destinoTroca,
   setDestinoTroca,
   enviandoTroca,
@@ -40,7 +36,16 @@ export default function EscalaEditModal({
   nomeTipoEscala,
   escalaOferecidaId,
   setEscalaOferecidaId,
+  diasSolicitadaTroca,
+  setDiasSolicitadaTroca,
   onEnviarPropostaTroca,
+  mostrarOpcaoTrocarDireto,
+  nomeTecnicoOriginal,
+  tecnicoFoiTrocado,
+  trocarDireto,
+  setTrocarDireto,
+  diasTrocaDireta,
+  setDiasTrocaDireta,
 }: {
   open: boolean
   formData: FormEscala
@@ -58,10 +63,10 @@ export default function EscalaEditModal({
   mostrarFormTroca: boolean
   onAbrirFormTroca: () => void
   onFecharFormTroca: () => void
-  tipoTroca: string
-  setTipoTroca: (valor: string) => void
-  diaTroca: string
-  setDiaTroca: (valor: string) => void
+  tipoTroca: 'completa' | 'dias'
+  setTipoTroca: (valor: 'completa' | 'dias') => void
+  diasTroca: string[]
+  setDiasTroca: Dispatch<SetStateAction<string[]>>
   destinoTroca: string
   setDestinoTroca: (valor: string) => void
   enviandoTroca: boolean
@@ -71,7 +76,16 @@ export default function EscalaEditModal({
   nomeTipoEscala: (tipoId: string) => string
   escalaOferecidaId: string
   setEscalaOferecidaId: (valor: string) => void
+  diasSolicitadaTroca: string[]
+  setDiasSolicitadaTroca: Dispatch<SetStateAction<string[]>>
   onEnviarPropostaTroca: () => void
+  mostrarOpcaoTrocarDireto: boolean
+  nomeTecnicoOriginal: string
+  tecnicoFoiTrocado: boolean
+  trocarDireto: boolean
+  setTrocarDireto: (valor: boolean) => void
+  diasTrocaDireta: string[]
+  setDiasTrocaDireta: Dispatch<SetStateAction<string[]>>
 }) {
   if (!open) return null
 
@@ -98,7 +112,7 @@ export default function EscalaEditModal({
               <select
                 value={formData.tipo}
                 onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
-                disabled={!canEdit}
+                disabled={!canEdit || trocarDireto}
               >
                 {tiposDisponiveisParaEquipe(formData.equipe).map(tipo => (
                   <option key={tipo.id} value={tipo.id}>{tipo.label}</option>
@@ -111,7 +125,7 @@ export default function EscalaEditModal({
                 type="date"
                 value={formData.dataInicio}
                 onChange={(e) => setFormData({ ...formData, dataInicio: e.target.value })}
-                disabled={!canEdit}
+                disabled={!canEdit || trocarDireto}
                 required
               />
             </div>
@@ -123,7 +137,7 @@ export default function EscalaEditModal({
                 type="date"
                 value={formData.dataFim}
                 onChange={(e) => setFormData({ ...formData, dataFim: e.target.value })}
-                disabled={!canEdit}
+                disabled={!canEdit || trocarDireto}
                 required
               />
             </div>
@@ -140,7 +154,7 @@ export default function EscalaEditModal({
                     tecnicos: []
                   })
                 }}
-                disabled={!canEdit || !isAdmin}
+                disabled={!canEdit || !isAdmin || trocarDireto}
               >
                 {canEdit && isAdmin ? (
                   EQUIPES.map(eq => (
@@ -180,7 +194,42 @@ export default function EscalaEditModal({
               )}
             </select>
           </div>
-          {mostrarSelecaoSala && (
+          {mostrarOpcaoTrocarDireto && (
+            <>
+              <label className="campo-toggle campo-toggle-trocar-direto">
+                <input
+                  type="checkbox"
+                  checked={trocarDireto}
+                  onChange={(e) => setTrocarDireto(e.target.checked)}
+                />
+                🔄 Trocar direto — escolha os dias e quem entra no lugar
+              </label>
+              {trocarDireto && !tecnicoFoiTrocado && (
+                <p className="auto-campo-alerta">
+                  Escolha, no campo Técnico/Analista acima, a pessoa que vai entrar no lugar de <strong>{nomeTecnicoOriginal}</strong>.
+                </p>
+              )}
+              {trocarDireto && tecnicoFoiTrocado && (
+                <div className="troca-form">
+                  <p className="troca-explicacao">
+                    Trocar com <strong>{getNomeTecnico(formData.tecnicos[0])}</strong> nesses dias:
+                  </p>
+                  <SeletorDiasSimples
+                    dias={diasTrocaDireta}
+                    setDias={setDiasTrocaDireta}
+                    dataInicio={formData.dataInicio}
+                    dataFim={formData.dataFim}
+                  />
+                  <p className="troca-explicacao-sutil">
+                    <strong>{nomeTecnicoOriginal}</strong> assume o que <strong>{getNomeTecnico(formData.tecnicos[0])}</strong> já
+                    tinha nesses mesmos dias — o sistema descobre sozinho, sem precisar escolher a escala da outra pessoa.
+                    Se ela não tinha nada marcado, {nomeTecnicoOriginal} simplesmente fica sem nada nesses dias.
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+          {!trocarDireto && mostrarSelecaoSala && (
             <div className="form-group">
               <label>Sala</label>
               <select
@@ -202,47 +251,22 @@ export default function EscalaEditModal({
               value={formData.descricao ?? ""}
               onChange={(e) => setFormData({ ...formData, descricao: e.target.value })}
               placeholder="Detalhes da escala..."
-              disabled={!canEdit}
+              disabled={!canEdit || trocarDireto}
             />
           </div>
 
           {podeSolicitarTroca && mostrarFormTroca && (
             <div className="troca-form">
-              <div className="form-group">
-                <label>O que deseja trocar?</label>
-                <div className="troca-tipo-opcoes">
-                  <label>
-                    <input
-                      type="radio"
-                      name="tipoTroca"
-                      checked={tipoTroca === 'completa'}
-                      onChange={() => setTipoTroca('completa')}
-                    />
-                    Escala inteira
-                  </label>
-                  <label>
-                    <input
-                      type="radio"
-                      name="tipoTroca"
-                      checked={tipoTroca === 'dia'}
-                      onChange={() => setTipoTroca('dia')}
-                    />
-                    Só um dia
-                  </label>
-                </div>
-              </div>
-              {tipoTroca === 'dia' && (
-                <div className="form-group">
-                  <label>Qual dia?</label>
-                  <input
-                    type="date"
-                    value={diaTroca}
-                    min={formData.dataInicio}
-                    max={formData.dataFim}
-                    onChange={(e) => setDiaTroca(e.target.value)}
-                  />
-                </div>
-              )}
+              <p className="troca-explicacao">O que você oferece:</p>
+              <SeletorPeriodoOuDias
+                nomeGrupo="tipoTroca"
+                tipo={tipoTroca}
+                setTipo={setTipoTroca}
+                dias={diasTroca}
+                setDias={setDiasTroca}
+                dataInicio={formData.dataInicio}
+                dataFim={formData.dataFim}
+              />
               <div className="form-group">
                 <label>Trocar com quem?</label>
                 <select value={destinoTroca} onChange={(e) => setDestinoTroca(e.target.value)}>
@@ -267,8 +291,8 @@ export default function EscalaEditModal({
                   value={escalaOferecidaId}
                   onChange={(e) => {
                     setEscalaOferecidaId(e.target.value)
-                    setTipoTroca('completa')
-                    setDiaTroca('')
+                    setDiasTroca([])
+                    setDiasSolicitadaTroca([])
                   }}
                 >
                   <option value="">Selecione uma escala sua...</option>
@@ -285,41 +309,24 @@ export default function EscalaEditModal({
 
               {escalaOferecidaSelecionada && (
                 <>
-                  <div className="form-group">
-                    <label>O que quer oferecer dessa escala?</label>
-                    <div className="troca-tipo-opcoes">
-                      <label>
-                        <input
-                          type="radio"
-                          name="tipoTrocaOferta"
-                          checked={tipoTroca === 'completa'}
-                          onChange={() => setTipoTroca('completa')}
-                        />
-                        Escala inteira
-                      </label>
-                      <label>
-                        <input
-                          type="radio"
-                          name="tipoTrocaOferta"
-                          checked={tipoTroca === 'dia'}
-                          onChange={() => setTipoTroca('dia')}
-                        />
-                        Só um dia
-                      </label>
-                    </div>
-                  </div>
-                  {tipoTroca === 'dia' && (
-                    <div className="form-group">
-                      <label>Qual dia?</label>
-                      <input
-                        type="date"
-                        value={diaTroca}
-                        min={escalaOferecidaSelecionada.dataInicio}
-                        max={escalaOferecidaSelecionada.dataFim}
-                        onChange={(e) => setDiaTroca(e.target.value)}
-                      />
-                    </div>
-                  )}
+                  <p className="troca-explicacao">Você oferece:</p>
+                  <SeletorDiasSimples
+                    dias={diasTroca}
+                    setDias={setDiasTroca}
+                    dataInicio={escalaOferecidaSelecionada.dataInicio}
+                    dataFim={escalaOferecidaSelecionada.dataFim}
+                  />
+                  {/* Sem opção de "escala inteira" aqui: a troca precisa ser
+                      equivalente, então o que você pede sempre acompanha
+                      exatamente a quantidade que você ofereceu em cima. */}
+                  <p className="troca-explicacao">Você pede (de {getNomeTecnico(formData.tecnicos[0])}):</p>
+                  <SeletorDiasProporcional
+                    dias={diasSolicitadaTroca}
+                    setDias={setDiasSolicitadaTroca}
+                    dataInicio={formData.dataInicio}
+                    dataFim={formData.dataFim}
+                    limite={diasTroca.length}
+                  />
                 </>
               )}
             </div>
@@ -328,7 +335,7 @@ export default function EscalaEditModal({
           <div className="form-actions-modal">
             {canEdit && (
               <button type="submit" className="btn-success">
-                Atualizar
+                {trocarDireto ? '🔄 Trocar' : 'Atualizar'}
               </button>
             )}
             {canEdit && (

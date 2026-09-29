@@ -18,7 +18,12 @@ function validarPerfilEquipe(role: string, equipe: string | null | undefined): s
 // aparecem pra quem tem motivo legítimo de ver: admin, o próprio usuário, ou
 // o gestor da equipe dele. Qualquer outro colaborador autenticado ainda
 // recebe nome/equipe/perfil/baia (necessário pra resolver nomes nas escalas
-// de todo mundo e desenhar o mapa da sala), mas não o resto.
+// de todo mundo e desenhar o mapa da sala), mas não o resto. Exceção: o
+// horário de entrada de Estag/Aprendiz/Trainee é público mesmo pra quem não
+// tem "motivo legítimo" — o mapa da sala mostra os dois que revezam numa
+// baia reservada (manhã/tarde), e sem o horário não dá pra saber quem é
+// quem nesse revezamento (mesma lógica de baia/baiaFixa, só que condicional
+// ao perfil em vez de sempre público).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toApiShape(row: any, viewer: { id: string; role: string; equipe?: string | null }) {
   const podeVerDetalhes = viewer.role === 'admin' ||
@@ -33,7 +38,7 @@ function toApiShape(row: any, viewer: { id: string; role: string; equipe?: strin
     equipe: row.tp_equipe || null,
     matricula: podeVerDetalhes ? (row.ds_matricula || '') : '',
     especialidade: podeVerDetalhes ? (row.ds_especialidade || '') : '',
-    horarioEntrada: podeVerDetalhes && row.hr_entrada ? String(row.hr_entrada).slice(0, 5) : '',
+    horarioEntrada: (podeVerDetalhes || ehJovemAprendiz(row.tp_role)) && row.hr_entrada ? String(row.hr_entrada).slice(0, 5) : '',
     baia: row.nr_baia != null ? String(row.nr_baia) : '',
     baiaFixa: Boolean(row.sn_baia_fixa),
     elegivelHomeOffice: row.sn_elegivel_home_office !== false,

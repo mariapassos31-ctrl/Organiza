@@ -48,10 +48,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         // 1) Quem é? A senha de rede é conferida pelo gateway (mesmo login do Argos).
         let identidade
+        const t0 = Date.now()
         try {
           identidade = await autenticarNoGateway(login, password)
         } catch {
           throw new GatewayIndisponivel()
+        } finally {
+          console.info(`[login] gateway respondeu em ${Date.now() - t0}ms`)
         }
         if (!identidade) return null
 
@@ -65,12 +68,15 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         // O GAU (mesmo cadastro do Argos) conhece a pessoa por login de rede,
         // e-mail e matrícula — usa tudo isso pra achar o cadastro local, e
         // também pra saber os perfis dela lá (ver gestor geral abaixo).
+        const t1 = Date.now()
         const gau = await consultarGau(normalizar([identidade.email, identidade.username, login]))
+        console.info(`[login] GAU respondeu em ${Date.now() - t1}ms`)
         const candidatos = normalizar([
           identidade.email, identidade.username, login,
           ...gau.emails, ...gau.logins, ...gau.matriculas,
         ])
 
+        const t2 = Date.now()
         const { rows } = await query(
           `SELECT u.cd_usuario, u.nm_usuario, u.ds_email, u.tp_role, e.tp_equipe
            FROM usuarios u
@@ -81,6 +87,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
            LIMIT 1`,
           [candidatos]
         )
+        console.info(`[login] banco local respondeu em ${Date.now() - t2}ms`)
         // Provisório: quem tem ADM + ARG_N3 no GAU enxerga o sistema como
         // gestor geral (admin, sem equipe fixa). Calculado a cada login, não
         // gravado no cadastro — tirar o perfil no GAU tira a visão no

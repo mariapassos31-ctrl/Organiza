@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from 'react'
 import { useDashboardUser } from '../../context/DashboardUserContext'
+import { useNotificacao } from '../../context/NotificacaoContext'
 import { mensagemDeErro } from '../../lib/erros'
+import { motivoInelegibilidadeParaTipo } from '../../lib/escalasConstants'
+import { SeletorPeriodoOuDias } from './escalas/SeletorDiasTroca'
 import type { Usuario, Escala } from '../../types/dominio'
 import '../../styles/MinhaAgenda.css'
 
@@ -15,14 +18,15 @@ const TIPOS_ESCALA: Record<string, string> = {
 
 export default function MinhaAgenda() {
   const { user, userData } = useDashboardUser()
+  const { notificar } = useNotificacao()
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [escalasFiltradas, setEscalasFiltradas] = useState<Escala[]>([])
   const [mesAtual, setMesAtual] = useState(new Date())
   const [loading, setLoading] = useState(true)
   const [escalaSelecionada, setEscalaSelecionada] = useState<Escala | null>(null)
   const [mostrarFormTroca, setMostrarFormTroca] = useState(false)
-  const [tipoTroca, setTipoTroca] = useState('completa')
-  const [diaTroca, setDiaTroca] = useState('')
+  const [tipoTroca, setTipoTroca] = useState<'completa' | 'dias'>('completa')
+  const [diasTroca, setDiasTroca] = useState<string[]>([])
   const [destinoTroca, setDestinoTroca] = useState('')
   const [enviandoTroca, setEnviandoTroca] = useState(false)
 
@@ -78,18 +82,27 @@ export default function MinhaAgenda() {
 
   const souTecnico = userData?.role !== 'admin' && userData?.role !== 'gestor'
 
+  // Só entra na lista quem pode mesmo receber esse tipo de escala — mesma
+  // regra do gerador automático (Supervisor nunca, Aprendiz/Trainee nunca
+  // em home office/sábado, "Externo" nunca presencial fora do sorteio).
   const colegasParaTroca = usuarios.filter(u =>
     u.equipe === userData?.equipe &&
     u.role !== 'admin' && u.role !== 'gestor' &&
     u.uid !== user?.uid &&
-    u.ativo
+    u.ativo &&
+    (!escalaSelecionada || !motivoInelegibilidadeParaTipo(escalaSelecionada.tipo, {
+      role: u.role,
+      ehSupervisor: u.ehSupervisor,
+      especialidade: u.especialidade,
+      elegivelHomeOffice: u.elegivelHomeOffice,
+    }))
   )
 
   const abrirEscala = (escala: Escala) => {
     setEscalaSelecionada(escala)
     setMostrarFormTroca(false)
     setTipoTroca('completa')
-    setDiaTroca('')
+    setDiasTroca([])
     setDestinoTroca('')
   }
 
@@ -100,11 +113,11 @@ export default function MinhaAgenda() {
 
   const enviarSolicitacaoTroca = async () => {
     if (!destinoTroca) {
-      alert('Selecione o colega com quem deseja trocar')
+      notificar('Selecione o colega com quem deseja trocar')
       return
     }
-    if (tipoTroca === 'dia' && !diaTroca) {
-      alert('Selecione o dia que deseja trocar')
+    if (tipoTroca === 'dias' && diasTroca.length === 0) {
+      notificar('Selecione pelo menos um dia que deseja trocar')
       return
     }
     setEnviandoTroca(true)
@@ -115,17 +128,17 @@ export default function MinhaAgenda() {
         body: JSON.stringify({
           escalaId: escalaSelecionada?.id,
           tecnicoDestinoUid: destinoTroca,
-          dia: tipoTroca === 'dia' ? diaTroca : undefined,
+          dias: tipoTroca === 'dias' ? diasTroca : undefined,
         }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.error || 'Falha ao solicitar a troca')
       }
-      alert('Solicitação de troca enviada! Acompanhe em "Trocas".')
+      notificar('Solicitação de troca enviada! Acompanhe em "Trocas".', { tipo: 'sucesso' })
       fecharModal()
     } catch (error) {
-      alert(mensagemDeErro(error))
+      notificar(mensagemDeErro(error), { tipo: 'erro' })
     } finally {
       setEnviandoTroca(false)
     }
@@ -373,41 +386,16 @@ export default function MinhaAgenda() {
 
             {souTecnico && mostrarFormTroca && (
               <div className="troca-form">
-                <div className="escala-detalhe-linha">
-                  <strong>O que deseja trocar?</strong>
-                  <div className="troca-tipo-opcoes">
-                    <label>
-                      <input
-                        type="radio"
-                        name="tipoTroca"
-                        checked={tipoTroca === 'completa'}
-                        onChange={() => setTipoTroca('completa')}
-                      />
-                      Escala inteira
-                    </label>
-                    <label>
-                      <input
-                        type="radio"
-                        name="tipoTroca"
-                        checked={tipoTroca === 'dia'}
-                        onChange={() => setTipoTroca('dia')}
-                      />
-                      Só um dia
-                    </label>
-                  </div>
-                </div>
-                {tipoTroca === 'dia' && (
-                  <div className="escala-detalhe-linha">
-                    <strong>Qual dia?</strong>
-                    <input
-                      type="date"
-                      value={diaTroca}
-                      min={escalaSelecionada.dataInicio}
-                      max={escalaSelecionada.dataFim}
-                      onChange={(e) => setDiaTroca(e.target.value)}
-                    />
-                  </div>
-                )}
+                <p className="troca-explicacao">O que você oferece:</p>
+                <SeletorPeriodoOuDias
+                  nomeGrupo="tipoTroca"
+                  tipo={tipoTroca}
+                  setTipo={setTipoTroca}
+                  dias={diasTroca}
+                  setDias={setDiasTroca}
+                  dataInicio={escalaSelecionada.dataInicio}
+                  dataFim={escalaSelecionada.dataFim}
+                />
                 <div className="escala-detalhe-linha">
                   <strong>Trocar com quem?</strong>
                   <select value={destinoTroca} onChange={(e) => setDestinoTroca(e.target.value)}>

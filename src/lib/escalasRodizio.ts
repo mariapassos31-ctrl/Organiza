@@ -144,7 +144,10 @@ export function construirBlocosHibrido({ participantes, dataInicio, dataFim, dia
   let cursor = dataInicio
   while (cursor <= dataFim) {
     const [y, m, d] = cursor.split('-').map(Number)
-    if (diasTrabalhoSet.has(new Date(y, m - 1, d).getDay()) && !ehFeriado(cursor)) diasUteis.push(cursor)
+    // Feriado em dia de semana conta normal pra presencial/home office (não
+    // pula ninguém) — só a Escala Sábado trata feriado como dia sem
+    // rodízio (ver getSabados).
+    if (diasTrabalhoSet.has(new Date(y, m - 1, d).getDay())) diasUteis.push(cursor)
     cursor = addDays(cursor, 1)
   }
   if (diasUteis.length === 0) return []

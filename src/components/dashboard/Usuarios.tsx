@@ -2,6 +2,7 @@
 
 import { useState, useEffect, type FormEvent } from 'react'
 import { useDashboardUser } from '../../context/DashboardUserContext'
+import { useNotificacao } from '../../context/NotificacaoContext'
 import {
   EQUIPES,
   PERFIS,
@@ -42,6 +43,7 @@ interface FormCriar extends FormUsuario {
 
 export default function Usuarios() {
   const { user, userData } = useDashboardUser()
+  const { notificar, confirmar } = useNotificacao()
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [loading, setLoading] = useState(true)
   const [showFormCriar, setShowFormCriar] = useState(false)
@@ -352,10 +354,10 @@ export default function Usuarios() {
   }
 
   const handleDelete = async (uid: string) => {
-    if (!window.confirm('Tem certeza que deseja deletar este usuário?')) return
+    if (!(await confirmar('Tem certeza que deseja deletar este usuário?', { titulo: 'Deletar usuário', textoConfirmar: 'Deletar' }))) return
 
     if (user?.uid === uid) {
-      alert('Você não pode deletar sua própria conta!')
+      notificar('Você não pode deletar sua própria conta!', { tipo: 'erro' })
       return
     }
 

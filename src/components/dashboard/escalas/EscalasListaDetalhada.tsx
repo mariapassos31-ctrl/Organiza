@@ -319,7 +319,7 @@ export default function EscalasListaDetalhada({
         <div className="confirm-overlay" onClick={() => setConfirmandoExclusao(false)}>
           <div className="confirm-caixa" onClick={(e) => e.stopPropagation()}>
             <h4>Excluir {selecionadasParaExcluir.length} escala(s)?</h4>
-            <p>Essa ação não pode ser desfeita.</p>
+            <p>Vão para a lixeira por 7 dias — dá pra restaurar de lá.</p>
             <div className="confirm-acoes">
               <button type="button" className="btn-secondary" onClick={() => setConfirmandoExclusao(false)}>
                 Cancelar

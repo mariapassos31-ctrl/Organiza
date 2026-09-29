@@ -1,0 +1,37 @@
+/* Janela flutuante que substitui window.alert()/window.confirm() em todo o
+   projeto — usa as mesmas classes .modal-overlay/.modal-content do resto
+   do app (definidas em Escalas.css) pra ficar visualmente consistente,
+   só que sempre por cima de qualquer outro modal aberto. */
+.notificacao-overlay {
+  z-index: 3000;
+}
+
+.notificacao-modal {
+  max-width: 420px;
+}
+
+.notificacao-modal .modal-header h3 {
+  font-size: 16px;
+}
+
+.notificacao-modal-erro .modal-header h3 {
+  color: #c62828;
+}
+
+.notificacao-modal-sucesso .modal-header h3 {
+  color: #2e7d32;
+}
+
+.notificacao-corpo {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notificacao-corpo p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #333;
+}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useDashboardUser } from '../../context/DashboardUserContext'
+import { useNotificacao } from '../../context/NotificacaoContext'
 import { mensagemDeErro } from '../../lib/erros'
 import type { Troca } from '../../types/dominio'
 import '../../styles/Trocas.css'
@@ -22,6 +23,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function Trocas() {
   const { user, userData } = useDashboardUser()
+  const { notificar } = useNotificacao()
   const [trocas, setTrocas] = useState<Troca[]>([])
   const [loading, setLoading] = useState(true)
   const [processando, setProcessando] = useState<string | null>(null)
@@ -57,18 +59,30 @@ export default function Trocas() {
       }
       await carregar()
     } catch (error) {
-      alert(mensagemDeErro(error))
+      notificar(mensagemDeErro(error), { tipo: 'erro' })
     } finally {
       setProcessando(null)
     }
   }
 
+  // A escala já vem recortada do tamanho exato pedido (um dia, vários dias
+  // ou o período inteiro) — não precisa mais de um campo à parte pra dizer
+  // "foi só um dia": a própria data mostra isso (início = fim vira uma
+  // data só; senão, o período completo).
   const formatPeriodo = (troca: Troca) => {
     if (troca.dia) {
       return new Date(troca.dia + 'T00:00:00').toLocaleDateString('pt-BR')
     }
+    if (troca.escalaDataInicio === troca.escalaDataFim) {
+      return new Date(troca.escalaDataInicio + 'T00:00:00').toLocaleDateString('pt-BR')
+    }
     return `${new Date(troca.escalaDataInicio + 'T00:00:00').toLocaleDateString('pt-BR')} a ${new Date(troca.escalaDataFim + 'T00:00:00').toLocaleDateString('pt-BR')}`
   }
+
+  // Pra frase "quer trocar o dia / a escala inteira": olha o próprio
+  // tamanho do período (já vem recortado certinho), com "dia" (campo
+  // antigo) só como reforço pra pedidos de antes desse recorte existir.
+  const ehUmDiaSo = (troca: Troca) => Boolean(troca.dia) || troca.escalaDataInicio === troca.escalaDataFim
 
   const formatPeriodoSolicitada = (troca: Troca) =>
     `${TIPOS_ESCALA[troca.escalaSolicitadaTipo ?? ""] || troca.escalaSolicitadaTipo} · ${new Date(troca.escalaSolicitadaDataInicio + 'T00:00:00').toLocaleDateString('pt-BR')} a ${new Date(troca.escalaSolicitadaDataFim + 'T00:00:00').toLocaleDateString('pt-BR')}`
@@ -123,7 +137,7 @@ export default function Trocas() {
                       <strong>{troca.solicitanteNome}</strong>{' '}
                       {troca.escalaSolicitadaId
                         ? <>quer trocar a escala dele(a) pela <strong>sua</strong> escala de {formatPeriodoSolicitada(troca)}</>
-                        : <>quer trocar {troca.dia ? 'o dia' : 'a escala inteira'} com você</>}
+                        : <>quer trocar {ehUmDiaSo(troca) ? 'o dia' : 'o período'} com você</>}
                     </p>
                     <p className="troca-detalhe">
                       {troca.escalaSolicitadaId && 'Oferece em troca: '}
@@ -164,10 +178,16 @@ export default function Trocas() {
                 <div key={troca.id} className="troca-card">
                   <div className="troca-info">
                     <p>
-                      <strong>{troca.solicitanteNome}</strong>{' '}
-                      {troca.escalaSolicitadaId
-                        ? <>pediu para trocar a escala dele(a) pela <strong>sua</strong> escala de {formatPeriodoSolicitada(troca)}</>
-                        : <>pediu para trocar {troca.dia ? 'o dia' : 'a escala inteira'} com você</>}
+                      {troca.direta ? (
+                        <>Um admin/gestor colocou você no lugar de <strong>{troca.solicitanteNome}</strong> nessa escala</>
+                      ) : (
+                        <>
+                          <strong>{troca.solicitanteNome}</strong>{' '}
+                          {troca.escalaSolicitadaId
+                            ? <>pediu para trocar a escala dele(a) pela <strong>sua</strong> escala de {formatPeriodoSolicitada(troca)}</>
+                            : <>pediu para trocar {ehUmDiaSo(troca) ? 'o dia' : 'o período'} com você</>}
+                        </>
+                      )}
                     </p>
                     <p className="troca-detalhe">
                       {troca.escalaSolicitadaId && 'Ofereceu em troca: '}
@@ -193,8 +213,12 @@ export default function Trocas() {
                 <div key={troca.id} className="troca-card">
                   <div className="troca-info">
                     <p>
-                      {troca.escalaSolicitadaId ? 'Proposta de troca' : 'Troca'} com <strong>{troca.destinoNome}</strong>
-                      {!troca.escalaSolicitadaId && <> · {troca.dia ? 'o dia' : 'a escala inteira'}</>}
+                      {troca.direta ? (
+                        <>Um admin/gestor trocou você por <strong>{troca.destinoNome}</strong> nessa escala</>
+                      ) : (
+                        <>{troca.escalaSolicitadaId ? 'Proposta de troca' : 'Troca'} com <strong>{troca.destinoNome}</strong></>
+                      )}
+                      {!troca.escalaSolicitadaId && <> · {ehUmDiaSo(troca) ? 'o dia' : 'o período'}</>}
                     </p>
                     <p className="troca-detalhe">
                       {troca.escalaSolicitadaId && 'Você oferece: '}
@@ -235,8 +259,9 @@ export default function Trocas() {
                   <div className="troca-info">
                     <p>
                       <strong>{troca.solicitanteNome}</strong> → <strong>{troca.destinoNome}</strong>
-                      {!troca.escalaSolicitadaId && <> · {troca.dia ? 'um dia' : 'escala inteira'}</>}
+                      {!troca.escalaSolicitadaId && <> · {ehUmDiaSo(troca) ? 'um dia' : 'período'}</>}
                       {troca.escalaSolicitadaId && ' · troca mútua'}
+                      {troca.direta && <> · <span className="troca-badge-direta">🔄 troca direta</span></>}
                     </p>
                     <p className="troca-detalhe">
                       {troca.escalaSolicitadaId && `${troca.solicitanteNome} oferece: `}

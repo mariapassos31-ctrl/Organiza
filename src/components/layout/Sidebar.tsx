@@ -13,8 +13,13 @@ export interface ItemMenu {
   badge?: number
 }
 
-// Barra lateral compacta no padrão do Argos: faixa vinho de 96px, ícone com
-// rótulo minúsculo embaixo e barra luminosa no item ativo.
+// Duas formas, mesma barra:
+// - Computador: faixa vinho de 96px grudada na esquerda, ícone com rótulo
+//   minúsculo embaixo e barra luminosa no item ativo (padrão do Argos).
+// - Celular: barra inferior (o polegar alcança), itens lado a lado com
+//   rolagem horizontal se não couberem, e a marca luminosa vai pro topo do
+//   item. O logo e o bloco de perfil somem no celular — não cabem e não
+//   ajudam em nada ali; o "Sair" vira o último item da fileira.
 export function Sidebar({
   itens,
   usuario,
@@ -34,10 +39,14 @@ export function Sidebar({
     .toUpperCase()
 
   return (
-    <aside className="fixed left-0 top-0 z-50 flex h-full w-24 flex-col items-center border-r border-white/5 bg-brand py-4 shadow-2xl">
+    <aside
+      className="app-sidebar fixed z-50 flex bg-brand shadow-2xl
+                 inset-x-0 bottom-0 w-full flex-row items-stretch border-t border-white/10
+                 md:inset-x-auto md:bottom-auto md:left-0 md:top-0 md:h-full md:w-24 md:flex-col md:items-center md:border-r md:border-t-0 md:py-4"
+    >
       <Link
         href="/dashboard"
-        className="mb-4 shrink-0 transition-transform hover:scale-105 active:scale-95"
+        className="mb-4 hidden shrink-0 transition-transform hover:scale-105 active:scale-95 md:block"
         title="Escala TI"
       >
         <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white shadow-xl">
@@ -45,7 +54,11 @@ export function Sidebar({
         </div>
       </Link>
 
-      <nav className="flex min-h-0 w-full flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <nav
+        className="flex min-h-0 min-w-0 flex-1 flex-row items-stretch overflow-x-auto overflow-y-hidden
+                   [scrollbar-width:none] [&::-webkit-scrollbar]:hidden
+                   md:w-full md:flex-col md:gap-1 md:overflow-y-auto md:overflow-x-hidden"
+      >
         {itens.map(item => {
           const ativo = pathname.startsWith(item.href)
           const Icone = item.icon
@@ -54,10 +67,13 @@ export function Sidebar({
             <Link
               key={item.href}
               href={item.href}
-              className="group relative flex w-full shrink-0 flex-col items-center py-1.5"
+              className="group relative flex min-w-[46px] flex-1 basis-0 flex-col items-center justify-center py-1.5 md:w-full md:flex-none md:basis-auto"
             >
               {ativo && (
-                <div className="absolute left-0 top-1/2 h-8 w-1.5 -translate-y-1/2 rounded-r-full bg-white shadow-[0_0_15px_#fff]" />
+                <div
+                  className="absolute left-1/2 top-0 h-1.5 w-8 -translate-x-1/2 rounded-b-full bg-white shadow-[0_0_15px_#fff]
+                             md:left-0 md:top-1/2 md:h-8 md:w-1.5 md:-translate-x-0 md:-translate-y-1/2 md:rounded-l-none md:rounded-r-full"
+                />
               )}
 
               <div
@@ -76,9 +92,12 @@ export function Sidebar({
                 ) : null}
               </div>
 
+              {/* No celular o rótulo perde o espaçamento entre letras: com
+                  7 itens em 390px, "Relatórios" espaçado não cabe e a
+                  barra inteira passaria a exigir rolagem lateral. */}
               <span
                 className={cn(
-                  'mt-1 text-[8px] font-black uppercase tracking-widest transition-colors',
+                  'mt-1 max-w-full truncate px-0.5 text-[8px] font-black uppercase tracking-tight transition-colors md:tracking-widest',
                   ativo ? 'text-white' : 'text-white/40 group-hover:text-white'
                 )}
               >
@@ -87,9 +106,22 @@ export function Sidebar({
             </Link>
           )
         })}
+
+        {/* No celular o "Sair" entra na própria fileira de navegação; no
+            computador ele fica no rodapé da faixa, junto do perfil. */}
+        <button
+          type="button"
+          onClick={onSair}
+          className="group flex min-w-[46px] flex-1 basis-0 flex-col items-center justify-center py-1.5 md:hidden"
+        >
+          <div className="rounded-2xl p-2.5 text-white/40 transition-all group-hover:bg-red-500/20 group-hover:text-red-400">
+            <LogOut size={18} />
+          </div>
+          <span className="mt-1 max-w-full truncate px-0.5 text-[8px] font-black uppercase tracking-tight text-white/40">Sair</span>
+        </button>
       </nav>
 
-      <div className="w-full shrink-0 space-y-3 border-t border-white/10 pt-3">
+      <div className="hidden w-full shrink-0 space-y-3 border-t border-white/10 pt-3 md:block">
         <div
           className="flex flex-col items-center"
           title={`${usuario.nome} — ${usuario.perfil}`}

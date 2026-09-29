@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useNotificacao } from '../../../context/NotificacaoContext'
 import { mensagemDeErro } from '../../../lib/erros'
 import type { Sala, Usuario, UsuarioLogado } from '../../../types/dominio'
-import { labelEquipe } from '../../../lib/equipesConfig'
+import { EQUIPES, labelEquipe } from '../../../lib/equipesConfig'
 import {
   DURACAO_PRESETS,
   HORIZONTE_PRESETS,
@@ -36,6 +37,11 @@ interface AvisoPreview {
   mensagem: string
 }
 
+// Presencial, home office e sábado são "onde a pessoa está fisicamente" —
+// nunca podem coexistir pro mesmo técnico no mesmo dia (mesma regra do
+// backend em escalasAuto.ts).
+const TIPOS_PRESENCA_FISICA = new Set(['presencial', 'homeoffice', 'sabado'])
+
 const PASSOS = [
   { n: 1, label: 'Tipo' },
   { n: 2, label: 'Técnicos' },
@@ -46,12 +52,15 @@ const PASSOS = [
 // Só é montado enquanto o modal está aberto (o pai renderiza condicionalmente),
 // então cada abertura é um mount novo — todo o estado abaixo já nasce
 // resetado para a equipe/usuário atual, sem precisar de um efeito de reset.
-export default function GeradorEscalaModal({ userData, usuarios, salas, onClose, onAtualizarEscalas }: {
+export default function GeradorEscalaModal({ userData, usuarios, salas, onClose, onAtualizarEscalas, dataInicial }: {
   userData: UsuarioLogado | null
   usuarios: Usuario[]
   salas: Sala[]
   onClose: () => void
   onAtualizarEscalas: () => Promise<void> | void
+  // Preenche o período (início e fim) já com essa data — usado quando o
+  // assistente é aberto a partir de um clique num dia vazio do calendário.
+  dataInicial?: string
 }) {
   // Quem não é admin só pode gerar pra uma sala que a própria equipe usa;
   // admin pode escolher qualquer sala cadastrada.
@@ -63,11 +72,12 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
   // a lista normal (elegibilidade fina de home office fica a cargo do backend).
   // Os técnicos elegíveis são os de TODAS as equipes que usam a sala — se
   // ela for compartilhada por 2+ equipes, a geração já mistura todo mundo.
-  const carregarTecnicosDaSala = (sala: Sala | null | undefined, tipo: string = autoForm.tipo) => {
-    const equipesDaSala = sala?.equipes ?? []
-    const base = usuarios.filter(u => equipesDaSala.includes(u.equipe ?? '') && u.role !== 'admin' && u.role !== 'gestor' && u.baia !== '0' && u.ativo)
+  const carregarTecnicosPorEquipes = (equipesSlugs: string[], tipo: string = autoForm.tipo) => {
+    const base = usuarios.filter(u => equipesSlugs.includes(u.equipe ?? '') && u.role !== 'admin' && u.role !== 'gestor' && u.baia !== '0' && u.ativo)
     return tipo === 'sabado' ? base.filter(u => u.role !== 'analista' && u.role !== 'lider' && !u.ehAprendiz) : base
   }
+  const carregarTecnicosDaSala = (sala: Sala | null | undefined, tipo: string = autoForm.tipo) =>
+    carregarTecnicosPorEquipes(sala?.equipes ?? [], tipo)
 
   // Prioriza a sala exclusiva do Suporte como padrão (é o caso mais comum);
   // senão, a primeira sala que a pessoa pode escolher.
@@ -76,18 +86,41 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
     ?? ''
   const salaInicial = salasSelecionaveis.find(s => s.id === salaInicialId) || null
   const ehSuporteExclusivo = (sala: Sala | null) => Boolean(sala && sala.equipes.length === 1 && sala.equipes[0] === 'suporte')
-  // Sala compartilhada (2+ equipes): quem fica presencial já é limitado pela
-  // quantidade de baias da sala — não faz sentido perguntar "como decidir
-  // quem fica em home", a quantidade de home office é só o resto que não
-  // coube.
-  const ehSalaCompartilhada = (sala: Sala | null) => Boolean(sala && sala.equipes.length > 1)
 
+  // Sábado ocupa lugar de verdade (a pessoa senta numa baia), então
+  // precisa de uma sala — mas hoje só existe UMA equipe que pode ter
+  // escala de sábado (Suporte, e só numa sala exclusiva dela; o backend
+  // recusa qualquer outra combinação). Como a resposta já é sempre a
+  // mesma, não faz sentido perguntar "qual sala" — só "qual equipe" (que,
+  // na prática, tem uma opção só), e a sala é resolvida sozinha.
+  const salaExclusivaDaEquipe = (equipeSlug: string) =>
+    salasSelecionaveis.find(s => s.equipes.length === 1 && s.equipes[0] === equipeSlug) || null
+  const equipesParaSabado = EQUIPES.filter(eq => eq.id === 'suporte' && salaExclusivaDaEquipe(eq.id))
+
+  // Sala com 2+ equipes: o que importa é quantas baias ela tem pra
+  // presencial (isso já está montado na configuração da sala) — não faz
+  // sentido perguntar "quantos ficam em home", porque casa lotada de gente
+  // em home é o normal ali. O resto (quem não coube na sala) que fica em
+  // home office, automaticamente.
+  const ehSalaCompartilhada = (sala: Sala | null) => Boolean(sala && sala.equipes.length > 1)
+  // Sugere a capacidade presencial de acordo com o que já está cadastrado
+  // na própria sala (a quantidade de baias reais) — não inventa um número
+  // menor só pra sempre sobrar alguém de home office; se a sala cabe todo
+  // mundo, o aviso abaixo do campo já explica que precisa reduzir pra
+  // sobrar quem revezar.
+  const capacidadePresencialDaSala = (sala: Sala | null) => {
+    if (!sala) return 1
+    const baiasReservadas = Object.keys(sala.baias).length
+    return baiasReservadas > 0 ? baiasReservadas : (sala.qtdBaias || 1)
+  }
+
+  const { notificar } = useNotificacao()
   const [passoAtual, setPassoAtual] = useState(1)
   const [autoSalaId, setAutoSalaId] = useState<number | string>(salaInicialId)
   const [autoForm, setAutoForm] = useState<AutoForm>({
     tipo: 'hibrido',
-    dataInicio: '',
-    dataFim: '',
+    dataInicio: dataInicial || '',
+    dataFim: dataInicial || '',
     diasPorTecnico: 7,
     semFim: false,
     horizonteDias: 365,
@@ -95,12 +128,25 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
   const [autoTecnicosSelecionados, setAutoTecnicosSelecionados] = useState(
     carregarTecnicosDaSala(salaInicial).map(t => t.uid)
   )
+  // Sobreaviso não ocupa lugar físico nenhum — em vez de escolher uma
+  // sala (que só serviria aqui pra apontar a equipe), escolhe a equipe
+  // direto. Não-admin já começa na própria equipe; admin escolhe.
+  const equipesSelecionaveisSobreaviso = userData?.role === 'admin' ? EQUIPES : EQUIPES.filter(eq => eq.id === userData?.equipe)
+  const [autoEquipeSobreaviso, setAutoEquipeSobreaviso] = useState<string>(
+    userData?.role === 'admin' ? '' : (userData?.equipe || '')
+  )
   const [autoDiasTrabalho, setAutoDiasTrabalho] = useState([1, 2, 3, 4, 5])
   const [autoPercentualHome, setAutoPercentualHome] = useState<number | string>(50)
   // Suporte tem a regra de "sempre exatamente N pessoas" — já começa no modo
   // certo pra sala, em vez de deixar porcentagem como padrão universal.
   const [autoModoHome, setAutoModoHome] = useState(ehSuporteExclusivo(salaInicial) ? 'quantidade' : 'percentual')
   const [autoQuantidadeHome, setAutoQuantidadeHome] = useState<number | string>(2)
+  // Só usado quando a sala é compartilhada (2+ equipes) — quantidade de
+  // baias presenciais, já sugerida a partir da própria configuração da
+  // sala; o home office é sempre "o resto" e nunca perguntado.
+  const [autoQuantidadePresencial, setAutoQuantidadePresencial] = useState<number | string>(
+    capacidadePresencialDaSala(salaInicial)
+  )
   // Suporte troca a dupla de home office a cada 3 dias úteis (fica lá o
   // bloco inteiro); outras salas, por padrão, escolhem de novo todo dia.
   const [autoDuracaoBlocoHome, setAutoDuracaoBlocoHome] = useState<number | string>(ehSuporteExclusivo(salaInicial) ? 3 : 1)
@@ -114,12 +160,6 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
   const [autoGerando, setAutoGerando] = useState(false)
 
   const salaSelecionada = salas.find(s => s.id === Number(autoSalaId)) || null
-  const salaCompartilhada = ehSalaCompartilhada(salaSelecionada)
-  // Vagas presenciais = baias da sala; o resto dos selecionados vai pra
-  // home office, revezando. Não depende de escolha manual em sala compartilhada.
-  const quantidadeHomeOfficeAuto = salaCompartilhada
-    ? Math.max(0, autoTecnicosSelecionados.length - (Number(salaSelecionada?.qtdBaias) || 0))
-    : 0
 
   const mudarSalaAuto = (novoSalaId: number) => {
     const novaSala = salas.find(s => s.id === novoSalaId) || null
@@ -128,16 +168,51 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
       ...prev,
       tipo: prev.tipo === 'sabado' && !ehSuporteExclusivo(novaSala) ? 'hibrido' : prev.tipo,
     }))
-    setAutoTecnicosSelecionados(carregarTecnicosDaSala(novaSala).map(t => t.uid))
+    const tecnicosDaNovaSala = carregarTecnicosDaSala(novaSala).map(t => t.uid)
+    setAutoTecnicosSelecionados(tecnicosDaNovaSala)
     setAutoModoHome(ehSuporteExclusivo(novaSala) ? 'quantidade' : 'percentual')
     setAutoDuracaoBlocoHome(ehSuporteExclusivo(novaSala) ? 3 : 1)
+    setAutoQuantidadePresencial(capacidadePresencialDaSala(novaSala))
+  }
+
+  const ehSobreaviso = autoForm.tipo === 'sobreaviso'
+  const ehSabado = autoForm.tipo === 'sabado'
+  // Fonte dos técnicos elegíveis do passo atual — de uma sala (a maioria
+  // dos tipos) ou direto da equipe escolhida (Sobreaviso, e agora Sábado
+  // também — só que pra Sábado a "equipe" já resolve pra uma sala fixa
+  // por baixo dos panos, porque ali a pessoa senta de verdade).
+  const tecnicosDisponiveisAuto = (tipo: string = autoForm.tipo) =>
+    tipo === 'sobreaviso'
+      ? carregarTecnicosPorEquipes(autoEquipeSobreaviso ? [autoEquipeSobreaviso] : [], tipo)
+      : carregarTecnicosDaSala(salaSelecionada, tipo)
+
+  const mudarEquipeSobreaviso = (slug: string) => {
+    setAutoEquipeSobreaviso(slug)
+    setAutoTecnicosSelecionados(carregarTecnicosPorEquipes([slug]).map(t => t.uid))
+  }
+
+  // Escolher a equipe do Sábado só decide a sala por baixo dos panos (ela
+  // já é única pra cada equipe elegível) — dali em diante segue igual a
+  // qualquer sala escolhida (mesmos técnicos, mesmo payload).
+  const mudarEquipeSabado = (slug: string) => {
+    const sala = salaExclusivaDaEquipe(slug)
+    if (!sala) return
+    setAutoSalaId(sala.id)
+    setAutoTecnicosSelecionados(carregarTecnicosDaSala(sala, 'sabado').map(t => t.uid))
   }
 
   const mudarTipoAuto = (novoTipo: string) => {
     setAutoForm(prev => ({ ...prev, tipo: novoTipo, diasPorTecnico: novoTipo === 'sabado' ? 1 : 7 }))
+    // Ao entrar em Sábado, já resolve a equipe (e a sala dela) sozinho —
+    // hoje só existe uma opção válida, não faz sentido deixar em branco
+    // esperando um clique que só tem uma resposta possível.
+    if (novoTipo === 'sabado' && equipesParaSabado[0]) {
+      mudarEquipeSabado(equipesParaSabado[0].id)
+      return
+    }
     // Sábado tem elegibilidade mais restrita — tira da seleção quem deixou
     // de valer (ex: Analista/Aprendiz), pra não mandar escondido pro backend.
-    const validos = new Set(carregarTecnicosDaSala(salaSelecionada, novoTipo).map(t => t.uid))
+    const validos = new Set(tecnicosDisponiveisAuto(novoTipo).map(t => t.uid))
     setAutoTecnicosSelecionados(prev => prev.filter(uid => validos.has(uid)))
   }
 
@@ -148,7 +223,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
   }
 
   const selecionarTodosTecnicosAuto = () => {
-    setAutoTecnicosSelecionados(carregarTecnicosDaSala(salaSelecionada).map(t => t.uid))
+    setAutoTecnicosSelecionados(tecnicosDisponiveisAuto().map(t => t.uid))
   }
 
   const toggleDiaTrabalho = (diaId: number) => {
@@ -160,7 +235,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
   // Monta o payload de configuração sem alertar nada — usado pela prévia ao
   // vivo, que só dispara quando os campos já fazem sentido.
   const construirPayloadAuto = () => {
-    if (!autoSalaId || !autoForm.dataInicio || autoTecnicosSelecionados.length === 0) return null
+    if ((ehSobreaviso ? !autoEquipeSobreaviso : !autoSalaId) || !autoForm.dataInicio || autoTecnicosSelecionados.length === 0) return null
 
     let dataFimEfetiva = autoForm.dataFim
     if (autoForm.semFim) {
@@ -173,7 +248,13 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
 
     if (autoForm.tipo === 'hibrido') {
       if (autoDiasTrabalho.length === 0) return null
-      if (salaCompartilhada && quantidadeHomeOfficeAuto < 1) return null
+      // Sala compartilhada: o que se define é quanta gente cabe presencial
+      // (a sala já diz isso) — o home office é sempre o restante, calculado
+      // aqui, nunca perguntado diretamente.
+      const quantidadeHomeOfficeEfetiva = ehSalaCompartilhada(salaSelecionada)
+        ? Math.max(0, autoTecnicosSelecionados.length - Number(autoQuantidadePresencial || 0))
+        : Number(autoQuantidadeHome)
+      if (ehSalaCompartilhada(salaSelecionada) && quantidadeHomeOfficeEfetiva < 1) return null
       return {
         tipo: 'hibrido',
         salaId: Number(autoSalaId),
@@ -181,17 +262,15 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
         dataFim: dataFimEfetiva,
         tecnicoUids: autoTecnicosSelecionados,
         diasTrabalho: autoDiasTrabalho,
-        ...(salaCompartilhada
-          ? { quantidadeHomeOffice: quantidadeHomeOfficeAuto, duracaoBlocoDiasHomeOffice: Number(autoDuracaoBlocoHome), respeitarEspecialidade: autoRespeitarEspecialidade }
-          : autoModoHome === 'quantidade'
-          ? { quantidadeHomeOffice: Number(autoQuantidadeHome), duracaoBlocoDiasHomeOffice: Number(autoDuracaoBlocoHome), respeitarEspecialidade: autoRespeitarEspecialidade }
+        ...(ehSalaCompartilhada(salaSelecionada) || autoModoHome === 'quantidade'
+          ? { quantidadeHomeOffice: quantidadeHomeOfficeEfetiva, duracaoBlocoDiasHomeOffice: Number(autoDuracaoBlocoHome), respeitarEspecialidade: autoRespeitarEspecialidade }
           : { percentualHomeOffice: Number(autoPercentualHome) }),
       }
     }
 
     return {
       tipo: autoForm.tipo,
-      salaId: Number(autoSalaId),
+      ...(ehSobreaviso ? { equipeSlugs: [autoEquipeSobreaviso] } : { salaId: Number(autoSalaId) }),
       dataInicio: autoForm.dataInicio,
       dataFim: dataFimEfetiva,
       diasPorTecnico: Number(autoForm.diasPorTecnico),
@@ -238,16 +317,21 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
     }, 500)
     return () => clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoSalaId, autoForm, autoTecnicosSelecionados, autoDiasTrabalho, autoPercentualHome, autoModoHome, autoQuantidadeHome, autoDuracaoBlocoHome, autoRespeitarEspecialidade])
+  }, [autoSalaId, autoEquipeSobreaviso, autoForm, autoTecnicosSelecionados, autoDiasTrabalho, autoPercentualHome, autoModoHome, autoQuantidadeHome, autoQuantidadePresencial, autoDuracaoBlocoHome, autoRespeitarEspecialidade])
 
-  const nomeTecnicoAuto = (uid: string) => carregarTecnicosDaSala(salaSelecionada).find(t => t.uid === uid)?.nome || '?'
+  const nomeTecnicoAuto = (uid: string) => tecnicosDisponiveisAuto().find(t => t.uid === uid)?.nome || '?'
 
   const blocosEfetivosAuto = autoPreviewBlocos
     .map((b, i) => ({
       ...b,
       tecnicoUid: autoOverrides[i] || b.tecnicoUid,
       tecnicoNome: autoOverrides[i] ? nomeTecnicoAuto(autoOverrides[i]) : b.tecnicoNome,
-      salaId: (b.tipo === 'presencial' || b.tipo === 'sabado') && autoSalaId ? Number(autoSalaId) : null,
+      // Home office também guarda de qual sala ele veio (mesmo não ocupando
+      // baia nenhuma) — sem isso, quando a equipe está em mais de uma sala,
+      // o home office de quem foi escalado pela Sala Infra vazava pra
+      // dentro da visão da Sala do Suporte também, só por ser da equipe
+      // Suporte. Sobreaviso continua sem sala (não veio de nenhuma).
+      salaId: b.tipo !== 'sobreaviso' && autoSalaId ? Number(autoSalaId) : null,
     }))
     .filter((_, i) => !autoRemovidos[i])
 
@@ -258,15 +342,39 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
     resumoPorTecnicoAuto[b.tecnicoNome][b.tipo] = (resumoPorTecnicoAuto[b.tecnicoNome][b.tipo] || 0) + dias
   }
 
+  // Trocar o técnico de um bloco individual (linha abaixo) pode deixar
+  // alguém com duas escalas físicas (presencial/home office/sábado) no
+  // mesmo dia sem ninguém perceber — o backend recusa na hora de confirmar,
+  // mas é bem melhor avisar já na prévia, com o item destacado, do que só
+  // descobrir depois de tentar salvar.
+  const indicesComConflitoAuto = new Set<number>()
+  for (let i = 0; i < autoPreviewBlocos.length; i++) {
+    if (autoRemovidos[i]) continue
+    const a = autoPreviewBlocos[i]
+    if (!TIPOS_PRESENCA_FISICA.has(a.tipo)) continue
+    const tecnicoA = autoOverrides[i] || a.tecnicoUid
+    for (let j = i + 1; j < autoPreviewBlocos.length; j++) {
+      if (autoRemovidos[j]) continue
+      const b = autoPreviewBlocos[j]
+      if (!TIPOS_PRESENCA_FISICA.has(b.tipo)) continue
+      const tecnicoB = autoOverrides[j] || b.tecnicoUid
+      if (tecnicoA !== tecnicoB) continue
+      if (a.dataInicio <= b.dataFim && b.dataInicio <= a.dataFim) {
+        indicesComConflitoAuto.add(i)
+        indicesComConflitoAuto.add(j)
+      }
+    }
+  }
+
   const confirmarGeracaoAuto = async () => {
-    if (blocosEfetivosAuto.length === 0) return
+    if (blocosEfetivosAuto.length === 0 || indicesComConflitoAuto.size > 0) return
     setAutoGerando(true)
     try {
       const response = await fetch('/api/escalas/auto', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          salaId: Number(autoSalaId),
+          ...(ehSobreaviso ? { equipeSlugs: [autoEquipeSobreaviso] } : { salaId: Number(autoSalaId) }),
           blocosManuais: blocosEfetivosAuto.map(b => ({
             dataInicio: b.dataInicio,
             dataFim: b.dataFim,
@@ -282,9 +390,9 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
       }
       await onAtualizarEscalas()
       onClose()
-      alert(`${data.criadas} escala(s) gerada(s) com sucesso!`)
+      notificar(`${data.criadas} escala(s) gerada(s) com sucesso!`, { tipo: 'sucesso' })
     } catch (error) {
-      alert(mensagemDeErro(error))
+      notificar(mensagemDeErro(error), { tipo: 'erro' })
     } finally {
       setAutoGerando(false)
     }
@@ -292,7 +400,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
 
   // Validação de cada passo — controla se dá pra avançar e destrava os
   // avisos de campo faltando.
-  const passo1Valido = Boolean(autoSalaId)
+  const passo1Valido = ehSobreaviso ? Boolean(autoEquipeSobreaviso) : Boolean(autoSalaId)
   const passo2Valido = autoTecnicosSelecionados.length > 0
   const passo3Valido = (() => {
     if (!autoForm.dataInicio) return false
@@ -303,7 +411,10 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
       if (!autoForm.dataFim || autoForm.dataFim < autoForm.dataInicio) return false
     }
     if (autoForm.tipo === 'hibrido' && autoDiasTrabalho.length === 0) return false
-    if (autoForm.tipo === 'hibrido' && salaCompartilhada && quantidadeHomeOfficeAuto < 1) return false
+    if (autoForm.tipo === 'hibrido' && ehSalaCompartilhada(salaSelecionada)) {
+      const home = autoTecnicosSelecionados.length - Number(autoQuantidadePresencial || 0)
+      if (home < 1) return false
+    }
     return true
   })()
 
@@ -332,38 +443,13 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
         </div>
 
         <div className="auto-form">
-          {/* PASSO 1 — SALA E TIPO */}
+          {/* PASSO 1 — TIPO E SALA */}
           {passoAtual === 1 && (
             <>
               <div className="auto-secao">
-                <label className="auto-secao-titulo">Sala</label>
-                <div className="auto-chip-row">
-                  {salasSelecionaveis.length === 0 ? (
-                    <p className="empty-state">Nenhuma sala disponível pra você gerar escala.</p>
-                  ) : (
-                    salasSelecionaveis.map(s => (
-                      <button
-                        type="button"
-                        key={s.id}
-                        className={`auto-chip ${Number(autoSalaId) === s.id ? 'ativo' : ''}`}
-                        onClick={() => mudarSalaAuto(s.id)}
-                      >
-                        🏢 {s.nome}
-                      </button>
-                    ))
-                  )}
-                </div>
-                {salaSelecionada && salaSelecionada.equipes.length > 1 && (
-                  <small className="auto-campo-ajuda">
-                    Essa sala é usada por {salaSelecionada.equipes.map(labelEquipe).join(', ')} — a geração mistura técnicos de todas elas juntos.
-                  </small>
-                )}
-              </div>
-
-              <div className="auto-secao">
                 <label className="auto-secao-titulo">O que você quer escalar?</label>
                 <div className="auto-chip-row">
-                  {tiposGeracaoDisponiveis(ehSuporteExclusivo(salaSelecionada)).map(tipo => (
+                  {tiposGeracaoDisponiveis(equipesParaSabado.length > 0).map(tipo => (
                     <button
                       type="button"
                       key={tipo.id}
@@ -381,6 +467,79 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                   </small>
                 )}
               </div>
+
+              {ehSobreaviso ? (
+                <div className="auto-secao">
+                  <label className="auto-secao-titulo">Equipe</label>
+                  <div className="auto-chip-row">
+                    {equipesSelecionaveisSobreaviso.length === 0 ? (
+                      <p className="empty-state">Nenhuma equipe disponível pra você gerar escala.</p>
+                    ) : (
+                      equipesSelecionaveisSobreaviso.map(eq => (
+                        <button
+                          type="button"
+                          key={eq.id}
+                          className={`auto-chip ${autoEquipeSobreaviso === eq.id ? 'ativo' : ''}`}
+                          onClick={() => mudarEquipeSobreaviso(eq.id)}
+                        >
+                          {eq.label}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  <small className="auto-campo-ajuda">
+                    Sobreaviso não ocupa lugar físico — só precisa saber de qual equipe tirar quem fica de plantão.
+                  </small>
+                </div>
+              ) : ehSabado ? (
+                <div className="auto-secao">
+                  <label className="auto-secao-titulo">Equipe</label>
+                  <div className="auto-chip-row">
+                    {equipesParaSabado.length === 0 ? (
+                      <p className="empty-state">Nenhuma equipe com sala exclusiva disponível pra escala de sábado.</p>
+                    ) : (
+                      equipesParaSabado.map(eq => (
+                        <button
+                          type="button"
+                          key={eq.id}
+                          className={`auto-chip ${salaSelecionada?.equipes[0] === eq.id ? 'ativo' : ''}`}
+                          onClick={() => mudarEquipeSabado(eq.id)}
+                        >
+                          {eq.label}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  <small className="auto-campo-ajuda">
+                    Sábado ocupa baia de verdade — a sala já é a exclusiva dessa equipe, não precisa escolher.
+                  </small>
+                </div>
+              ) : (
+                <div className="auto-secao">
+                  <label className="auto-secao-titulo">Sala</label>
+                  <div className="auto-chip-row">
+                    {salasSelecionaveis.length === 0 ? (
+                      <p className="empty-state">Nenhuma sala disponível pra você gerar escala.</p>
+                    ) : (
+                      salasSelecionaveis.map(s => (
+                        <button
+                          type="button"
+                          key={s.id}
+                          className={`auto-chip ${Number(autoSalaId) === s.id ? 'ativo' : ''}`}
+                          onClick={() => mudarSalaAuto(s.id)}
+                        >
+                          🏢 {s.nome}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                  {salaSelecionada && salaSelecionada.equipes.length > 1 && (
+                    <small className="auto-campo-ajuda">
+                      Essa sala é usada por {salaSelecionada.equipes.map(labelEquipe).join(', ')} — a geração mistura técnicos de todas elas juntos.
+                    </small>
+                  )}
+                </div>
+              )}
             </>
           )}
 
@@ -394,10 +553,10 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                 </button>
               </div>
               <div className="auto-chip-row">
-                {carregarTecnicosDaSala(salaSelecionada).length === 0 ? (
-                  <p className="empty-state">Nenhum técnico ativo nas equipes dessa sala</p>
+                {tecnicosDisponiveisAuto().length === 0 ? (
+                  <p className="empty-state">{ehSobreaviso ? 'Nenhum técnico ativo nessa equipe' : 'Nenhum técnico ativo nas equipes dessa sala'}</p>
                 ) : (
-                  carregarTecnicosDaSala(salaSelecionada).map(tecnico => (
+                  tecnicosDisponiveisAuto().map(tecnico => (
                     <button
                       type="button"
                       key={tecnico.uid}
@@ -436,147 +595,161 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                     </div>
                   </div>
 
-                  {salaCompartilhada ? (
-                    <div className="auto-secao">
-                      <label className="auto-secao-titulo">Presencial x Home Office</label>
-                      {quantidadeHomeOfficeAuto > 0 ? (
-                        <>
-                          <small className="auto-campo-ajuda">
-                            Essa sala tem {salaSelecionada?.qtdBaias} baia(s). Todo dia de trabalho, {salaSelecionada?.qtdBaias} técnico(s) ficam presencial e os outros {quantidadeHomeOfficeAuto} (de {autoTecnicosSelecionados.length} selecionados) ficam em home office, revezando. O sistema nunca escala Estag/Aprendiz, Trainee ou Supervisor em home office, nunca coloca 2 pessoas que entram às 07:00 juntas no mesmo dia, e evita colocar a mesma dupla de baia junta.
-                          </small>
-
-                          <label className="campo-toggle" style={{ marginTop: 10 }}>
-                            <span className="toggle-switch">
-                              <input
-                                type="checkbox"
-                                checked={autoRespeitarEspecialidade}
-                                onChange={(e) => setAutoRespeitarEspecialidade(e.target.checked)}
-                              />
-                              <span className="toggle-switch-slider"></span>
-                            </span>
-                            <span>Nunca repetir especialidade no mesmo grupo de home office</span>
-                          </label>
-
-                          <label className="auto-secao-titulo" style={{ marginTop: 14 }}>A cada quantos dias trocar quem fica em home office</label>
-                          <div className="auto-chip-row">
-                            <input
-                              type="number"
-                              min="1"
-                              value={autoDuracaoBlocoHome}
-                              onChange={(e) => setAutoDuracaoBlocoHome(e.target.value)}
-                              className="auto-dias-input"
-                              title="Dias seguidos que o mesmo grupo fica em home office"
-                            />
-                          </div>
-                          <small className="auto-campo-ajuda">
-                            {Number(autoDuracaoBlocoHome) === 1
-                              ? 'O grupo em home office é escolhido de novo todo dia (pode repetir ou trocar).'
-                              : `O mesmo grupo fica em home office por ${autoDuracaoBlocoHome} dias úteis seguidos antes de passar a vez.`}
-                          </small>
-                        </>
-                      ) : (
-                        <small className="auto-campo-alerta">
-                          Essa sala tem {salaSelecionada?.qtdBaias} baia(s) e você selecionou {autoTecnicosSelecionados.length} técnico(s) — todo mundo cabe presencial, não é necessário Home Office. Volte ao passo 1 e escolha o tipo &quot;Presencial&quot;.
-                        </small>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="auto-secao">
-                      <label className="auto-secao-titulo">Como decidir quem fica em Home Office</label>
-                      <div className="auto-chip-row">
-                        <button
-                          type="button"
-                          className={`auto-chip ${autoModoHome === 'percentual' ? 'ativo' : ''}`}
-                          onClick={() => setAutoModoHome('percentual')}
-                        >
-                          Porcentagem
-                        </button>
-                        <button
-                          type="button"
-                          className={`auto-chip ${autoModoHome === 'quantidade' ? 'ativo' : ''}`}
-                          onClick={() => setAutoModoHome('quantidade')}
-                        >
-                          Quantidade fixa por dia
-                        </button>
-                      </div>
-
-                      {autoModoHome === 'percentual' ? (
-                        <>
-                          <div className="auto-chip-row">
-                            {PERCENTUAL_PRESETS.map(p => (
-                              <button
-                                type="button"
-                                key={p}
-                                className={`auto-chip ${autoPercentualHome === p ? 'ativo' : ''}`}
-                                onClick={() => setAutoPercentualHome(p)}
-                              >
-                                {p}%
-                              </button>
-                            ))}
-                            <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              value={autoPercentualHome}
-                              onChange={(e) => setAutoPercentualHome(e.target.value)}
-                              className="auto-dias-input"
-                              title="Porcentagem personalizada"
-                            />
-                          </div>
-                          {autoTecnicosSelecionados.length > 0 && (
-                            <small className="auto-campo-ajuda">
-                              Todo dia de trabalho, {Math.round((autoTecnicosSelecionados.length * Number(autoPercentualHome || 0)) / 100)} de {autoTecnicosSelecionados.length} técnico(s) ficam em home office; os demais ficam presencial.
+                  <div className="auto-secao">
+                    {ehSalaCompartilhada(salaSelecionada) ? (
+                      <>
+                        <label className="auto-secao-titulo">Quantas pessoas ficam presenciais por dia</label>
+                        <div className="auto-chip-row">
+                          <input
+                            type="number"
+                            min="1"
+                            value={autoQuantidadePresencial}
+                            onChange={(e) => setAutoQuantidadePresencial(e.target.value)}
+                            className="auto-dias-input"
+                            title="Quantidade de pessoas presenciais por dia"
+                          />
+                        </div>
+                        {(() => {
+                          const presencial = Number(autoQuantidadePresencial) || 0
+                          const home = autoTecnicosSelecionados.length - presencial
+                          return home <= 0 ? (
+                            <small className="auto-campo-alerta">
+                              Isso não deixaria ninguém em home office — reduza a quantidade presencial (tem {autoTecnicosSelecionados.length} técnico(s) selecionado(s)).
                             </small>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <div className="auto-chip-row">
-                            <input
-                              type="number"
-                              min="1"
-                              value={autoQuantidadeHome}
-                              onChange={(e) => setAutoQuantidadeHome(e.target.value)}
-                              className="auto-dias-input"
-                              title="Quantidade de pessoas em home office por dia"
-                            />
-                          </div>
-                          <small className="auto-campo-ajuda">
-                            Todo dia de trabalho, exatamente {autoQuantidadeHome} pessoa(s) ficam em home office. O sistema nunca escala Estag/Aprendiz, Trainee ou Supervisor, nunca coloca 2 pessoas que entram às 07:00 juntas no mesmo dia, e evita colocar a mesma dupla de baia junta.
-                          </small>
+                          ) : (
+                            <small className="auto-campo-ajuda">
+                              Todo dia de trabalho, exatamente {presencial} de {autoTecnicosSelecionados.length} técnico(s) ficam presenciais (a sala tem {capacidadePresencialDaSala(salaSelecionada)} baia(s) configurada(s)); os demais {home} ficam em home office.
+                            </small>
+                          )
+                        })()}
 
-                          <label className="campo-toggle" style={{ marginTop: 10 }}>
-                            <span className="toggle-switch">
-                              <input
-                                type="checkbox"
-                                checked={autoRespeitarEspecialidade}
-                                onChange={(e) => setAutoRespeitarEspecialidade(e.target.checked)}
-                              />
-                              <span className="toggle-switch-slider"></span>
-                            </span>
-                            <span>Nunca repetir especialidade no mesmo grupo de home office</span>
-                          </label>
-
-                          <label className="auto-secao-titulo" style={{ marginTop: 14 }}>A cada quantos dias trocar a dupla</label>
-                          <div className="auto-chip-row">
+                        <label className="campo-toggle" style={{ marginTop: 10 }}>
+                          <span className="toggle-switch">
                             <input
-                              type="number"
-                              min="1"
-                              value={autoDuracaoBlocoHome}
-                              onChange={(e) => setAutoDuracaoBlocoHome(e.target.value)}
-                              className="auto-dias-input"
-                              title="Dias seguidos que a mesma dupla fica em home office"
+                              type="checkbox"
+                              checked={autoRespeitarEspecialidade}
+                              onChange={(e) => setAutoRespeitarEspecialidade(e.target.checked)}
                             />
-                          </div>
-                          <small className="auto-campo-ajuda">
-                            {Number(autoDuracaoBlocoHome) === 1
-                              ? 'A dupla é escolhida de novo todo dia (pode repetir ou trocar).'
-                              : `A mesma dupla fica em home office por ${autoDuracaoBlocoHome} dias úteis seguidos antes de passar a vez pra próxima.`}
-                          </small>
-                        </>
-                      )}
+                            <span className="toggle-switch-slider"></span>
+                          </span>
+                          <span>Nunca repetir especialidade no mesmo grupo de home office</span>
+                        </label>
+
+                        <label className="auto-secao-titulo" style={{ marginTop: 14 }}>A cada quantos dias trocar quem fica em Home Office</label>
+                        <div className="auto-chip-row">
+                          <input
+                            type="number"
+                            min="1"
+                            value={autoDuracaoBlocoHome}
+                            onChange={(e) => setAutoDuracaoBlocoHome(e.target.value)}
+                            className="auto-dias-input"
+                            title="Dias seguidos que o mesmo grupo fica em home office"
+                          />
+                        </div>
+                        <small className="auto-campo-ajuda">
+                          {Number(autoDuracaoBlocoHome) === 1
+                            ? 'O grupo em home office é escolhido de novo todo dia (pode repetir ou trocar).'
+                            : `O mesmo grupo fica em home office por ${autoDuracaoBlocoHome} dias úteis seguidos antes de passar a vez pro próximo.`}
+                        </small>
+                      </>
+                    ) : (
+                      <>
+                    <label className="auto-secao-titulo">Como decidir quem fica em Home Office</label>
+                    <div className="auto-chip-row">
+                      <button
+                        type="button"
+                        className={`auto-chip ${autoModoHome === 'percentual' ? 'ativo' : ''}`}
+                        onClick={() => setAutoModoHome('percentual')}
+                      >
+                        Porcentagem
+                      </button>
+                      <button
+                        type="button"
+                        className={`auto-chip ${autoModoHome === 'quantidade' ? 'ativo' : ''}`}
+                        onClick={() => setAutoModoHome('quantidade')}
+                      >
+                        Quantidade fixa por dia
+                      </button>
                     </div>
-                  )}
+
+                    {autoModoHome === 'percentual' ? (
+                      <>
+                        <div className="auto-chip-row">
+                          {PERCENTUAL_PRESETS.map(p => (
+                            <button
+                              type="button"
+                              key={p}
+                              className={`auto-chip ${autoPercentualHome === p ? 'ativo' : ''}`}
+                              onClick={() => setAutoPercentualHome(p)}
+                            >
+                              {p}%
+                            </button>
+                          ))}
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={autoPercentualHome}
+                            onChange={(e) => setAutoPercentualHome(e.target.value)}
+                            className="auto-dias-input"
+                            title="Porcentagem personalizada"
+                          />
+                        </div>
+                        {autoTecnicosSelecionados.length > 0 && (
+                          <small className="auto-campo-ajuda">
+                            Todo dia de trabalho, {Math.round((autoTecnicosSelecionados.length * Number(autoPercentualHome || 0)) / 100)} de {autoTecnicosSelecionados.length} técnico(s) ficam em home office; os demais ficam presencial.
+                          </small>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="auto-chip-row">
+                          <input
+                            type="number"
+                            min="1"
+                            value={autoQuantidadeHome}
+                            onChange={(e) => setAutoQuantidadeHome(e.target.value)}
+                            className="auto-dias-input"
+                            title="Quantidade de pessoas em home office por dia"
+                          />
+                        </div>
+                        <small className="auto-campo-ajuda">
+                          Todo dia de trabalho, exatamente {autoQuantidadeHome} pessoa(s) ficam em home office. O sistema nunca escala Estag/Aprendiz, Trainee ou Supervisor, nunca coloca 2 pessoas que entram às 07:00 juntas no mesmo dia, e evita colocar a mesma dupla de especialidade junta.
+                        </small>
+
+                        <label className="campo-toggle" style={{ marginTop: 10 }}>
+                          <span className="toggle-switch">
+                            <input
+                              type="checkbox"
+                              checked={autoRespeitarEspecialidade}
+                              onChange={(e) => setAutoRespeitarEspecialidade(e.target.checked)}
+                            />
+                            <span className="toggle-switch-slider"></span>
+                          </span>
+                          <span>Nunca repetir especialidade no mesmo grupo de home office</span>
+                        </label>
+
+                        <label className="auto-secao-titulo" style={{ marginTop: 14 }}>A cada quantos dias trocar a dupla</label>
+                        <div className="auto-chip-row">
+                          <input
+                            type="number"
+                            min="1"
+                            value={autoDuracaoBlocoHome}
+                            onChange={(e) => setAutoDuracaoBlocoHome(e.target.value)}
+                            className="auto-dias-input"
+                            title="Dias seguidos que a mesma dupla fica em home office"
+                          />
+                        </div>
+                        <small className="auto-campo-ajuda">
+                          {Number(autoDuracaoBlocoHome) === 1
+                            ? 'A dupla é escolhida de novo todo dia (pode repetir ou trocar).'
+                            : `A mesma dupla fica em home office por ${autoDuracaoBlocoHome} dias úteis seguidos antes de passar a vez pra próxima.`}
+                        </small>
+                      </>
+                    )}
+                      </>
+                    )}
+                  </div>
                 </>
               )}
 
@@ -728,12 +901,19 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                     ))}
                   </div>
 
+                  {indicesComConflitoAuto.size > 0 && (
+                    <p className="auto-preview-erro">
+                      ⚠️ Tem gente com duas escalas físicas (presencial/home office/sábado) no mesmo dia depois das trocas feitas abaixo — ajuste os itens marcados antes de confirmar.
+                    </p>
+                  )}
+
                   <div className="auto-preview-lista">
                     {autoPreviewBlocos.map((b, i) => {
                       if (autoRemovidos[i]) return null
                       const tecnicoAtualUid = autoOverrides[i] || b.tecnicoUid
+                      const emConflito = indicesComConflitoAuto.has(i)
                       return (
-                        <div key={i} className="auto-preview-item">
+                        <div key={i} className={`auto-preview-item${emConflito ? ' auto-preview-item-conflito' : ''}`}>
                           <span className="auto-preview-tipo">
                             {b.tipo === 'presencial' ? '🏢' : b.tipo === 'homeoffice' ? '🏠' : b.tipo === 'sabado' ? '📅' : '🚨'}
                           </span>
@@ -747,7 +927,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                             value={tecnicoAtualUid}
                             onChange={(e) => setAutoOverrides(prev => ({ ...prev, [i]: e.target.value }))}
                           >
-                            {carregarTecnicosDaSala(salaSelecionada).map(t => (
+                            {tecnicosDisponiveisAuto().map(t => (
                               <option key={t.uid} value={t.uid}>{t.nome}</option>
                             ))}
                           </select>
@@ -759,6 +939,11 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
                           >
                             ✕
                           </button>
+                          {emConflito && (
+                            <small className="auto-preview-item-conflito-aviso">
+                              ⚠️ {b.tipo === 'presencial' ? '🏢' : b.tipo === 'homeoffice' ? '🏠' : '📅'} duplicado pra essa pessoa nesse período
+                            </small>
+                          )}
                         </div>
                       )
                     })}
@@ -785,7 +970,7 @@ export default function GeradorEscalaModal({ userData, usuarios, salas, onClose,
               </button>
             )}
             {passoAtual === 4 && (
-              <button type="button" className="btn-success" disabled={autoGerando || blocosEfetivosAuto.length === 0} onClick={confirmarGeracaoAuto}>
+              <button type="button" className="btn-success" disabled={autoGerando || blocosEfetivosAuto.length === 0 || indicesComConflitoAuto.size > 0} onClick={confirmarGeracaoAuto}>
                 {autoGerando
                   ? 'Gerando...'
                   : blocosEfetivosAuto.length > 0
