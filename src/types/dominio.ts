@@ -67,6 +67,16 @@ export interface Troca {
   escalaSolicitadaTipo: string | null
   escalaSolicitadaDataInicio: string | null
   escalaSolicitadaDataFim: string | null
+  // Dias/períodos extras da mesma solicitação — dá pra inverter mais de um
+  // dia/período (ex: os dois lados de um revezamento) numa troca só.
+  itensExtras: Array<{
+    escalaTipo: string
+    escalaDataInicio: string
+    escalaDataFim: string
+    escalaSolicitadaTipo: string | null
+    escalaSolicitadaDataInicio: string | null
+    escalaSolicitadaDataFim: string | null
+  }>
 }
 
 export interface EscalaLixeira {

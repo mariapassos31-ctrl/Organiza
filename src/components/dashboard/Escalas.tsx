@@ -45,7 +45,24 @@ export default function Escalas() {
   const [destinoTroca, setDestinoTroca] = useState('')
   const [enviandoTroca, setEnviandoTroca] = useState(false)
   const [escalaOferecidaId, setEscalaOferecidaId] = useState('')
+  // Itens extras da mesma proposta mútua — dá pra inverter mais de um
+  // dia/período numa ação só (ex: dia 6 E dia 13 de um revezamento) em vez
+  // de precisar criar uma segunda troca manual depois.
+  const [itensExtrasTroca, setItensExtrasTroca] = useState<Array<{
+    escalaOferecidaId: string
+    diasOferecidos: string[]
+    escalaSolicitadaId: string
+    diasSolicitados: string[]
+  }>>([])
   const [trocarDireto, setTrocarDireto] = useState(false)
+  // Campo próprio pra "com quem trocar" — separado do Técnico/Analista
+  // (que fica travado mostrando quem já está na escala) pra não misturar
+  // "quem está aqui" com "quem vai entrar", igual já funciona na troca
+  // entre colegas.
+  const [novoTecnicoTrocaDireto, setNovoTecnicoTrocaDireto] = useState('')
+  // Uma lista só de dias — cada dia já resolve sozinho quem tinha o quê
+  // (dono da escala aberta vs. o novo técnico), sem distinção entre "dia
+  // principal" e "dia extra".
   const [diasTrocaDireta, setDiasTrocaDireta] = useState<string[]>([])
   const [baiasPerfil, setBaiasPerfil] = useState<Record<string, string>>({})
   const [laboratorioConfig, setLaboratorioConfig] = useState<ConfigLab>({ responsavelUid: null, backupUid: null })
@@ -422,10 +439,20 @@ export default function Escalas() {
   // é "a pessoa antiga" na hora de submeter.
   const escalaOriginalEmEdicao = editingId ? escalas.find(e => e.id === editingId) : null
   const tecnicoOriginalUid = escalaOriginalEmEdicao?.tecnicos?.[0] ?? null
-  const tecnicoFoiTrocado = Boolean(
-    tecnicoOriginalUid && formData.tecnicos[0] && formData.tecnicos[0] !== tecnicoOriginalUid
-  )
+  const tecnicoFoiTrocado = Boolean(novoTecnicoTrocaDireto)
   const mostrarOpcaoTrocarDireto = canEditCurrent
+
+  // Escalas físicas reais (presencial/home office/sábado) de qualquer um
+  // dos dois envolvidos na troca direta — vira a lista de dias candidatos
+  // do checklist (com o que cada um já tem em cada dia), em vez de digitar
+  // uma data às cegas ou depender de uma escala específica.
+  const escalasFisicasTrocaDireta = escalas
+    .filter(e =>
+      e.status === 'ativa' &&
+      ['presencial', 'homeoffice', 'sabado'].includes(e.tipo) &&
+      (e.tecnicos || []).some(uid => uid === tecnicoOriginalUid || uid === novoTecnicoTrocaDireto)
+    )
+    .sort((a, b) => a.dataInicio.localeCompare(b.dataInicio))
 
   useEffect(() => {
     if (!mostrarOpcaoTrocarDireto) {
@@ -433,12 +460,16 @@ export default function Escalas() {
     }
   }, [mostrarOpcaoTrocarDireto])
 
-  // Trocando de novo o técnico no meio do processo (ou desmarcando "trocar
-  // direto"), os dias marcados antes podem não fazer mais sentido — mais
-  // simples pedir pra escolher de novo do que tentar adivinhar se ainda serve.
+  // Trocando de novo quem entra no lugar (ou desmarcando "trocar direto"),
+  // os dias marcados antes podem não fazer mais sentido — mais simples
+  // pedir pra escolher de novo do que tentar adivinhar se ainda serve.
   useEffect(() => {
     setDiasTrocaDireta([])
-  }, [formData.tecnicos[0], trocarDireto])
+  }, [novoTecnicoTrocaDireto, trocarDireto])
+
+  useEffect(() => {
+    if (!trocarDireto) setNovoTecnicoTrocaDireto('')
+  }, [trocarDireto])
 
   const souTecnico = userData?.role !== 'admin' && userData?.role !== 'gestor'
   const ehMinhaEscala = modalOpen && (formData.tecnicos || []).includes(userData?.uid ?? "")
@@ -484,6 +515,41 @@ export default function Escalas() {
     .filter(e => (e.tecnicos || []).includes(userData?.uid ?? "") && e.id !== editingId)
     .sort((a, b) => a.dataInicio.localeCompare(b.dataInicio))
 
+  // Escalas do mesmo colega além da que está aberta agora — alimenta o
+  // dropdown de "escala do colega" dos itens extras da troca mútua.
+  const escalasDoColegaParaTroca = escalas
+    .filter(e => donoDaEscalaAberta && (e.tecnicos || []).includes(donoDaEscalaAberta.uid) && e.status === 'ativa')
+    .sort((a, b) => a.dataInicio.localeCompare(b.dataInicio))
+
+  const adicionarItemExtraTroca = () => {
+    setItensExtrasTroca(prev => [...prev, { escalaOferecidaId: '', diasOferecidos: [], escalaSolicitadaId: '', diasSolicitados: [] }])
+  }
+
+  const removerItemExtraTroca = (indice: number) => {
+    setItensExtrasTroca(prev => prev.filter((_, i) => i !== indice))
+  }
+
+  const atualizarItemExtraTroca = (indice: number, patch: Partial<{ escalaOferecidaId: string; diasOferecidos: string[]; escalaSolicitadaId: string; diasSolicitados: string[] }>) => {
+    setItensExtrasTroca(prev => prev.map((item, i) => i === indice ? { ...item, ...patch } : item))
+  }
+
+  // Os seletores de dias (SeletorDiasSimples/SeletorDiasProporcional) usam
+  // Dispatch<SetStateAction<string[]>> (aceitam tanto o valor quanto uma
+  // função atualizadora) — esses helpers adaptam isso pra um item da lista.
+  const setDiasOferecidosExtra = (indice: number) => (valor: string[] | ((atual: string[]) => string[])) => {
+    setItensExtrasTroca(prev => prev.map((item, i) => i !== indice ? item : {
+      ...item,
+      diasOferecidos: typeof valor === 'function' ? valor(item.diasOferecidos) : valor,
+    }))
+  }
+
+  const setDiasSolicitadosExtra = (indice: number) => (valor: string[] | ((atual: string[]) => string[])) => {
+    setItensExtrasTroca(prev => prev.map((item, i) => i !== indice ? item : {
+      ...item,
+      diasSolicitados: typeof valor === 'function' ? valor(item.diasSolicitados) : valor,
+    }))
+  }
+
   const nomeTipoEscala = (tipoId: string) => TIPOS_ESCALA.find(t => t.id === tipoId)?.label || tipoId
 
   const enviarPropostaTroca = async () => {
@@ -499,6 +565,20 @@ export default function Escalas() {
       notificar(`Selecione exatamente ${diasTroca.length} dia(s) que você está pedindo, pra ficar equivalente`)
       return
     }
+    for (const item of itensExtrasTroca) {
+      if (!item.escalaOferecidaId || !item.escalaSolicitadaId) {
+        notificar('Preencha a escala oferecida e a escala pedida em todos os dias/períodos extras')
+        return
+      }
+      if (item.diasOferecidos.length === 0) {
+        notificar('Selecione pelo menos um dia em cada dia/período extra que você adicionou')
+        return
+      }
+      if (item.diasSolicitados.length !== item.diasOferecidos.length) {
+        notificar(`Em cada dia/período extra, selecione exatamente a mesma quantidade de dias dos dois lados`)
+        return
+      }
+    }
     setEnviandoTroca(true)
     try {
       const response = await fetch('/api/trocas', {
@@ -510,6 +590,12 @@ export default function Escalas() {
           escalaSolicitadaId: editingId,
           dias: diasTroca,
           diasSolicitada: diasSolicitadaTroca,
+          itensExtras: itensExtrasTroca.map(item => ({
+            escalaId: item.escalaOferecidaId,
+            dias: item.diasOferecidos,
+            escalaSolicitadaId: item.escalaSolicitadaId,
+            diasSolicitada: item.diasSolicitados,
+          })),
         }),
       })
       if (!response.ok) {
@@ -692,6 +778,22 @@ export default function Escalas() {
     return `${formatarBR(p.dataInicio!)} a ${formatarBR(p.dataFim!)}`
   }
 
+  // Especialidade Externo nunca pode ficar Presencial (não ocupa baia) — em
+  // vez de deixar a troca travar nisso, qualquer dia marcado onde isso
+  // esbarraria já vai identificado aqui: quem tem a especialidade Externo
+  // simplesmente NÃO recebe escala nesse dia (fica na vaga do Externo, ou o
+  // backup assume). O EscalaEditModal já avisa isso no rótulo do dia antes
+  // de marcar.
+  const diasComoHomeOfficeParaExterno = (dias: string[]): string[] => {
+    const especialidade = (uid: string | null) => usuarios.find(u => u.uid === uid)?.especialidade
+    const tipoNoDia = (uid: string | null, dia: string) =>
+      escalasFisicasTrocaDireta.find(e => e.tecnicos[0] === uid && dia >= e.dataInicio && dia <= e.dataFim)?.tipo
+    return dias.filter(dia =>
+      (tipoNoDia(tecnicoOriginalUid, dia) === 'presencial' && especialidade(novoTecnicoTrocaDireto) === 'Externo') ||
+      (tipoNoDia(novoTecnicoTrocaDireto, dia) === 'presencial' && especialidade(tecnicoOriginalUid) === 'Externo')
+    )
+  }
+
   const salvarTrocaDireta = async (): Promise<void> => {
     if (diasTrocaDireta.length === 0) {
       notificar('Selecione pelo menos um dia pra trocar')
@@ -702,8 +804,9 @@ export default function Escalas() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          novoTecnicoUid: formData.tecnicos[0],
+          novoTecnicoUid: novoTecnicoTrocaDireto,
           dias: diasTrocaDireta,
+          diasComoHomeOffice: diasComoHomeOfficeParaExterno(diasTrocaDireta),
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -712,23 +815,32 @@ export default function Escalas() {
       }
 
       const nomeAntigo = getNomeTecnico(tecnicoOriginalUid ?? '')
-      const nomeNovo = getNomeTecnico(formData.tecnicos[0])
-      const periodo = formatarPeriodo(data.periodoQueSaiu)
-      const oQueVoltou: Array<{ tipo: string; dias: string[] }> = data.oQueNovoDeuEmTroca || []
+      const nomeNovo = getNomeTecnico(novoTecnicoTrocaDireto)
+      // "novoAssumiu" é o que era do antigo e passou pro novo; "antigoAssumiu"
+      // é o inverso — cada dia já resolveu sozinho quem tinha o quê.
+      const novoAssumiu: Array<{ tipo: string; dias: string[] }> = data.novoAssumiu || []
+      const antigoAssumiu: Array<{ tipo: string; dias: string[] }> = data.antigoAssumiu || []
 
       await carregarEscalas()
       setEditingId(null)
       setModalOpen(false)
       setTrocarDireto(false)
 
-      const mensagemVolta = oQueVoltou.length > 0
-        ? `${nomeAntigo} assumiu ${oQueVoltou.map(f => `${nomeTipoEscala(f.tipo)} em ${formatarPeriodo({ dias: f.dias })}`).join(' e ')}.`
-        : `${nomeNovo} não tinha nada marcado nesses dias, então ${nomeAntigo} ficou sem nada nesse período.`
+      // "externo" não é um tipo de escala de verdade — é o caso em que
+      // quem tem a especialidade Externo não recebeu nada (ficou na vaga
+      // do Externo em vez de assumir uma escala), então tem frase própria.
+      const rotularAssuncao = (nome: string, fragmentos: Array<{ tipo: string; dias: string[] }>): string =>
+        fragmentos.map(f => f.tipo === 'externo'
+          ? `${nome} ficou na vaga do Externo (sem escala própria) em ${formatarPeriodo({ dias: f.dias })}`
+          : `${nome} assumiu ${nomeTipoEscala(f.tipo)} em ${formatarPeriodo({ dias: f.dias })}`
+        ).join(' e ') + '.'
 
-      notificar(
-        `${nomeNovo} assumiu ${nomeTipoEscala(formData.tipo)} em ${periodo}.\n${mensagemVolta}`,
-        { tipo: 'sucesso', titulo: '🔄 Troca feita!' }
-      )
+      const partes = [
+        novoAssumiu.length > 0 && rotularAssuncao(nomeNovo, novoAssumiu),
+        antigoAssumiu.length > 0 && rotularAssuncao(nomeAntigo, antigoAssumiu),
+      ].filter(Boolean)
+
+      notificar(partes.join('\n'), { tipo: 'sucesso', titulo: '🔄 Troca feita!' })
     } catch (error) {
       notificar(mensagemDeErro(error), { tipo: 'erro' })
     }
@@ -746,7 +858,7 @@ export default function Escalas() {
     }
     if (trocarDireto) {
       if (!tecnicoFoiTrocado) {
-        notificar('Escolha, no campo Técnico/Analista, a pessoa que vai entrar no lugar')
+        notificar('Escolha, no campo "Trocar com quem?", a pessoa que vai entrar no lugar')
         return
       }
       await salvarTrocaDireta()
@@ -795,7 +907,9 @@ export default function Escalas() {
     setDiasSolicitadaTroca([])
     setDestinoTroca('')
     setEscalaOferecidaId('')
+    setItensExtrasTroca([])
     setTrocarDireto(false)
+    setNovoTecnicoTrocaDireto('')
     setDiasTrocaDireta([])
   }
 
@@ -841,7 +955,9 @@ export default function Escalas() {
     })
     setMostrarFormTroca(false)
     setDiasSolicitadaTroca([])
+    setItensExtrasTroca([])
     setTrocarDireto(false)
+    setNovoTecnicoTrocaDireto('')
     setDiasTrocaDireta([])
   }
 
@@ -993,14 +1109,25 @@ export default function Escalas() {
         setEscalaOferecidaId={setEscalaOferecidaId}
         diasSolicitadaTroca={diasSolicitadaTroca}
         setDiasSolicitadaTroca={setDiasSolicitadaTroca}
+        escalasDoColegaParaTroca={escalasDoColegaParaTroca}
+        itensExtrasTroca={itensExtrasTroca}
+        onAdicionarItemExtraTroca={adicionarItemExtraTroca}
+        onRemoverItemExtraTroca={removerItemExtraTroca}
+        onAtualizarItemExtraTroca={atualizarItemExtraTroca}
+        setDiasOferecidosExtra={setDiasOferecidosExtra}
+        setDiasSolicitadosExtra={setDiasSolicitadosExtra}
         onEnviarPropostaTroca={enviarPropostaTroca}
         mostrarOpcaoTrocarDireto={mostrarOpcaoTrocarDireto}
         nomeTecnicoOriginal={getNomeTecnico(tecnicoOriginalUid ?? '')}
+        tecnicoOriginalUid={tecnicoOriginalUid}
         tecnicoFoiTrocado={tecnicoFoiTrocado}
         trocarDireto={trocarDireto}
         setTrocarDireto={setTrocarDireto}
+        novoTecnicoTrocaDireto={novoTecnicoTrocaDireto}
+        setNovoTecnicoTrocaDireto={setNovoTecnicoTrocaDireto}
         diasTrocaDireta={diasTrocaDireta}
         setDiasTrocaDireta={setDiasTrocaDireta}
+        escalasFisicasTrocaDireta={escalasFisicasTrocaDireta}
       />
 
       {autoModalOpen && (

@@ -4,7 +4,7 @@ import type { Dispatch, FormEvent, SetStateAction } from 'react'
 import { EQUIPES } from '../../../lib/equipesConfig'
 import type { Escala, FormEscala, Sala, Usuario } from '../../../types/dominio'
 import { tiposDisponiveisParaEquipe } from '../../../lib/escalasConstants'
-import { formatarDataBR, SeletorPeriodoOuDias, SeletorDiasSimples, SeletorDiasProporcional } from './SeletorDiasTroca'
+import { formatarDataBR, listarDiasDoPeriodo, SeletorPeriodoOuDias, SeletorDiasSimples, SeletorDiasProporcional, SeletorDiasComPreVia, PainelDeParaTroca } from './SeletorDiasTroca'
 
 export default function EscalaEditModal({
   open,
@@ -38,14 +38,25 @@ export default function EscalaEditModal({
   setEscalaOferecidaId,
   diasSolicitadaTroca,
   setDiasSolicitadaTroca,
+  escalasDoColegaParaTroca,
+  itensExtrasTroca,
+  onAdicionarItemExtraTroca,
+  onRemoverItemExtraTroca,
+  onAtualizarItemExtraTroca,
+  setDiasOferecidosExtra,
+  setDiasSolicitadosExtra,
   onEnviarPropostaTroca,
   mostrarOpcaoTrocarDireto,
   nomeTecnicoOriginal,
+  tecnicoOriginalUid,
   tecnicoFoiTrocado,
   trocarDireto,
   setTrocarDireto,
+  novoTecnicoTrocaDireto,
+  setNovoTecnicoTrocaDireto,
   diasTrocaDireta,
   setDiasTrocaDireta,
+  escalasFisicasTrocaDireta,
 }: {
   open: boolean
   formData: FormEscala
@@ -78,18 +89,64 @@ export default function EscalaEditModal({
   setEscalaOferecidaId: (valor: string) => void
   diasSolicitadaTroca: string[]
   setDiasSolicitadaTroca: Dispatch<SetStateAction<string[]>>
+  escalasDoColegaParaTroca: Escala[]
+  itensExtrasTroca: Array<{ escalaOferecidaId: string; diasOferecidos: string[]; escalaSolicitadaId: string; diasSolicitados: string[] }>
+  onAdicionarItemExtraTroca: () => void
+  onRemoverItemExtraTroca: (indice: number) => void
+  onAtualizarItemExtraTroca: (indice: number, patch: Partial<{ escalaOferecidaId: string; diasOferecidos: string[]; escalaSolicitadaId: string; diasSolicitados: string[] }>) => void
+  setDiasOferecidosExtra: (indice: number) => Dispatch<SetStateAction<string[]>>
+  setDiasSolicitadosExtra: (indice: number) => Dispatch<SetStateAction<string[]>>
   onEnviarPropostaTroca: () => void
   mostrarOpcaoTrocarDireto: boolean
   nomeTecnicoOriginal: string
+  tecnicoOriginalUid: string | null
   tecnicoFoiTrocado: boolean
   trocarDireto: boolean
   setTrocarDireto: (valor: boolean) => void
+  novoTecnicoTrocaDireto: string
+  setNovoTecnicoTrocaDireto: (valor: string) => void
   diasTrocaDireta: string[]
   setDiasTrocaDireta: Dispatch<SetStateAction<string[]>>
+  escalasFisicasTrocaDireta: Escala[]
 }) {
   if (!open) return null
 
   const escalaOferecidaSelecionada = minhasEscalasParaOferecer?.find(e => e.id === escalaOferecidaId)
+
+  // Todo dia que qualquer uma das duas pessoas tem uma escala física —
+  // candidatos do checklist único da troca direta. Mostrar o que cada um
+  // já tem, dia a dia, evita ter que escolher "de quem é a escala"
+  // separadamente (isso é o que deixava confuso) — não tem distinção entre
+  // "dia principal" e "dia extra", é só uma lista.
+  const diasCandidatosTrocaDireta = [...new Set(
+    escalasFisicasTrocaDireta.flatMap(e => listarDiasDoPeriodo(e.dataInicio, e.dataFim))
+  )].sort()
+
+  const tipoNoDia = (uid: string | null, dia: string): string | null => {
+    const encontrada = escalasFisicasTrocaDireta.find(e => e.tecnicos[0] === uid && dia >= e.dataInicio && dia <= e.dataFim)
+    return encontrada ? encontrada.tipo : null
+  }
+
+  const statusNoDia = (uid: string | null, dia: string) => {
+    const tipo = tipoNoDia(uid, dia)
+    return tipo ? nomeTipoEscala(tipo) : '— nada —'
+  }
+
+  const especialidadeDoTecnico = (uid: string | null) => tecnicosDisponiveis.find(t => t.uid === uid)?.especialidade
+
+  // Especialidade Externo nunca pode ficar Presencial (não ocupa baia) — se
+  // marcar um dia desses, a pessoa Externo simplesmente não recebe escala
+  // nesse dia (fica na vaga do Externo, ou o backup assume — confirmado só
+  // de marcar a caixinha, por isso o aviso já aparece direto no rótulo do
+  // dia).
+  const conflitoExternoNoDia = (dia: string): boolean =>
+    (tipoNoDia(tecnicoOriginalUid, dia) === 'presencial' && especialidadeDoTecnico(novoTecnicoTrocaDireto) === 'Externo') ||
+    (tipoNoDia(novoTecnicoTrocaDireto, dia) === 'presencial' && especialidadeDoTecnico(tecnicoOriginalUid) === 'Externo')
+
+  const rotuloDiaTrocaDireta = (dia: string) => {
+    const base = `${nomeTecnicoOriginal}: ${statusNoDia(tecnicoOriginalUid, dia)} · ${getNomeTecnico(novoTecnicoTrocaDireto)}: ${statusNoDia(novoTecnicoTrocaDireto, dia)}`
+    return conflitoExternoNoDia(dia) ? `${base} — ⚠️ quem é Externo fica sem escala nesse dia (vaga do Externo, não ocupa baia)` : base
+  }
 
   // Só faz sentido escolher sala quando a equipe está em mais de uma
   // (formalizadas num rodízio "Entre Salas" ou não — qualquer configuração
@@ -168,63 +225,50 @@ export default function EscalaEditModal({
               </select>
             </div>
           </div>
-          <div className="form-group">
-            <label>Técnico/Analista *</label>
-            <select
-              value={formData.tecnicos[0] || ''}
-              onChange={(e) => {
-                setFormData({ ...formData, tecnicos: e.target.value ? [e.target.value] : [] })
-              }}
-              className="form-group-select"
-              disabled={!canEdit}
-            >
-              {canEdit ? (
-                <>
-                  <option value="">Selecione um técnico...</option>
-                  {tecnicosDisponiveis.map(tecnico => (
-                    <option key={tecnico.uid} value={tecnico.uid}>
-                      {tecnico.nome}
-                    </option>
-                  ))}
-                </>
-              ) : (
-                <option value={formData.tecnicos[0] || ''}>
-                  {getNomeTecnico(formData.tecnicos[0])}
-                </option>
-              )}
-            </select>
-          </div>
           {mostrarOpcaoTrocarDireto && (
+            <label className="campo-toggle campo-toggle-trocar-direto">
+              <input
+                type="checkbox"
+                checked={trocarDireto}
+                onChange={(e) => setTrocarDireto(e.target.checked)}
+              />
+              🔄 Trocar direto — escolha os dias e quem entra no lugar
+            </label>
+          )}
+          <div className="form-group">
+            <label>Técnico/Analista</label>
+            {/* Sempre travado — reatribuir direto por aqui pularia toda a
+                lógica de troca (quem assume o lugar de quem, conflito de
+                horário/especialidade etc.). Pra trocar quem está na
+                escala, usa "Trocar direto" (ou solicita uma troca). */}
+            <input type="text" value={getNomeTecnico(formData.tecnicos[0])} disabled />
+          </div>
+          {mostrarOpcaoTrocarDireto && trocarDireto && (
             <>
-              <label className="campo-toggle campo-toggle-trocar-direto">
-                <input
-                  type="checkbox"
-                  checked={trocarDireto}
-                  onChange={(e) => setTrocarDireto(e.target.checked)}
-                />
-                🔄 Trocar direto — escolha os dias e quem entra no lugar
-              </label>
-              {trocarDireto && !tecnicoFoiTrocado && (
-                <p className="auto-campo-alerta">
-                  Escolha, no campo Técnico/Analista acima, a pessoa que vai entrar no lugar de <strong>{nomeTecnicoOriginal}</strong>.
-                </p>
-              )}
-              {trocarDireto && tecnicoFoiTrocado && (
+              <div className="form-group">
+                <label>🔄 Trocar com quem?</label>
+                <select
+                  className="troca-select-escala"
+                  value={novoTecnicoTrocaDireto}
+                  onChange={(e) => setNovoTecnicoTrocaDireto(e.target.value)}
+                >
+                  <option value="">Selecione um colega...</option>
+                  {tecnicosDisponiveis.filter(t => t.uid !== tecnicoOriginalUid).map(tecnico => (
+                    <option key={tecnico.uid} value={tecnico.uid}>{tecnico.nome}</option>
+                  ))}
+                </select>
+              </div>
+              {tecnicoFoiTrocado && (
                 <div className="troca-form">
-                  <p className="troca-explicacao">
-                    Trocar com <strong>{getNomeTecnico(formData.tecnicos[0])}</strong> nesses dias:
+                  <p className="de-para-painel-subtitulo">
+                    Marque o(s) dia(s) pra trocar entre <strong>{nomeTecnicoOriginal}</strong> e <strong>{getNomeTecnico(novoTecnicoTrocaDireto)}</strong> — já mostrando o que cada um já tem em cada um:
                   </p>
-                  <SeletorDiasSimples
+                  <SeletorDiasComPreVia
                     dias={diasTrocaDireta}
                     setDias={setDiasTrocaDireta}
-                    dataInicio={formData.dataInicio}
-                    dataFim={formData.dataFim}
+                    diasCandidatos={diasCandidatosTrocaDireta}
+                    rotulo={rotuloDiaTrocaDireta}
                   />
-                  <p className="troca-explicacao-sutil">
-                    <strong>{nomeTecnicoOriginal}</strong> assume o que <strong>{getNomeTecnico(formData.tecnicos[0])}</strong> já
-                    tinha nesses mesmos dias — o sistema descobre sozinho, sem precisar escolher a escala da outra pessoa.
-                    Se ela não tinha nada marcado, {nomeTecnicoOriginal} simplesmente fica sem nada nesses dias.
-                  </p>
                 </div>
               )}
             </>
@@ -281,9 +325,6 @@ export default function EscalaEditModal({
 
           {podePropinTroca && mostrarFormTroca && (
             <div className="troca-form">
-              <p className="troca-explicacao">
-                Essa escala é do(a) <strong>{getNomeTecnico(formData.tecnicos[0])}</strong>. Escolha qual das suas escalas você oferece em troca — se ele(a) aceitar, vocês trocam de escala.
-              </p>
               <div className="form-group">
                 <label>Qual das suas escalas você oferece?</label>
                 <select
@@ -309,24 +350,108 @@ export default function EscalaEditModal({
 
               {escalaOferecidaSelecionada && (
                 <>
-                  <p className="troca-explicacao">Você oferece:</p>
-                  <SeletorDiasSimples
-                    dias={diasTroca}
-                    setDias={setDiasTroca}
-                    dataInicio={escalaOferecidaSelecionada.dataInicio}
-                    dataFim={escalaOferecidaSelecionada.dataFim}
-                  />
                   {/* Sem opção de "escala inteira" aqui: a troca precisa ser
                       equivalente, então o que você pede sempre acompanha
-                      exatamente a quantidade que você ofereceu em cima. */}
-                  <p className="troca-explicacao">Você pede (de {getNomeTecnico(formData.tecnicos[0])}):</p>
-                  <SeletorDiasProporcional
-                    dias={diasSolicitadaTroca}
-                    setDias={setDiasSolicitadaTroca}
-                    dataInicio={formData.dataInicio}
-                    dataFim={formData.dataFim}
-                    limite={diasTroca.length}
+                      exatamente a quantidade que você ofereceu do outro lado. */}
+                  <PainelDeParaTroca
+                    esquerda={
+                      <>
+                        <p className="de-para-painel-titulo">Você dá</p>
+                        <SeletorDiasSimples
+                          dias={diasTroca}
+                          setDias={setDiasTroca}
+                          dataInicio={escalaOferecidaSelecionada.dataInicio}
+                          dataFim={escalaOferecidaSelecionada.dataFim}
+                        />
+                      </>
+                    }
+                    direita={
+                      <>
+                        <p className="de-para-painel-titulo">Você pede de {getNomeTecnico(formData.tecnicos[0])}</p>
+                        <p className="de-para-painel-subtitulo">{nomeTipoEscala(formData.tipo)} · {formatarDataBR(formData.dataInicio)} a {formatarDataBR(formData.dataFim)}</p>
+                        <SeletorDiasProporcional
+                          dias={diasSolicitadaTroca}
+                          setDias={setDiasSolicitadaTroca}
+                          dataInicio={formData.dataInicio}
+                          dataFim={formData.dataFim}
+                          limite={diasTroca.length}
+                        />
+                      </>
+                    }
                   />
+
+                  {itensExtrasTroca.map((item, indice) => {
+                    const escalaOferecidaExtra = minhasEscalasParaOferecer?.find(e => e.id === item.escalaOferecidaId)
+                    const escalaSolicitadaExtra = escalasDoColegaParaTroca?.find(e => e.id === item.escalaSolicitadaId)
+                    return (
+                      <div key={indice} className="troca-item-extra">
+                        <div className="troca-item-extra-header">
+                          <span>Dia/período extra {indice + 1}</span>
+                          <button type="button" className="btn-secondary" onClick={() => onRemoverItemExtraTroca(indice)}>
+                            🗑️ Remover
+                          </button>
+                        </div>
+
+                        <PainelDeParaTroca
+                          esquerda={
+                            <>
+                              <p className="de-para-painel-titulo">Você dá</p>
+                              <select
+                                className="troca-select-escala"
+                                value={item.escalaOferecidaId}
+                                onChange={(e) => onAtualizarItemExtraTroca(indice, { escalaOferecidaId: e.target.value, diasOferecidos: [], diasSolicitados: [] })}
+                              >
+                                <option value="">Selecione uma escala sua...</option>
+                                {minhasEscalasParaOferecer.map(e => (
+                                  <option key={e.id} value={e.id}>
+                                    {nomeTipoEscala(e.tipo)} · {formatarDataBR(e.dataInicio)} a {formatarDataBR(e.dataFim)}
+                                  </option>
+                                ))}
+                              </select>
+                              {escalaOferecidaExtra && (
+                                <SeletorDiasSimples
+                                  dias={item.diasOferecidos}
+                                  setDias={setDiasOferecidosExtra(indice)}
+                                  dataInicio={escalaOferecidaExtra.dataInicio}
+                                  dataFim={escalaOferecidaExtra.dataFim}
+                                />
+                              )}
+                            </>
+                          }
+                          direita={
+                            <>
+                              <p className="de-para-painel-titulo">Você pede de {getNomeTecnico(formData.tecnicos[0])}</p>
+                              <select
+                                className="troca-select-escala"
+                                value={item.escalaSolicitadaId}
+                                onChange={(e) => onAtualizarItemExtraTroca(indice, { escalaSolicitadaId: e.target.value, diasSolicitados: [] })}
+                              >
+                                <option value="">Selecione uma escala dele(a)...</option>
+                                {escalasDoColegaParaTroca.map(e => (
+                                  <option key={e.id} value={e.id}>
+                                    {nomeTipoEscala(e.tipo)} · {formatarDataBR(e.dataInicio)} a {formatarDataBR(e.dataFim)}
+                                  </option>
+                                ))}
+                              </select>
+                              {escalaOferecidaExtra && escalaSolicitadaExtra && (
+                                <SeletorDiasProporcional
+                                  dias={item.diasSolicitados}
+                                  setDias={setDiasSolicitadosExtra(indice)}
+                                  dataInicio={escalaSolicitadaExtra.dataInicio}
+                                  dataFim={escalaSolicitadaExtra.dataFim}
+                                  limite={item.diasOferecidos.length}
+                                />
+                              )}
+                            </>
+                          }
+                        />
+                      </div>
+                    )
+                  })}
+
+                  <button type="button" className="btn-secondary" onClick={onAdicionarItemExtraTroca}>
+                    ➕ Adicionar outro dia/período
+                  </button>
                 </>
               )}
             </div>

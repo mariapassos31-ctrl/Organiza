@@ -87,6 +87,27 @@ export default function Trocas() {
   const formatPeriodoSolicitada = (troca: Troca) =>
     `${TIPOS_ESCALA[troca.escalaSolicitadaTipo ?? ""] || troca.escalaSolicitadaTipo} · ${new Date(troca.escalaSolicitadaDataInicio + 'T00:00:00').toLocaleDateString('pt-BR')} a ${new Date(troca.escalaSolicitadaDataFim + 'T00:00:00').toLocaleDateString('pt-BR')}`
 
+  // Itens extras (ex: inverter dia 6 E dia 13 do mesmo revezamento numa
+  // troca só) — mostra cada um no mesmo formato do item principal.
+  const ItensExtras = ({ troca }: { troca: Troca }) => {
+    if (!troca.itensExtras || troca.itensExtras.length === 0) return null
+    return (
+      <>
+        {troca.itensExtras.map((item, i) => (
+          <p key={i} className="troca-detalhe">
+            + {item.escalaSolicitadaTipo && 'oferece '}
+            {TIPOS_ESCALA[item.escalaTipo] || item.escalaTipo} · {new Date(item.escalaDataInicio + 'T00:00:00').toLocaleDateString('pt-BR')}
+            {item.escalaDataInicio !== item.escalaDataFim && ` a ${new Date(item.escalaDataFim + 'T00:00:00').toLocaleDateString('pt-BR')}`}
+            {item.escalaSolicitadaTipo && item.escalaSolicitadaDataInicio && item.escalaSolicitadaDataFim && (
+              <> · pede {TIPOS_ESCALA[item.escalaSolicitadaTipo] || item.escalaSolicitadaTipo} · {new Date(item.escalaSolicitadaDataInicio + 'T00:00:00').toLocaleDateString('pt-BR')}
+              {item.escalaSolicitadaDataInicio !== item.escalaSolicitadaDataFim && ` a ${new Date(item.escalaSolicitadaDataFim + 'T00:00:00').toLocaleDateString('pt-BR')}`}</>
+            )}
+          </p>
+        ))}
+      </>
+    )
+  }
+
   // Líder vê as duas coisas: acompanha a equipe inteira (como gestor) E
   // participa da escala, então também pede/recebe troca pra si mesmo
   // (como técnico) — por isso as duas flags não são mutuamente exclusivas.
@@ -143,6 +164,7 @@ export default function Trocas() {
                       {troca.escalaSolicitadaId && 'Oferece em troca: '}
                       {TIPOS_ESCALA[troca.escalaTipo] || troca.escalaTipo} · {formatPeriodo(troca)} · {troca.equipe?.toUpperCase()}
                     </p>
+                    <ItensExtras troca={troca} />
                   </div>
                   <div className="troca-actions">
                     <button
@@ -193,6 +215,7 @@ export default function Trocas() {
                       {troca.escalaSolicitadaId && 'Ofereceu em troca: '}
                       {TIPOS_ESCALA[troca.escalaTipo] || troca.escalaTipo} · {formatPeriodo(troca)} · {troca.equipe?.toUpperCase()}
                     </p>
+                    <ItensExtras troca={troca} />
                   </div>
                   <span className={`status-badge troca-status-${troca.status}`}>{STATUS_LABEL[troca.status] || troca.status}</span>
                 </div>
@@ -227,6 +250,7 @@ export default function Trocas() {
                     {troca.escalaSolicitadaId && (
                       <p className="troca-detalhe">Você pede: {formatPeriodoSolicitada(troca)}</p>
                     )}
+                    <ItensExtras troca={troca} />
                   </div>
                   <div className="troca-actions">
                     <span className={`status-badge troca-status-${troca.status}`}>{STATUS_LABEL[troca.status] || troca.status}</span>
@@ -270,6 +294,7 @@ export default function Trocas() {
                     {troca.escalaSolicitadaId && (
                       <p className="troca-detalhe">{troca.solicitanteNome} pede: {formatPeriodoSolicitada(troca)}</p>
                     )}
+                    <ItensExtras troca={troca} />
                   </div>
                   <span className={`status-badge troca-status-${troca.status}`}>{STATUS_LABEL[troca.status] || troca.status}</span>
                 </div>

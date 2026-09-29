@@ -71,6 +71,44 @@
   white-space: nowrap;
 }
 
+/* Variante "com prévia" (dia/período extra da troca direta): cada dia vira
+   uma linha inteira, com o que as duas pessoas já têm naquele dia embaixo
+   do rótulo — precisa de mais espaço horizontal que os chips curtos
+   padrão, por isso empilha em vez de agrupar lado a lado. */
+.troca-dias-checklist-previa {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  max-height: 240px;
+}
+
+.troca-dias-checklist-item-previa {
+  width: 100%;
+  align-items: flex-start !important;
+  white-space: normal !important;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.troca-dias-checklist-item-previa:hover {
+  background: #eef2f7;
+}
+
+.troca-dias-checklist-item-previa input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+.troca-dias-checklist-item-previa span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.troca-dias-checklist-item-previa small {
+  color: #6b7280;
+  font-size: 12px;
+}
+
 .toggle-switch {
   position: relative;
   display: inline-block;
@@ -2319,6 +2357,81 @@
 
 .troca-form .form-group {
   margin-bottom: 8px;
+}
+
+/* Cada dia/período extra de uma troca mútua com vários itens (ex:
+   inverter dia 6 E dia 13 do mesmo revezamento numa ação só) — um bloco
+   destacado pra separar visualmente do item principal e dos outros itens. */
+.troca-item-extra {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px dashed #ccc;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.troca-item-extra-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4b5563;
+}
+
+/* Layout "De/Para": dois painéis lado a lado com o ícone de troca no meio
+   — deixa quem cede o quê óbvio de olhar, sem precisar ler parágrafo. */
+.de-para-troca {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.de-para-painel {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+}
+
+.de-para-painel-titulo {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--brand-primary, #1a73e8);
+}
+
+.de-para-painel-subtitulo {
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.de-para-icone {
+  align-self: center;
+  margin-top: 28px;
+  font-size: 20px;
+  color: var(--brand-primary, #1a73e8);
+  flex-shrink: 0;
+}
+
+
+@media (max-width: 640px) {
+  .de-para-troca {
+    flex-direction: column;
+  }
+  .de-para-icone {
+    margin: 0;
+    align-self: center;
+    transform: rotate(90deg);
+  }
 }
 
 .troca-dias-checklist-item-travado {
