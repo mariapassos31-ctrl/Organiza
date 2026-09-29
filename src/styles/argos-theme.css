@@ -1,0 +1,383 @@
+/* =====================================================================
+   Tema Argos (FJS) aplicado às telas do dashboard.
+   Só mexe em aparência (cor, borda, raio, sombra, tipografia) — nada de
+   layout/tamanho. O prefixo "body .dashboard-content" garante que isso
+   vença as regras de cada tela, mesmo que o CSS delas carregue depois.
+   ===================================================================== */
+
+/* ── Containers de página ─────────────────────────────────────────── */
+body .dashboard-content .escalas-container,
+body .dashboard-content .usuarios-container,
+body .dashboard-content .trocas-container,
+body .dashboard-content .relatorios-container,
+body .dashboard-content .minha-agenda-container,
+body .dashboard-content .manual-container {
+  padding: 2.5rem;
+  max-width: 1600px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  body .dashboard-content .escalas-container,
+  body .dashboard-content .usuarios-container,
+  body .dashboard-content .trocas-container,
+  body .dashboard-content .relatorios-container,
+  body .dashboard-content .minha-agenda-container,
+  body .dashboard-content .manual-container {
+    padding: 1.25rem;
+  }
+}
+
+/* ── Cabeçalho de página (h1 vinho itálico, subtítulo slate) ──────── */
+body .dashboard-content .escalas-header,
+body .dashboard-content .usuarios-header,
+body .dashboard-content .trocas-header,
+body .dashboard-content .relatorios-header,
+body .dashboard-content .agenda-header,
+body .dashboard-content .manual-header {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  padding: 0;
+  margin-bottom: 2rem;
+}
+
+body .dashboard-content .escalas-header h2,
+body .dashboard-content .usuarios-header h2,
+body .dashboard-content .trocas-header h2,
+body .dashboard-content .relatorios-header h2,
+body .dashboard-content .agenda-header h2,
+body .dashboard-content .manual-header h2 {
+  color: var(--brand-primary);
+  font-size: 1.875rem;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: -0.025em;
+}
+
+body .dashboard-content .subtitle,
+body .dashboard-content .agenda-subtitle {
+  color: #94a3b8;
+  font-size: 0.875rem;
+  font-weight: 400;
+}
+
+/* ── Cartões ──────────────────────────────────────────────────────── */
+body .dashboard-content .stat-card,
+body .dashboard-content .metrica-card,
+body .dashboard-content .escala-card,
+body .dashboard-content .troca-card,
+body .dashboard-content .usuarios-section,
+body .dashboard-content .relatorio-section,
+body .dashboard-content .escalas-toolbar,
+body .dashboard-content .escalas-list,
+body .dashboard-content .calendario-container,
+body .dashboard-content .calendario-wrapper,
+body .dashboard-content .usuario-form,
+body .dashboard-content .manual-secao,
+body .dashboard-content .relatorio-filtros,
+body .dashboard-content .trocas-secao {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 2rem;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+body .dashboard-content .stat-card,
+body .dashboard-content .metrica-card {
+  border-radius: 1rem;
+}
+
+body .dashboard-content .stat-number,
+body .dashboard-content .metrica-card .numero,
+body .dashboard-content .metrica-card h3 + p {
+  font-weight: 900;
+  color: #1e293b;
+}
+
+body .dashboard-content .stat-label,
+body .dashboard-content .metrica-card h3 {
+  font-size: 0.625rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+/* Títulos de seção dentro dos cartões */
+body .dashboard-content .usuarios-section h3,
+body .dashboard-content .relatorio-section h3,
+body .dashboard-content .trocas-secao h3,
+body .dashboard-content .escalas-list-header h3,
+body .dashboard-content .manual-secao h3 {
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brand-primary);
+}
+
+/* ── Botões ───────────────────────────────────────────────────────── */
+body .dashboard-content .btn-primary,
+body .dashboard-content .btn-success,
+body .dashboard-content .btn-secondary,
+body .dashboard-content .btn-export,
+body .dashboard-content .btn-filter-apply,
+body .dashboard-content .btn-filter-clear,
+body .dashboard-content .btn-limpar-filtros,
+body .dashboard-content .btn-edit,
+body .dashboard-content .btn-editar,
+body .dashboard-content .btn-delete,
+body .dashboard-content .btn-deletar {
+  border-radius: 1rem;
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+}
+
+body .dashboard-content .btn-primary {
+  background: var(--brand-primary);
+  color: #fff;
+  border: none;
+  box-shadow: 0 4px 12px rgba(var(--brand-primary-rgb), 0.25);
+}
+
+body .dashboard-content .btn-primary:hover:not(:disabled) {
+  background: var(--brand-primary-dark);
+}
+
+body .dashboard-content .btn-secondary,
+body .dashboard-content .btn-filter-clear,
+body .dashboard-content .btn-limpar-filtros {
+  background: #fff;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+body .dashboard-content .btn-secondary:hover:not(:disabled),
+body .dashboard-content .btn-filter-clear:hover,
+body .dashboard-content .btn-limpar-filtros:hover {
+  background: #f8fafc;
+  color: var(--brand-primary);
+  border-color: var(--brand-primary);
+}
+
+body .dashboard-content .btn-success,
+body .dashboard-content .btn-filter-apply,
+body .dashboard-content .btn-export {
+  background: #059669;
+  color: #fff;
+  border: none;
+}
+
+body .dashboard-content .btn-success:hover:not(:disabled),
+body .dashboard-content .btn-filter-apply:hover,
+body .dashboard-content .btn-export:hover {
+  background: #047857;
+}
+
+body .dashboard-content .btn-edit,
+body .dashboard-content .btn-editar {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+}
+
+body .dashboard-content .btn-edit:hover,
+body .dashboard-content .btn-editar:hover {
+  background: #e2e8f0;
+}
+
+body .dashboard-content .btn-delete,
+body .dashboard-content .btn-deletar {
+  background: #fff1f2;
+  color: #e11d48;
+  border: 1px solid #ffe4e6;
+}
+
+body .dashboard-content .btn-delete:hover:not(:disabled),
+body .dashboard-content .btn-deletar:hover:not(:disabled) {
+  background: #e11d48;
+  color: #fff;
+}
+
+/* ── Formulários ──────────────────────────────────────────────────── */
+body .dashboard-content input[type='text'],
+body .dashboard-content input[type='email'],
+body .dashboard-content input[type='number'],
+body .dashboard-content input[type='date'],
+body .dashboard-content input[type='time'],
+body .dashboard-content input[type='password'],
+body .dashboard-content select,
+body .dashboard-content textarea {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  color: #1e293b;
+  font-family: inherit;
+  font-weight: 500;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+body .dashboard-content input:focus,
+body .dashboard-content select:focus,
+body .dashboard-content textarea:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(var(--brand-primary-rgb), 0.08);
+}
+
+body .dashboard-content .form-group label,
+body .dashboard-content .escalas-filters label,
+body .dashboard-content .filter-date-group label {
+  font-size: 0.625rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+body .dashboard-content input[type='checkbox'],
+body .dashboard-content input[type='radio'] {
+  accent-color: var(--brand-primary);
+}
+
+/* ── Tabelas ──────────────────────────────────────────────────────── */
+body .dashboard-content table {
+  border-collapse: collapse;
+}
+
+body .dashboard-content table thead th {
+  background: #f8fafc;
+  color: #94a3b8;
+  font-size: 0.625rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+body .dashboard-content table tbody td {
+  border-bottom: 1px solid #f1f5f9;
+  color: #475569;
+}
+
+body .dashboard-content table tbody tr:hover td {
+  background: rgba(248, 250, 252, 0.7);
+}
+
+body .dashboard-content .usuarios-table-wrapper,
+body .dashboard-content .relatorio-table-wrapper,
+body .dashboard-content .escalas-table-wrapper {
+  border-radius: 1.5rem;
+  border: 1px solid #f1f5f9;
+  overflow-x: auto;
+}
+
+/* ── Etiquetas / badges ───────────────────────────────────────────── */
+body .dashboard-content .badge,
+body .dashboard-content .role-badge,
+body .dashboard-content .equipe-badge,
+body .dashboard-content .status-badge,
+body .dashboard-content .tecnico-badge,
+body .dashboard-content .status {
+  border-radius: 0.5rem;
+  font-size: 0.625rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+body .dashboard-content .menu-badge {
+  border-radius: 999px;
+}
+
+/* ── Mensagens ────────────────────────────────────────────────────── */
+body .dashboard-content .error-message,
+body .dashboard-content .success-message {
+  border-radius: 1rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
+body .dashboard-content .empty-state,
+body .dashboard-content .empty {
+  border: 2px dashed #e2e8f0;
+  border-radius: 1.5rem;
+  background: #fff;
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ── Modais ───────────────────────────────────────────────────────── */
+body .modal-overlay,
+body .confirm-overlay {
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+body .modal-content,
+body .confirm-caixa {
+  border-radius: 2rem;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.35);
+}
+
+body .modal-header h3,
+body .confirm-caixa h4 {
+  color: var(--brand-primary);
+  font-weight: 900;
+  letter-spacing: -0.01em;
+}
+
+body .modal-close {
+  border-radius: 0.75rem;
+  color: #94a3b8;
+}
+
+body .modal-close:hover {
+  background: #f1f5f9;
+  color: var(--brand-primary);
+}
+
+/* ── Calendário ───────────────────────────────────────────────────── */
+body .dashboard-content .weekday,
+body .dashboard-content .dia-semana-header {
+  font-size: 0.625rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+body .dashboard-content .calendar-day,
+body .dashboard-content .calendario-dia {
+  border-color: #f1f5f9;
+  border-radius: 0.75rem;
+}
+
+body .dashboard-content .day-number,
+body .dashboard-content .dia-numero {
+  font-weight: 700;
+  color: #64748b;
+}
+
+body .dashboard-content .calendario-header button,
+body .dashboard-content .btn-nav {
+  border-radius: 0.75rem;
+  font-size: 0.6875rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ── Interruptor (toggle) ─────────────────────────────────────────── */
+body .dashboard-content .toggle-switch input:checked + .toggle-switch-slider {
+  background-color: var(--brand-primary);
+}

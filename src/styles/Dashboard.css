@@ -1,0 +1,21 @@
+.dashboard-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.page-home {
+  padding: 2.5rem;
+}
+
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}

@@ -1,0 +1,392 @@
+.minha-agenda-container {
+  padding: 20px;
+  background: white;
+  min-height: 100%;
+  max-width: 1000px;
+  margin: 0 auto;
+  width: 95%;
+}
+
+.agenda-header {
+  margin-bottom: 15px;
+}
+
+.agenda-header h2 {
+  font-size: 24px;
+  color: #333;
+  margin: 0 0 3px 0;
+}
+
+.agenda-subtitle {
+  color: #666;
+  font-size: 14px;
+  margin: 0;
+}
+
+.agenda-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.stat-card {
+  background: white;
+  padding: 8px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  text-align: center;
+  border-left: 3px solid var(--brand-primary);
+}
+
+.stat-label {
+  display: block;
+  color: #666;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
+}
+
+.stat-number {
+  display: block;
+  font-size: 21px;
+  font-weight: bold;
+  color: var(--brand-primary);
+}
+
+.calendario-wrapper {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  margin-bottom: 12px;
+}
+
+.calendario-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.calendario-header h3 {
+  margin: 0;
+  font-size: 14px;
+  color: #333;
+}
+
+.calendario-dias-semana {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+  margin-bottom: 5px;
+}
+
+.dia-semana-header {
+  text-align: center;
+  font-weight: bold;
+  color: var(--brand-primary);
+  padding: 4px;
+  font-size: 10px;
+}
+
+.calendario-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 5px;
+}
+
+.calendario-dia {
+  border: 1px solid #eee;
+  border-radius: 6px;
+  padding: 6px;
+  background: #f9f9f9;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  min-height: 78px;
+  transition: all 0.3s;
+  font-size: 13px;
+}
+
+.calendario-dia.vazio {
+  background: #f0f0f0;
+  border: none;
+}
+
+.calendario-dia.escalado {
+  background: #d4edda;
+  border-color: #27ae60;
+  box-shadow: 0 2px 8px rgba(39, 174, 96, 0.2);
+}
+
+.dia-numero {
+  font-weight: bold;
+  font-size: 14px;
+  color: #333;
+  margin-bottom: 3px;
+}
+
+.dia-status {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 130px;
+  overflow-y: auto;
+}
+
+.badge-escalado {
+  background: #27ae60;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: bold;
+  align-self: flex-start;
+}
+
+.escala-info {
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 3px 4px;
+  background: rgba(39, 174, 96, 0.12);
+}
+
+.escala-info-nome {
+  font-size: 12px;
+  font-weight: bold;
+  color: #155724;
+  line-height: 1.3;
+}
+
+.escala-info-tipo {
+  font-size: 10px;
+  color: #4b7a5c;
+  line-height: 1.3;
+}
+
+.escala-info:hover {
+  background: rgba(39, 174, 96, 0.25);
+}
+
+.escalas-lista {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.escalas-lista h3 {
+  margin-top: 0;
+  color: #333;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.escalas-table-wrapper {
+  overflow-x: auto;
+}
+
+.escalas-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.escalas-table thead {
+  background: #f9f9f9;
+}
+
+.escalas-table th {
+  padding: 10px;
+  text-align: left;
+  font-weight: bold;
+  color: #333;
+  border-bottom: 2px solid #ddd;
+  font-size: 12px;
+}
+
+.escalas-table td {
+  padding: 10px;
+  border-bottom: 1px solid #eee;
+  color: #555;
+  font-size: 12px;
+}
+
+.escalas-table tbody tr:hover {
+  background: #f9f9f9;
+}
+
+.status-ativo {
+  background: #d4edda;
+  color: #155724;
+  padding: 4px 8px;
+  border-radius: 15px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+.empty-state {
+  text-align: center;
+  color: #999;
+  padding: 30px;
+  font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .calendario-grid {
+    gap: 5px;
+  }
+
+  .calendario-dia {
+    min-height: 50px;
+    padding: 5px;
+  }
+
+  .dia-numero {
+    font-size: 11px;
+  }
+}
+.escalas-lista {
+  background: white;
+  padding: 12px;
+  border-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  margin-top: 12px;
+}
+
+.escalas-lista h3 {
+  margin-top: 0;
+  color: #333;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.escalas-table-wrapper {
+  overflow-x: auto;
+}
+
+.escalas-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.escalas-table thead {
+  background: #f9f9f9;
+}
+
+.escalas-table th {
+  padding: 12px;
+  text-align: left;
+  font-weight: bold;
+  color: #333;
+  border-bottom: 2px solid #ddd;
+  font-size: 13px;
+}
+
+.escalas-table td {
+  padding: 12px;
+  border-bottom: 1px solid #eee;
+  color: #555;
+  font-size: 14px;
+}
+
+.escalas-table tbody tr:hover {
+  background: #f9f9f9;
+}
+
+.escala-row-clicavel {
+  cursor: pointer;
+}
+
+.escala-row-clicavel:hover {
+  background: var(--brand-primary-soft);
+}
+
+.nome-cell {
+  font-weight: 500;
+}
+
+.status-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: bold;
+  display: inline-block;
+}
+
+.status-badge.ativa {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-badge.finalizada {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.escala-detalhe-modal {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.escala-detalhe-linha {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.escala-detalhe-linha strong {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: #888;
+}
+
+.escala-detalhe-linha span {
+  font-size: 16px;
+  color: #2c3e50;
+}
+
+.escala-detalhe-descricao span {
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.troca-form {
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-top: 1px solid #ecf0f1;
+}
+
+.troca-tipo-opcoes {
+  display: flex;
+  gap: 16px;
+}
+
+.troca-tipo-opcoes label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: #2c3e50;
+  cursor: pointer;
+}
+
+.troca-form select,
+.troca-form input[type="date"] {
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  max-width: 280px;
+}

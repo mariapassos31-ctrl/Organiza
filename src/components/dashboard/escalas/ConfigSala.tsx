@@ -1,0 +1,286 @@
+'use client'
+
+import { forwardRef, useImperativeHandle, useState } from 'react'
+import { POSICOES_BAIA } from './MapaBaias'
+import { emojiDoMarcador } from './EditorPosicoesSala'
+import { labelEquipe, PERFIS, especialidadesPorEquipe } from '../../../lib/equipesConfig'
+import { IMAGEM_COM_POSICOES_CONHECIDAS } from '../../../lib/salasConfig'
+import type { Sala, ConfigBaia } from '../../../types/dominio'
+
+type DadosBaia = { equipe?: string | null; especialidade?: string | null; perfil?: string | null }
+
+export interface ConfigSalaHandle {
+  salvar: () => Promise<boolean>
+}
+
+function valorVazio(sala: Sala): ConfigBaia {
+  return sala.modoReserva === 'equipe' ? { equipe: '', especialidade: '' } : { perfil: '' }
+}
+
+function baiasIguais(a: ConfigBaia | undefined, b: ConfigBaia | undefined, modoReserva: string): boolean {
+  if (modoReserva === 'equipe') {
+    return (a?.equipe || '') === (b?.equipe || '') && (a?.especialidade || '') === (b?.especialidade || '')
+  }
+  return (a?.perfil || '') === (b?.perfil || '')
+}
+
+// Configuração de uma Sala — se ela tiver a imagem conhecida do Suporte,
+// mostra o mapa visual; senão, uma lista simples. O modo de reserva (por
+// perfil ou por equipe) já vem pronto da API, calculado pela quantidade
+// de equipes vinculadas à sala.
+// `embutido` faz renderizar só o conteúdo (sem modal, header ou rodapé
+// próprios) — usado dentro do SalaWizard, que controla navegação/fechamento
+// por fora e dispara o salvamento via `ref.salvar()`.
+const ConfigSala = forwardRef<ConfigSalaHandle, {
+  sala: Sala
+  minhaEquipe: string | null | undefined
+  souAdmin: boolean
+  onAlterarBaia: (baia: string, dados: DadosBaia) => Promise<boolean> | boolean
+  onAjustarPosicoes?: () => void
+  embutido?: boolean
+  onClose: () => void
+}>(function ConfigSala({ sala, minhaEquipe, souAdmin, onAlterarBaia, onAjustarPosicoes, embutido, onClose }, ref) {
+  const [valores, setValores] = useState<Record<string, ConfigBaia>>(sala.baias)
+  const [salvando, setSalvando] = useState(false)
+  const [confirmandoSaida, setConfirmandoSaida] = useState(false)
+  const [semAlteracao, setSemAlteracao] = useState(false)
+
+  const mostrarMapaFixo = sala.imagem === IMAGEM_COM_POSICOES_CONHECIDAS
+  const numerosBaia = mostrarMapaFixo
+    ? Object.keys(POSICOES_BAIA)
+    : Array.from({ length: sala.qtdBaias || 9 }, (_, i) => String(i + 1))
+  const posicoesProprias = sala.posicoes || {}
+  const temMapaProprio = !mostrarMapaFixo && !!sala.imagem && numerosBaia.every(b => posicoesProprias[b])
+  const mostrarMapa = mostrarMapaFixo || temMapaProprio
+  const posicoesParaUsar = mostrarMapaFixo ? POSICOES_BAIA : posicoesProprias
+  const equipesQuePossoEscolher = souAdmin ? sala.equipes : sala.equipes.filter(e => e === minhaEquipe)
+
+  const todasAsBaias = new Set([...Object.keys(sala.baias), ...Object.keys(valores)])
+  const alterado = [...todasAsBaias].some(baia => !baiasIguais(sala.baias[baia], valores[baia], sala.modoReserva))
+
+  const alterarPerfil = (baia: string, perfil: string) => {
+    setValores(prev => {
+      const proximo = { ...prev }
+      if (perfil) proximo[baia] = { perfil }
+      else delete proximo[baia]
+      return proximo
+    })
+  }
+
+  const alterarEquipe = (baia: string, equipe: string) => {
+    setValores(prev => {
+      const proximo = { ...prev }
+      if (equipe) proximo[baia] = { equipe, especialidade: '' }
+      else delete proximo[baia]
+      return proximo
+    })
+  }
+
+  const alterarEspecialidade = (baia: string, especialidade: string) => {
+    setValores(prev => ({ ...prev, [baia]: { ...prev[baia], especialidade } }))
+  }
+
+  // Núcleo do salvamento, sem decidir o que acontece depois — o botão
+  // "Salvar" do modo standalone fecha o modal ao terminar; o modo embutido
+  // (chamado via ref pelo SalaWizard) deixa essa decisão pra quem chamou.
+  const executarSalvar = async (): Promise<boolean> => {
+    setSalvando(true)
+    try {
+      let tudoOk = true
+      for (const baia of todasAsBaias) {
+        const antes = sala.baias[baia] || valorVazio(sala)
+        const depois = valores[baia] || valorVazio(sala)
+        if (!baiasIguais(antes, depois, sala.modoReserva)) {
+          const ok = sala.modoReserva === 'equipe'
+            ? await onAlterarBaia(baia, { equipe: depois.equipe || null, especialidade: depois.especialidade || null })
+            : await onAlterarBaia(baia, { perfil: depois.perfil || null })
+          if (!ok) tudoOk = false
+        }
+      }
+      return tudoOk
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  useImperativeHandle(ref, () => ({ salvar: executarSalvar }))
+
+  const clicarSalvar = async () => {
+    if (!alterado) {
+      setSemAlteracao(true)
+      return
+    }
+    const ok = await executarSalvar()
+    if (ok) onClose()
+  }
+
+  const tentarFechar = () => {
+    if (salvando) return
+    if (alterado) {
+      setConfirmandoSaida(true)
+      return
+    }
+    onClose()
+  }
+
+  const renderCampos = (baia: string) => {
+    const valor = valores[baia] || valorVazio(sala)
+
+    if (sala.modoReserva === 'perfil') {
+      return (
+        <select
+          value={valor.perfil || ''}
+          disabled={salvando}
+          onChange={(e) => alterarPerfil(baia, e.target.value)}
+          title={baia === '0' ? 'Supervisor' : `Baia ${baia}`}
+        >
+          <option value="">— Sem restrição —</option>
+          <option value="supervisor">⭐ Supervisor</option>
+          {PERFIS.filter(p => p.id !== 'admin').map(perfil => (
+            <option key={perfil.id} value={perfil.id}>{perfil.label}</option>
+          ))}
+        </select>
+      )
+    }
+
+    const donoOutraEquipe = valor.equipe && !equipesQuePossoEscolher.includes(valor.equipe)
+    if (donoOutraEquipe) {
+      return (
+        <span className="config-baia-linha-travada">
+          🔒 {labelEquipe(valor.equipe)}{valor.especialidade ? ` · ${valor.especialidade}` : ' · qualquer um da equipe'}
+        </span>
+      )
+    }
+
+    const especialidadesDaEquipe = valor.equipe ? especialidadesPorEquipe(valor.equipe) : []
+    return (
+      <>
+        <select value={valor.equipe || ''} disabled={salvando} onChange={(e) => alterarEquipe(baia, e.target.value)}>
+          <option value="">— Livre —</option>
+          {equipesQuePossoEscolher.map(eq => (
+            <option key={eq} value={eq}>{labelEquipe(eq)}</option>
+          ))}
+        </select>
+        {valor.equipe && (
+          <select value={valor.especialidade || ''} disabled={salvando} onChange={(e) => alterarEspecialidade(baia, e.target.value)}>
+            <option value="">— Qualquer especialidade da equipe —</option>
+            {especialidadesDaEquipe.map(esp => (
+              <option key={esp} value={esp}>{esp}</option>
+            ))}
+          </select>
+        )}
+      </>
+    )
+  }
+
+  const conteudo = (
+    <div style={embutido ? undefined : { padding: '0 20px 20px' }}>
+      <p className="config-baias-explicacao">
+        {sala.modoReserva === 'equipe' ? (
+          <>Essa sala é dividida por {sala.equipes.map(labelEquipe).join(', ')}. Cada gestor só reivindica baia livre ou já reivindicada pela própria equipe — baias de outra equipe aparecem travadas. Escolha a equipe e, se quiser, uma especialidade específica dela.</>
+        ) : (
+          <>Escolha, pra cada baia, se ela é exclusiva de algum perfil (ou do Supervisor). Baias de <strong>Estag/Aprendiz</strong> ou <strong>Trainee</strong> comportam até 2 pessoas por dia (manhã e tarde). Só uma baia pode ser a do <strong>⭐ Supervisor</strong> por vez.</>
+        )}
+      </p>
+
+      {!mostrarMapa && sala.imagem && (
+        <>
+          <p className="campo-nota" style={{ marginBottom: 10 }}>
+            Essa sala já tem planta, mas as posições de alguma baia ainda não foram marcadas. Por enquanto, a planta aparece só como referência abaixo — marque as posições pra virar um mapa visual clicável, como nas outras salas.
+          </p>
+          <div className="mapa-baias-wrapper">
+            <img src={sala.imagem} alt={`Planta de ${sala.nome}`} className="mapa-baias-imagem" />
+          </div>
+          {onAjustarPosicoes && (
+            <button type="button" className="btn-secondary" style={{ marginBottom: 15 }} onClick={onAjustarPosicoes}>
+              📍 Marcar posição das baias na planta
+            </button>
+          )}
+        </>
+      )}
+
+      {mostrarMapa ? (
+        <div className="mapa-baias-wrapper">
+          <img src={sala.imagem ?? undefined} alt={`Mapa da ${sala.nome}`} className="mapa-baias-imagem" />
+          {numerosBaia.map(baia => (
+            <div key={baia} className="config-baia-mapa-item" style={posicoesParaUsar[baia]}>
+              {renderCampos(baia)}
+            </div>
+          ))}
+          {sala.marcadores?.map(m => (
+            <div key={m.id} className="editor-marcador-item" style={{ top: m.top, left: m.left }}>
+              <span className="editor-marcador-icone">{emojiDoMarcador(m.tipo)}</span>
+              <span className="editor-marcador-rotulo">{m.rotulo}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="config-baias-lista">
+          {numerosBaia.map(baia => (
+            <div key={baia} className="config-baia-linha">
+              <span className="config-baia-linha-numero">Baia {baia}</span>
+              {renderCampos(baia)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+
+  if (embutido) {
+    return conteudo
+  }
+
+  return (
+    <div className="modal-overlay" onClick={tentarFechar}>
+      <div className={`modal-content ${mostrarMapa ? 'modal-content-largo' : ''}`} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>🏢 {sala.nome}</h3>
+          <button className="modal-close" onClick={tentarFechar}>✕</button>
+        </div>
+
+        {conteudo}
+
+        <div className="form-actions-modal">
+          <button type="button" className="btn-secondary" onClick={tentarFechar} disabled={salvando}>
+            Cancelar
+          </button>
+          <button type="button" className="btn-primary" onClick={clicarSalvar} disabled={salvando}>
+            {salvando ? 'Salvando...' : '💾 Salvar'}
+          </button>
+        </div>
+
+        {semAlteracao && (
+          <div className="confirm-overlay" onClick={onClose}>
+            <div className="confirm-caixa" onClick={(e) => e.stopPropagation()}>
+              <h4>Nenhuma alteração pra salvar</h4>
+              <p>Você não mudou nada desde que abriu essa tela.</p>
+              <div className="confirm-acoes">
+                <button type="button" className="btn-primary" onClick={onClose}>OK</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {confirmandoSaida && (
+          <div className="confirm-overlay" onClick={() => setConfirmandoSaida(false)}>
+            <div className="confirm-caixa" onClick={(e) => e.stopPropagation()}>
+              <h4>Sair sem salvar?</h4>
+              <p>Você tem alterações em "{sala.nome}" que ainda não foram salvas. Se sair agora, elas serão perdidas.</p>
+              <div className="confirm-acoes">
+                <button type="button" className="btn-secondary" onClick={() => setConfirmandoSaida(false)}>
+                  Continuar editando
+                </button>
+                <button type="button" className="btn-deletar" onClick={onClose}>
+                  Sair sem salvar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+})
+
+export default ConfigSala
