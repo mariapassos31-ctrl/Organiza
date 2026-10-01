@@ -37,13 +37,18 @@ export function indiceContinuacao(participantes: Array<{ cd_usuario: number | st
   return posicao === -1 ? 0 : (posicao + 1) % participantes.length
 }
 
-// true se o participante está de férias nessa data exata (feriasInicio/
-// feriasFim são strings 'YYYY-MM-DD', comparáveis léxico-cronologicamente).
-export function estaDeFerias(participante: { feriasInicio?: string | null; feriasFim?: string | null }, dia: string): boolean {
-  return Boolean(
+// true se o participante está de férias nessa data exata — confere o
+// período único (feriasInicio/feriasFim, strings 'YYYY-MM-DD', comparáveis
+// léxico-cronologicamente) e, se houver, qualquer um dos períodos extras
+// (feriasExtras — importados de Excel/TOTVS, onde a pessoa pode ter mais
+// de um período no ano).
+export function estaDeFerias(participante: { feriasInicio?: string | null; feriasFim?: string | null; feriasExtras?: Array<{ inicio: string; fim: string }> }, dia: string): boolean {
+  const noPeriodoUnico = Boolean(
     participante.feriasInicio && participante.feriasFim &&
     participante.feriasInicio <= dia && dia <= participante.feriasFim
   )
+  if (noPeriodoUnico) return true
+  return Boolean(participante.feriasExtras?.some(p => p.inicio <= dia && dia <= p.fim))
 }
 
 // Monta os blocos do modo "rodízio": sábado (1 dia por sábado, agrupando

@@ -12,6 +12,10 @@ export interface Participante {
   elegivelHomeOffice?: boolean
   feriasInicio?: string | null
   feriasFim?: string | null
+  // Períodos extras de férias (ex: importados de Excel/TOTVS, onde a mesma
+  // pessoa pode ter mais de um período no ano) — além do único período que
+  // feriasInicio/feriasFim guardam.
+  feriasExtras?: Array<{ inicio: string; fim: string }>
 }
 
 export interface BlocoEscala {

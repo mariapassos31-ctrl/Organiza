@@ -80,13 +80,27 @@ export async function gerarMapaSuporteParaEmail(cdEquipe: number, dataISO: strin
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { rows: tecRows } = await query<any>(
-      `SELECT u.cd_usuario, u.nm_usuario, u.tp_role, t.hr_entrada, t.nr_baia, t.sn_baia_fixa, t.nr_dia_curso,
+      `SELECT u.cd_usuario, u.nm_usuario, u.tp_role, t.cd_tecnico, t.hr_entrada, t.nr_baia, t.sn_baia_fixa, t.nr_dia_curso,
               to_char(t.dt_ferias_inicio, 'YYYY-MM-DD') AS dt_ferias_inicio,
               to_char(t.dt_ferias_fim, 'YYYY-MM-DD') AS dt_ferias_fim
        FROM usuarios u JOIN tecnicos t ON t.cd_usuario = u.cd_usuario
        WHERE u.cd_equipe = $1`,
       [cdEquipe]
     )
+    const cdTecnicosSuporte = tecRows.map(r => r.cd_tecnico)
+    const { rows: feriasExtrasRows } = cdTecnicosSuporte.length > 0
+      ? await query<{ cd_tecnico: number; dt_inicio: string; dt_fim: string }>(
+          `SELECT cd_tecnico, to_char(dt_inicio, 'YYYY-MM-DD') AS dt_inicio, to_char(dt_fim, 'YYYY-MM-DD') AS dt_fim
+           FROM tecnico_ferias WHERE cd_tecnico = ANY($1::int[])`,
+          [cdTecnicosSuporte]
+        )
+      : { rows: [] as Array<{ cd_tecnico: number; dt_inicio: string; dt_fim: string }> }
+    const feriasExtrasPorTecnico = new Map<number, Array<{ inicio: string; fim: string }>>()
+    for (const f of feriasExtrasRows) {
+      const lista = feriasExtrasPorTecnico.get(f.cd_tecnico) || []
+      lista.push({ inicio: f.dt_inicio, fim: f.dt_fim })
+      feriasExtrasPorTecnico.set(f.cd_tecnico, lista)
+    }
     const tecnicosSuporte: Usuario[] = tecRows.map(r => ({
       uid: String(r.cd_usuario),
       nome: r.nm_usuario,
@@ -104,6 +118,7 @@ export async function gerarMapaSuporteParaEmail(cdEquipe: number, dataISO: strin
       diaCurso: r.nr_dia_curso ?? null,
       feriasInicio: r.dt_ferias_inicio || '',
       feriasFim: r.dt_ferias_fim || '',
+      feriasExtras: feriasExtrasPorTecnico.get(r.cd_tecnico) || [],
       ativo: true,
       criadoEm: '',
     }))
@@ -138,7 +153,9 @@ export async function gerarMapaSuporteParaEmail(cdEquipe: number, dataISO: strin
     const homeOfficeHoje = new Set(escalasSuporte.filter(e => e.tipo === 'homeoffice').map(e => e.tecnicos[0]))
     const estaDeFeriasHoje = (uid: string) => {
       const u = tecnicosSuporte.find(x => x.uid === uid)
-      return Boolean(u?.feriasInicio && u?.feriasFim && u.feriasInicio <= dataISO && dataISO <= u.feriasFim)
+      if (!u) return false
+      if (u.feriasInicio && u.feriasFim && u.feriasInicio <= dataISO && dataISO <= u.feriasFim) return true
+      return Boolean(u.feriasExtras?.some(p => p.inicio <= dataISO && dataISO <= p.fim))
     }
     const resolverUidNoCargo = (responsavelUid: string | null, backupUid: string | null): string | null => {
       if (!responsavelUid) return null

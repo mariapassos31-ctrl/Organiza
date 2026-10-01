@@ -61,9 +61,27 @@ async function carregarParticipantes(equipeIds: number[], tecnicoUids: Array<str
     [equipeIds]
   )
   const selecionados = new Set(tecnicoUids.map(String))
-  return tecnicosEquipe
-    .filter(t => selecionados.has(String(t.cd_usuario)))
-    .map(t => ({
+  const participantesFiltrados = tecnicosEquipe.filter(t => selecionados.has(String(t.cd_usuario)))
+
+  // Períodos extras de férias (importados de Excel/TOTVS, onde a mesma
+  // pessoa pode ter mais de um período no ano) — além do período único das
+  // colunas acima.
+  const cdTecnicos = participantesFiltrados.map(t => t.cd_tecnico)
+  const { rows: feriasExtrasRows } = cdTecnicos.length > 0
+    ? await query<{ cd_tecnico: number; dt_inicio: string; dt_fim: string }>(
+        `SELECT cd_tecnico, to_char(dt_inicio, 'YYYY-MM-DD') AS dt_inicio, to_char(dt_fim, 'YYYY-MM-DD') AS dt_fim
+         FROM tecnico_ferias WHERE cd_tecnico = ANY($1::int[])`,
+        [cdTecnicos]
+      )
+    : { rows: [] as Array<{ cd_tecnico: number; dt_inicio: string; dt_fim: string }> }
+  const feriasExtrasPorTecnico = new Map<number, Array<{ inicio: string; fim: string }>>()
+  for (const f of feriasExtrasRows) {
+    const lista = feriasExtrasPorTecnico.get(f.cd_tecnico) || []
+    lista.push({ inicio: f.dt_inicio, fim: f.dt_fim })
+    feriasExtrasPorTecnico.set(f.cd_tecnico, lista)
+  }
+
+  return participantesFiltrados.map(t => ({
       cd_usuario: t.cd_usuario,
       role: t.tp_role,
       cd_tecnico: t.cd_tecnico,
@@ -75,6 +93,7 @@ async function carregarParticipantes(equipeIds: number[], tecnicoUids: Array<str
       elegivelHomeOffice: t.sn_elegivel_home_office !== false,
       feriasInicio: t.dt_ferias_inicio || null,
       feriasFim: t.dt_ferias_fim || null,
+      feriasExtras: feriasExtrasPorTecnico.get(t.cd_tecnico) || [],
     }))
 }
 

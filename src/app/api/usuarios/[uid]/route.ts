@@ -70,11 +70,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ui
     const { uid } = await params
     const cdUsuario = Number(uid)
     const body = await request.json()
-    const { nome, role, matricula, especialidade, horarioEntrada, baia, baiaFixa, elegivelHomeOffice, diaCurso, feriasInicio, feriasFim } = body
+    const { nome, role, matricula, especialidade, horarioEntrada, baia, baiaFixa, elegivelHomeOffice, diaCurso, feriasInicio, feriasFim, ativo } = body
     let { equipe } = body
 
     const { rows: alvoRows } = await query(
-      `SELECT u.tp_role, e.tp_equipe FROM usuarios u
+      `SELECT u.tp_role, u.sn_ativo, e.tp_equipe FROM usuarios u
        LEFT JOIN equipes e ON e.cd_equipe = u.cd_equipe
        WHERE u.cd_usuario = $1`,
       [cdUsuario]
@@ -89,6 +89,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ui
     // pessoa). Os demais campos (baia, especialidade, etc.) continuam livres.
     if (String(cdUsuario) === String(session.user.id) && role !== alvo.tp_role) {
       return NextResponse.json({ error: 'Você não pode mudar o seu próprio perfil' }, { status: 403 })
+    }
+    if (String(cdUsuario) === String(session.user.id) && ativo === false) {
+      return NextResponse.json({ error: 'Você não pode desativar a própria conta' }, { status: 403 })
     }
 
     if (minhaRole === 'gestor' || minhaRole === 'lider') {
@@ -128,12 +131,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ui
       }
     }
 
+    const novoAtivo = typeof ativo === 'boolean' ? ativo : alvo.sn_ativo
+
     const { rows } = await query(
       `UPDATE usuarios
-       SET nm_usuario = $1, tp_role = $2, cd_equipe = $3, ds_matricula = $4
+       SET nm_usuario = $1, tp_role = $2, cd_equipe = $3, ds_matricula = $4, sn_ativo = $6
        WHERE cd_usuario = $5
        RETURNING cd_usuario`,
-      [nome, role, equipeId, matricula || null, cdUsuario]
+      [nome, role, equipeId, matricula || null, cdUsuario, novoAtivo]
     )
 
     if (rows.length === 0) {
@@ -142,8 +147,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ui
 
     if (role !== 'admin') {
       await query(
-        `INSERT INTO tecnicos (cd_usuario, nm_tecnico, cd_equipe, ds_especialidade, hr_entrada, nr_baia, sn_baia_fixa, sn_elegivel_home_office, nr_dia_curso, dt_ferias_inicio, dt_ferias_fim)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        `INSERT INTO tecnicos (cd_usuario, nm_tecnico, cd_equipe, ds_especialidade, hr_entrada, nr_baia, sn_baia_fixa, sn_elegivel_home_office, nr_dia_curso, dt_ferias_inicio, dt_ferias_fim, sn_ativo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          ON CONFLICT (cd_usuario) DO UPDATE
            SET nm_tecnico = EXCLUDED.nm_tecnico,
                cd_equipe = EXCLUDED.cd_equipe,
@@ -154,15 +159,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ui
                sn_elegivel_home_office = EXCLUDED.sn_elegivel_home_office,
                nr_dia_curso = EXCLUDED.nr_dia_curso,
                dt_ferias_inicio = EXCLUDED.dt_ferias_inicio,
-               dt_ferias_fim = EXCLUDED.dt_ferias_fim`,
-        [cdUsuario, nome, equipeId, especialidade || null, horarioEntrada || null, baia || null, Boolean(baiaFixa) || Number(baia) === 0, elegivelHomeOffice !== false, diaCurso === '' || diaCurso === undefined ? null : diaCurso, feriasInicio || null, feriasFim || null]
+               dt_ferias_fim = EXCLUDED.dt_ferias_fim,
+               sn_ativo = EXCLUDED.sn_ativo`,
+        [cdUsuario, nome, equipeId, especialidade || null, horarioEntrada || null, baia || null, Boolean(baiaFixa) || Number(baia) === 0, elegivelHomeOffice !== false, diaCurso === '' || diaCurso === undefined ? null : diaCurso, feriasInicio || null, feriasFim || null, novoAtivo]
       )
 
-      // Suspendeu o home office dela: refaz o rodízio de home office da
-      // equipe inteira dali pra frente — ela sai (vira presencial) e outros
-      // técnicos elegíveis são puxados pra completar a quantidade por dia de
-      // novo, sem deixar a escala "furada".
-      if (elegivelHomeOffice === false && equipeId) {
+      // Desativou a pessoa ou suspendeu o home office dela: refaz o rodízio
+      // de home office da equipe inteira dali pra frente — ela sai (vira
+      // presencial, ou some de vez se desativada) e outros técnicos
+      // elegíveis são puxados pra completar a quantidade por dia de novo,
+      // sem deixar a escala "furada".
+      if ((novoAtivo === false || elegivelHomeOffice === false) && equipeId) {
         await recalcularHomeOfficeEquipe(equipeId)
       }
     } else {

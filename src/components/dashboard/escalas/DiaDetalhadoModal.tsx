@@ -240,7 +240,9 @@ export default function DiaDetalhadoModal({ diaDetalhado, onClose, onNavegarDia,
   const nomeDoUid = (uid: string) => tecnicosSuporte.find(u => u.uid === uid)?.nome || null
   const estaDeFeriasHoje = (uid: string) => {
     const u = tecnicosSuporte.find(x => x.uid === uid)
-    return Boolean(u?.feriasInicio && u?.feriasFim && u.feriasInicio <= dataISO && dataISO <= u.feriasFim)
+    if (!u) return false
+    if (u.feriasInicio && u.feriasFim && u.feriasInicio <= dataISO && dataISO <= u.feriasFim) return true
+    return Boolean(u.feriasExtras?.some(p => p.inicio <= dataISO && dataISO <= p.fim))
   }
 
   // Quem está no Laboratório hoje: o responsável fixo, a menos que ele

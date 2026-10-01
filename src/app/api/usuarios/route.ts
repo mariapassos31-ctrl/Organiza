@@ -25,7 +25,7 @@ function validarPerfilEquipe(role: string, equipe: string | null | undefined): s
 // quem nesse revezamento (mesma lógica de baia/baiaFixa, só que condicional
 // ao perfil em vez de sempre público).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function toApiShape(row: any, viewer: { id: string; role: string; equipe?: string | null }) {
+function toApiShape(row: any, viewer: { id: string; role: string; equipe?: string | null }, feriasExtras: Array<{ inicio: string; fim: string }>) {
   const podeVerDetalhes = viewer.role === 'admin' ||
     ((viewer.role === 'gestor' || viewer.role === 'lider') && row.tp_equipe && row.tp_equipe === viewer.equipe) ||
     String(row.cd_usuario) === String(viewer.id)
@@ -51,6 +51,7 @@ function toApiShape(row: any, viewer: { id: string; role: string; equipe?: strin
     diaCurso: row.nr_dia_curso ?? null,
     feriasInicio: podeVerDetalhes ? (row.dt_ferias_inicio || '') : '',
     feriasFim: podeVerDetalhes ? (row.dt_ferias_fim || '') : '',
+    feriasExtras: podeVerDetalhes ? feriasExtras : [],
     ativo: row.sn_ativo,
     criadoEm: row.dt_criacao,
   }
@@ -58,7 +59,7 @@ function toApiShape(row: any, viewer: { id: string; role: string; equipe?: strin
 
 const SELECT_USUARIOS = `
   SELECT u.cd_usuario, u.nm_usuario, u.ds_email, u.tp_role, u.ds_matricula,
-         u.sn_ativo, u.dt_criacao, e.tp_equipe, t.ds_especialidade, t.hr_entrada, t.nr_baia, t.sn_baia_fixa,
+         u.sn_ativo, u.dt_criacao, e.tp_equipe, t.cd_tecnico, t.ds_especialidade, t.hr_entrada, t.nr_baia, t.sn_baia_fixa,
          t.sn_elegivel_home_office, t.nr_dia_curso,
          to_char(t.dt_ferias_inicio, 'YYYY-MM-DD') AS dt_ferias_inicio,
          to_char(t.dt_ferias_fim, 'YYYY-MM-DD') AS dt_ferias_fim
@@ -128,7 +129,23 @@ export async function GET() {
   const viewer = { ...session.user, equipe: viewerEquipe }
 
   const { rows } = await query(`${SELECT_USUARIOS} ORDER BY u.nm_usuario`)
-  return NextResponse.json(rows.map(row => toApiShape(row, viewer)))
+
+  const cdTecnicos = rows.map(r => r.cd_tecnico).filter((v): v is number => v != null)
+  const { rows: feriasExtrasRows } = cdTecnicos.length > 0
+    ? await query<{ cd_tecnico: number; dt_inicio: string; dt_fim: string }>(
+        `SELECT cd_tecnico, to_char(dt_inicio, 'YYYY-MM-DD') AS dt_inicio, to_char(dt_fim, 'YYYY-MM-DD') AS dt_fim
+         FROM tecnico_ferias WHERE cd_tecnico = ANY($1::int[])`,
+        [cdTecnicos]
+      )
+    : { rows: [] as Array<{ cd_tecnico: number; dt_inicio: string; dt_fim: string }> }
+  const feriasExtrasPorTecnico = new Map<number, Array<{ inicio: string; fim: string }>>()
+  for (const f of feriasExtrasRows) {
+    const lista = feriasExtrasPorTecnico.get(f.cd_tecnico) || []
+    lista.push({ inicio: f.dt_inicio, fim: f.dt_fim })
+    feriasExtrasPorTecnico.set(f.cd_tecnico, lista)
+  }
+
+  return NextResponse.json(rows.map(row => toApiShape(row, viewer, feriasExtrasPorTecnico.get(row.cd_tecnico) || [])))
 }
 
 export async function POST(request: Request) {

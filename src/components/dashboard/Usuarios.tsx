@@ -50,6 +50,7 @@ export default function Usuarios() {
   const [showFormEditar, setShowFormEditar] = useState(false)
   const [usuarioEditando, setUsuarioEditando] = useState<Usuario | null>(null)
   const [filtroEquipe, setFiltroEquipe] = useState('todos')
+  const [busca, setBusca] = useState('')
 
   const formVazioCriar: FormCriar = {
     nome: '',
@@ -353,33 +354,58 @@ export default function Usuarios() {
     }
   }
 
-  const handleDelete = async (uid: string) => {
-    if (!(await confirmar('Tem certeza que deseja deletar este usuário?', { titulo: 'Deletar usuário', textoConfirmar: 'Deletar' }))) return
+  // Desativar no lugar de excluir — excluir de vez trava quando a pessoa já
+  // tem histórico (trocas, rodízio), e some com o rastro dela. Desativada,
+  // ela só para de entrar em escala/rodízio novos, mas o histórico continua
+  // intacto. Reenvia o registro inteiro (igual o formulário de editar faz),
+  // só com "ativo" trocado — o PATCH sempre regrava tudo de uma vez.
+  const handleToggleAtivo = async (usuario: Usuario) => {
+    const vaiAtivar = !usuario.ativo
+    const mensagemConfirmacao = vaiAtivar
+      ? `Reativar ${usuario.nome}? Ela volta a poder ser escalada.`
+      : `Desativar ${usuario.nome}? Ela para de entrar em escala/rodízio novos (o histórico dela continua intacto).`
+    if (!(await confirmar(mensagemConfirmacao, { titulo: vaiAtivar ? 'Reativar usuário' : 'Desativar usuário', textoConfirmar: vaiAtivar ? 'Reativar' : 'Desativar' }))) return
 
-    if (user?.uid === uid) {
-      notificar('Você não pode deletar sua própria conta!', { tipo: 'erro' })
+    if (user?.uid === usuario.uid) {
+      notificar('Você não pode desativar sua própria conta!', { tipo: 'erro' })
       return
     }
 
     setError('')
     setSuccess('')
-    setExcluindoUid(uid)
+    setExcluindoUid(usuario.uid)
     try {
-      const response = await fetch(`/api/usuarios/${encodeURIComponent(uid)}`, {
-        method: 'DELETE',
+      const response = await fetch(`/api/usuarios/${encodeURIComponent(usuario.uid)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nome: usuario.nome,
+          role: usuario.role,
+          equipe: usuario.role === 'admin' ? null : usuario.equipe,
+          matricula: usuario.matricula || null,
+          especialidade: usuario.especialidade || null,
+          horarioEntrada: usuario.horarioEntrada || null,
+          baia: usuario.baia || null,
+          baiaFixa: usuario.baiaFixa,
+          elegivelHomeOffice: usuario.elegivelHomeOffice,
+          diaCurso: usuario.diaCurso ?? null,
+          feriasInicio: usuario.feriasInicio || null,
+          feriasFim: usuario.feriasFim || null,
+          ativo: vaiAtivar,
+        }),
       })
 
       if (!response.ok) {
         const data = await response.json().catch(() => ({}))
-        throw new Error(data.error || 'Falha ao deletar usuário')
+        throw new Error(data.error || 'Falha ao atualizar usuário')
       }
 
       await carregarUsuarios()
-      setSuccess('✅ Usuário deletado com sucesso!')
+      setSuccess(vaiAtivar ? '✅ Usuário reativado!' : '✅ Usuário desativado!')
       setTimeout(() => setSuccess(''), 3000)
     } catch (error) {
-      console.error('Erro ao deletar usuário:', error)
-      setError(`❌ Erro ao deletar usuário: ${mensagemDeErro(error)}`)
+      console.error('Erro ao desativar/reativar usuário:', error)
+      setError(`❌ Erro: ${mensagemDeErro(error)}`)
     } finally {
       setExcluindoUid(null)
     }
@@ -404,7 +430,7 @@ export default function Usuarios() {
         if (u.equipe === userData.equipe && u.role !== 'admin' && u.role !== 'gestor' && u.role !== 'lider') {
           return true
         }
-        if ((u.role === 'gestor' || u.role === 'lider') && u.equipe === userData.equipe && u.uid !== userData.uid) {
+        if ((u.role === 'gestor' || u.role === 'lider') && u.equipe === userData.equipe) {
           return true
         }
         return false
@@ -412,6 +438,14 @@ export default function Usuarios() {
     }
     return []
   }
+
+  // Busca ignora maiúsculas/minúsculas e acento (ex: "jose" acha "José") —
+  // nome ou matrícula, qualquer um dos dois batendo já mostra.
+  const normalizarBusca = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  const buscaNormalizada = normalizarBusca(busca.trim())
+  const usuariosFiltrados = usuariosVisiveis()
+    .filter(u => filtroEquipe === 'todos' || u.equipe === filtroEquipe)
+    .filter(u => !buscaNormalizada || normalizarBusca(u.nome).includes(buscaNormalizada) || normalizarBusca(u.matricula || '').includes(buscaNormalizada))
 
   return (
     <div className="usuarios-container">
@@ -924,6 +958,13 @@ export default function Usuarios() {
       <div className="usuarios-section">
         <div className="filtro-header">
           <h3>Usuários Cadastrados</h3>
+          <input
+            type="text"
+            className="busca-usuario"
+            placeholder="🔎 Buscar por nome ou matrícula..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
           {userData?.role === 'admin' && (
             <div className="filtros">
               <button
@@ -945,7 +986,7 @@ export default function Usuarios() {
           )}
         </div>
         <div className="usuarios-table-wrapper">
-          {usuariosVisiveis().filter(u => filtroEquipe === 'todos' || u.equipe === filtroEquipe).length === 0 ? (
+          {usuariosFiltrados.length === 0 ? (
             <p className="empty-state">Nenhum usuário para exibir</p>
           ) : (
             <table className="usuarios-table">
@@ -964,10 +1005,11 @@ export default function Usuarios() {
                 </tr>
               </thead>
               <tbody>
-                {usuariosVisiveis().filter(u => filtroEquipe === 'todos' || u.equipe === filtroEquipe).map(usuario => (
-                  <tr key={usuario.uid}>
+                {usuariosFiltrados.map(usuario => (
+                  <tr key={usuario.uid} className={usuario.ativo === false ? 'usuario-inativo' : ''}>
                     <td className="nome-cell">
                       <strong>{usuario.nome}</strong>
+                      {usuario.ativo === false && <span className="status-badge" style={{ marginLeft: 8 }}>Inativo</span>}
                     </td>
                     <td>{usuario.email}</td>
                     <td>{usuario.matricula || '-'}</td>
@@ -1008,12 +1050,14 @@ export default function Usuarios() {
                               )}
                               {usuario.uid !== userData?.uid && (
                                 <button
-                                  className="btn-delete"
-                                  onClick={() => handleDelete(usuario.uid)}
-                                  title="Deletar usuário"
+                                  className={usuario.ativo ? 'btn-delete' : 'btn-success'}
+                                  onClick={() => handleToggleAtivo(usuario)}
+                                  title={usuario.ativo ? 'Desativar usuário' : 'Reativar usuário'}
                                   disabled={excluindoUid === usuario.uid}
                                 >
-                                  {excluindoUid === usuario.uid ? '⏳ Excluindo...' : '🗑️ Deletar'}
+                                  {excluindoUid === usuario.uid
+                                    ? '⏳ Salvando...'
+                                    : usuario.ativo ? '🚫 Desativar' : '✅ Reativar'}
                                 </button>
                               )}
                             </>

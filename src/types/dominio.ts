@@ -26,6 +26,9 @@ export interface Usuario {
   diaCurso: number | null
   feriasInicio: string
   feriasFim: string
+  // Períodos extras de férias (importados de Excel/TOTVS) — além do único
+  // período que feriasInicio/feriasFim guardam.
+  feriasExtras?: Array<{ inicio: string; fim: string }>
   ativo: boolean
   criadoEm: string
 }

@@ -442,6 +442,46 @@
   gap: 15px;
 }
 
+.busca-usuario {
+  flex: 1;
+  min-width: 200px;
+  max-width: 320px;
+  padding: 9px 12px;
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.3s;
+  box-sizing: border-box;
+}
+
+.busca-usuario:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* Linha de quem tá desativado — mais apagada, pra separar visualmente de
+   quem entra em escala normalmente, sem sumir da lista. */
+.usuarios-table tr.usuario-inativo {
+  opacity: 0.55;
+}
+
+.usuarios-table tr.usuario-inativo td {
+  font-style: italic;
+}
+
+.usuarios-table .status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-style: normal;
+}
+
 .filtros {
   display: flex;
   gap: 10px;
