@@ -1,10 +1,10 @@
 'use client'
 
-import type { Dispatch, FormEvent, SetStateAction } from 'react'
+import { useEffect, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
 import { EQUIPES } from '../../../lib/equipesConfig'
 import type { Escala, FormEscala, Sala, Usuario } from '../../../types/dominio'
 import { tiposDisponiveisParaEquipe } from '../../../lib/escalasConstants'
-import { formatarDataBR, listarDiasDoPeriodo, SeletorPeriodoOuDias, SeletorDiasSimples, SeletorDiasProporcional, SeletorDiasComPreVia, PainelDeParaTroca } from './SeletorDiasTroca'
+import { formatarDataBR, listarDiasDoPeriodo, SeletorPeriodoOuDias, SeletorDiasSimples, SeletorDiasProporcional, PainelDeParaTroca } from './SeletorDiasTroca'
 
 export default function EscalaEditModal({
   open,
@@ -56,7 +56,6 @@ export default function EscalaEditModal({
   setNovoTecnicoTrocaDireto,
   diasTrocaDireta,
   setDiasTrocaDireta,
-  escalasFisicasTrocaDireta,
 }: {
   open: boolean
   formData: FormEscala
@@ -107,46 +106,26 @@ export default function EscalaEditModal({
   setNovoTecnicoTrocaDireto: (valor: string) => void
   diasTrocaDireta: string[]
   setDiasTrocaDireta: Dispatch<SetStateAction<string[]>>
-  escalasFisicasTrocaDireta: Escala[]
 }) {
   if (!open) return null
 
   const escalaOferecidaSelecionada = minhasEscalasParaOferecer?.find(e => e.id === escalaOferecidaId)
 
-  // Todo dia que qualquer uma das duas pessoas tem uma escala física —
-  // candidatos do checklist único da troca direta. Mostrar o que cada um
-  // já tem, dia a dia, evita ter que escolher "de quem é a escala"
-  // separadamente (isso é o que deixava confuso) — não tem distinção entre
-  // "dia principal" e "dia extra", é só uma lista.
-  const diasCandidatosTrocaDireta = [...new Set(
-    escalasFisicasTrocaDireta.flatMap(e => listarDiasDoPeriodo(e.dataInicio, e.dataFim))
-  )].sort()
-
-  const tipoNoDia = (uid: string | null, dia: string): string | null => {
-    const encontrada = escalasFisicasTrocaDireta.find(e => e.tecnicos[0] === uid && dia >= e.dataInicio && dia <= e.dataFim)
-    return encontrada ? encontrada.tipo : null
-  }
-
-  const statusNoDia = (uid: string | null, dia: string) => {
-    const tipo = tipoNoDia(uid, dia)
-    return tipo ? nomeTipoEscala(tipo) : '— nada —'
-  }
-
-  const especialidadeDoTecnico = (uid: string | null) => tecnicosDisponiveis.find(t => t.uid === uid)?.especialidade
-
-  // Especialidade Externo nunca pode ficar Presencial (não ocupa baia) — se
-  // marcar um dia desses, a pessoa Externo simplesmente não recebe escala
-  // nesse dia (fica na vaga do Externo, ou o backup assume — confirmado só
-  // de marcar a caixinha, por isso o aviso já aparece direto no rótulo do
-  // dia).
-  const conflitoExternoNoDia = (dia: string): boolean =>
-    (tipoNoDia(tecnicoOriginalUid, dia) === 'presencial' && especialidadeDoTecnico(novoTecnicoTrocaDireto) === 'Externo') ||
-    (tipoNoDia(novoTecnicoTrocaDireto, dia) === 'presencial' && especialidadeDoTecnico(tecnicoOriginalUid) === 'Externo')
-
-  const rotuloDiaTrocaDireta = (dia: string) => {
-    const base = `${nomeTecnicoOriginal}: ${statusNoDia(tecnicoOriginalUid, dia)} · ${getNomeTecnico(novoTecnicoTrocaDireto)}: ${statusNoDia(novoTecnicoTrocaDireto, dia)}`
-    return conflitoExternoNoDia(dia) ? `${base} — ⚠️ quem é Externo fica sem escala nesse dia (vaga do Externo, não ocupa baia)` : base
-  }
+  // "Escala inteira ou dias específicos" — mesmo componente e mesma lógica
+  // da tela do usuário (solicitar troca): um registro só, bem delimitado
+  // (a escala que foi aberta pra editar). Sem mostrar o que cada lado já
+  // tem dia a dia — o back-end já resolve sozinho quem fica com o quê.
+  const [tipoTrocaDireta, setTipoTrocaDireta] = useState<'completa' | 'dias'>('dias')
+  useEffect(() => {
+    if (tipoTrocaDireta === 'completa') setDiasTrocaDireta(listarDiasDoPeriodo(formData.dataInicio, formData.dataFim))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipoTrocaDireta, formData.dataInicio, formData.dataFim])
+  // O modal não desmonta entre uma troca e outra (só esconde) — sem isso,
+  // "Escala inteira" ficaria marcado sozinho na próxima vez que abrir o
+  // "Trocar direto", mesmo pra uma escala/pessoa completamente diferente.
+  useEffect(() => {
+    if (!trocarDireto) setTipoTrocaDireta('dias')
+  }, [trocarDireto])
 
   // Só faz sentido escolher sala quando a equipe está em mais de uma
   // (formalizadas num rodízio "Entre Salas" ou não — qualquer configuração
@@ -261,13 +240,16 @@ export default function EscalaEditModal({
               {tecnicoFoiTrocado && (
                 <div className="troca-form">
                   <p className="de-para-painel-subtitulo">
-                    Marque o(s) dia(s) pra trocar entre <strong>{nomeTecnicoOriginal}</strong> e <strong>{getNomeTecnico(novoTecnicoTrocaDireto)}</strong> — já mostrando o que cada um já tem em cada um:
+                    Trocar entre <strong>{nomeTecnicoOriginal}</strong> e <strong>{getNomeTecnico(novoTecnicoTrocaDireto)}</strong>:
                   </p>
-                  <SeletorDiasComPreVia
+                  <SeletorPeriodoOuDias
+                    nomeGrupo="trocaDiretaTipoSelecao"
+                    tipo={tipoTrocaDireta}
+                    setTipo={setTipoTrocaDireta}
                     dias={diasTrocaDireta}
                     setDias={setDiasTrocaDireta}
-                    diasCandidatos={diasCandidatosTrocaDireta}
-                    rotulo={rotuloDiaTrocaDireta}
+                    dataInicio={formData.dataInicio}
+                    dataFim={formData.dataFim}
                   />
                 </div>
               )}

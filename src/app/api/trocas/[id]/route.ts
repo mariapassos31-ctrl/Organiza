@@ -5,6 +5,7 @@ import { auth } from '../../../../auth'
 import { motivoInelegibilidadeParaTipo } from '../../../../lib/escalasConstants'
 import { quemColideEspecialidadeNoHomeOffice, listarNomes } from '../../../../lib/elegibilidadeHomeOffice'
 import { substituirTecnicoNoPeriodo } from '../../../../lib/escalaSegmento'
+import { notificarTrocaRespondida } from '../../../../lib/emailNotificacoes'
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth()
@@ -30,10 +31,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
               to_char(es.dt_fim, 'YYYY-MM-DD') AS escala_dt_fim,
               ts.cd_usuario AS solicitante_usuario_id,
               td.cd_usuario AS destino_usuario_id,
-              usol.tp_role AS solicitante_role,
+              usol.tp_role AS solicitante_role, usol.ds_email AS solicitante_email, usol.nm_usuario AS solicitante_nome,
               ts.nr_baia AS solicitante_nr_baia, ts.ds_especialidade AS solicitante_especialidade,
               ts.sn_elegivel_home_office AS solicitante_elegivel,
-              udest.tp_role AS destino_role,
+              udest.tp_role AS destino_role, udest.ds_email AS destino_email, udest.nm_usuario AS destino_nome,
               td.nr_baia AS destino_nr_baia, td.ds_especialidade AS destino_especialidade,
               td.sn_elegivel_home_office AS destino_elegivel,
               esol.tp_escala AS solicitada_tp_escala,
@@ -77,6 +78,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   if (acao === 'recusar') {
     await query(`UPDATE trocas_escala SET tp_status = 'recusada' WHERE cd_troca_escala = $1`, [id])
+    await notificarTrocaRespondida({ email: troca.solicitante_email, nome: troca.solicitante_nome }, false, troca.destino_nome, id)
     return NextResponse.json({ ok: true })
   }
 
@@ -230,6 +232,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
 
     await client.query('COMMIT')
+    await notificarTrocaRespondida({ email: troca.solicitante_email, nome: troca.solicitante_nome }, true, troca.destino_nome, id)
     return NextResponse.json({ ok: true })
   } catch (error) {
     await client.query('ROLLBACK')

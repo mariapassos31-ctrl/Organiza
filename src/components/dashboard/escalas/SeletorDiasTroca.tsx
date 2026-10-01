@@ -165,65 +165,6 @@ export function SeletorDiasProporcional({
   )
 }
 
-// Checklist de dias com uma lista fixa de candidatos (em vez de um único
-// período contínuo) e um rótulo extra por dia — usado na troca direta, onde
-// cada dia pode ter uma escala de cada uma das duas pessoas envolvidas (não
-// dá pra amarrar num período só). Mostrar o que cada um já tem, dia a dia,
-// evita ter que escolher "de quem é a escala" separadamente.
-export function SeletorDiasComPreVia({
-  dias, setDias, diasCandidatos, limite, rotulo,
-}: {
-  dias: string[]
-  setDias: Dispatch<SetStateAction<string[]>>
-  diasCandidatos: string[]
-  // Sem limite: seleção livre, qualquer quantidade (caso da troca direta,
-  // onde cada dia já resolve sozinho, sem precisar bater com outro lado).
-  // Com limite: trava em cima de uma quantidade certa (caso da troca
-  // mútua, onde os dois lados precisam ser equivalentes).
-  limite?: number
-  rotulo: (dia: string) => string
-}) {
-  return (
-    <div className="form-group">
-      <div className="troca-dias-checklist troca-dias-checklist-previa">
-        {diasCandidatos.length === 0 && (
-          <small className="campo-nota">Nenhum dia com escala física encontrado pra essas duas pessoas.</small>
-        )}
-        {diasCandidatos.map(dia => {
-          const marcado = dias.includes(dia)
-          const travado = limite != null && !marcado && dias.length >= limite
-          return (
-            <label key={dia} className={`troca-dias-checklist-item troca-dias-checklist-item-previa${travado ? ' troca-dias-checklist-item-travado' : ''}`}>
-              <input
-                type="checkbox"
-                checked={marcado}
-                disabled={travado}
-                onChange={(e) => {
-                  setDias(atual => e.target.checked ? [...atual, dia] : atual.filter(d => d !== dia))
-                }}
-              />
-              <span>
-                <strong>{rotuloDia(dia)}</strong>
-                <small>{rotulo(dia)}</small>
-              </span>
-            </label>
-          )
-        })}
-      </div>
-      {diasCandidatos.length > 0 && limite != null && (
-        <small className={dias.length === limite ? 'troca-dias-contagem-ok' : 'auto-campo-alerta'}>
-          {dias.length} de {limite} dia{limite === 1 ? '' : 's'} selecionado{dias.length === 1 ? '' : 's'}
-        </small>
-      )}
-      {diasCandidatos.length > 0 && limite == null && dias.length > 0 && (
-        <small className="troca-dias-contagem-ok">
-          {dias.length} dia{dias.length === 1 ? '' : 's'} selecionado{dias.length === 1 ? '' : 's'}
-        </small>
-      )}
-    </div>
-  )
-}
-
 // Layout "De/Para" — dois painéis lado a lado com um ícone de troca no
 // meio, pra deixar o conceito de permuta cruzada óbvio visualmente (em vez
 // de depender de parágrafo explicando quem cede o quê). Cada tela

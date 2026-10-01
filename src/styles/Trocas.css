@@ -54,6 +54,14 @@
   border-radius: 8px;
   background: #fafafa;
   flex-wrap: wrap;
+  transition: background 0.4s ease, border-color 0.4s ease;
+}
+
+/* Quem chega pelo botão "Ver troca" do e-mail (?trocaId=...) — pisca essa
+   troca em destaque por alguns segundos, pra achar rápido no meio da lista. */
+.troca-card-destacada {
+  background: var(--brand-primary-soft, #f4e9ec) !important;
+  border-color: var(--brand-primary, #6c2b3e) !important;
 }
 
 .troca-info p {

@@ -1127,7 +1127,6 @@ export default function Escalas() {
         setNovoTecnicoTrocaDireto={setNovoTecnicoTrocaDireto}
         diasTrocaDireta={diasTrocaDireta}
         setDiasTrocaDireta={setDiasTrocaDireta}
-        escalasFisicasTrocaDireta={escalasFisicasTrocaDireta}
       />
 
       {autoModalOpen && (

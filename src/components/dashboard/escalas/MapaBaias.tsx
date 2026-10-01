@@ -2,28 +2,12 @@
 
 import { useState } from 'react'
 import { labelPerfil } from '../../../lib/equipesConfig'
+import { POSICOES_BAIA, type Posicao } from '../../../lib/ocupacaoBaias'
 import type { OcupanteAprendiz } from '../../../types/dominio'
 
-interface Posicao { top: string; left: string }
+export { POSICOES_BAIA }
+export type { Posicao }
 
-// Posições (em % da imagem) das etiquetas de cada baia no mapa da sala,
-// incluindo a mesa do Supervisor ("0" — ela já é desenhada como uma mesa à
-// parte na própria imagem, separada das outras 9). Ajustar aqui se a
-// imagem do mapa for trocada e as caixas mudarem de lugar. Exportadas
-// porque a tela de configuração (ConfigurarSala) reusa o mesmo layout pra
-// mostrar o mapa de verdade enquanto configura.
-export const POSICOES_BAIA: Record<string, Posicao> = {
-  0: { top: '6.5%', left: '50%' },
-  1: { top: '69.2%', left: '37.6%' },
-  2: { top: '69.2%', left: '60.3%' },
-  3: { top: '53.7%', left: '73%' },
-  4: { top: '35.5%', left: '73%' },
-  5: { top: '17.3%', left: '73%' },
-  6: { top: '35.5%', left: '54.4%' },
-  7: { top: '54.1%', left: '26.7%' },
-  8: { top: '35.7%', left: '26.7%' },
-  9: { top: '17.3%', left: '26.7%' },
-}
 export function primeiroNome(nomeCompleto: string) {
   return nomeCompleto.trim().split(/\s+/)[0]
 }

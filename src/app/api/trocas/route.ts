@@ -6,6 +6,7 @@ import { motivoInelegibilidadeParaTipo } from '../../../lib/escalasConstants'
 import { quemColideEspecialidadeNoHomeOffice, listarNomes } from '../../../lib/elegibilidadeHomeOffice'
 import { isolarDiasComoEscalaPropria, type EscalaParaSegmento } from '../../../lib/escalaSegmento'
 import { addDays } from '../../../lib/escalasRodizio'
+import { notificarTrocaSolicitada } from '../../../lib/emailNotificacoes'
 
 // O pedido de troca guarda cada lado numa ÚNICA escala (cd_escala /
 // cd_escala_solicitada são colunas simples, não uma lista) — então os dias
@@ -178,6 +179,8 @@ interface DestinoValidado {
   tp_role: string
   tp_equipe: string
   sn_ativo: boolean
+  ds_email: string
+  nm_usuario: string
   nr_baia: number | null
   ds_especialidade: string | null
   sn_elegivel_home_office: boolean | null
@@ -355,7 +358,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Escala não encontrada' }, { status: 404 })
     }
     const { rows: destinoRows } = await query(
-      `SELECT u.cd_usuario, u.tp_role, u.sn_ativo, e.tp_equipe, t.cd_tecnico,
+      `SELECT u.cd_usuario, u.tp_role, u.sn_ativo, u.ds_email, u.nm_usuario, e.tp_equipe, t.cd_tecnico,
               t.nr_baia, t.ds_especialidade, t.sn_elegivel_home_office
        FROM usuarios u
        LEFT JOIN equipes e ON e.cd_equipe = u.cd_equipe
@@ -458,6 +461,8 @@ export async function POST(request: Request) {
     } finally {
       client.release()
     }
+
+    await notificarTrocaSolicitada({ email: destino.ds_email, nome: destino.nm_usuario }, session.user.name || 'Um colega', cdTrocaEscala)
 
     return NextResponse.json({ id: String(cdTrocaEscala) }, { status: 201 })
   } catch (error) {

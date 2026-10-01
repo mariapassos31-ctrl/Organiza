@@ -27,6 +27,12 @@ export default function Trocas() {
   const [trocas, setTrocas] = useState<Troca[]>([])
   const [loading, setLoading] = useState(true)
   const [processando, setProcessando] = useState<string | null>(null)
+  // Vem do botão "Ver troca"/"Ver pedido de troca" do e-mail de notificação
+  // (?trocaId=...) — não sabemos em qual das 4 listas a troca vai cair, só
+  // depois de carregar; por isso o scroll+destaque roda num efeito à parte.
+  const [trocaIdAlvo] = useState<string | null>(() =>
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('trocaId') : null
+  )
 
   const carregar = async () => {
     try {
@@ -44,6 +50,16 @@ export default function Trocas() {
     if (!userData) return
     carregar()
   }, [userData])
+
+  useEffect(() => {
+    if (!trocaIdAlvo || trocas.length === 0) return
+    const el = document.getElementById(`troca-${trocaIdAlvo}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('troca-card-destacada')
+    const timer = setTimeout(() => el.classList.remove('troca-card-destacada'), 3000)
+    return () => clearTimeout(timer)
+  }, [trocaIdAlvo, trocas])
 
   const responder = async (id: string, acao: string) => {
     setProcessando(id)
@@ -152,7 +168,7 @@ export default function Trocas() {
           ) : (
             <div className="trocas-lista">
               {recebidas.map(troca => (
-                <div key={troca.id} className="troca-card">
+                <div key={troca.id} id={`troca-${troca.id}`} className="troca-card">
                   <div className="troca-info">
                     <p>
                       <strong>{troca.solicitanteNome}</strong>{' '}
@@ -197,7 +213,7 @@ export default function Trocas() {
           ) : (
             <div className="trocas-lista">
               {recebidasHistorico.map(troca => (
-                <div key={troca.id} className="troca-card">
+                <div key={troca.id} id={`troca-${troca.id}`} className="troca-card">
                   <div className="troca-info">
                     <p>
                       {troca.direta ? (
@@ -233,7 +249,7 @@ export default function Trocas() {
           ) : (
             <div className="trocas-lista">
               {minhas.map(troca => (
-                <div key={troca.id} className="troca-card">
+                <div key={troca.id} id={`troca-${troca.id}`} className="troca-card">
                   <div className="troca-info">
                     <p>
                       {troca.direta ? (
@@ -279,7 +295,7 @@ export default function Trocas() {
           ) : (
             <div className="trocas-lista">
               {visaoGeral.map(troca => (
-                <div key={troca.id} className="troca-card">
+                <div key={troca.id} id={`troca-${troca.id}`} className="troca-card">
                   <div className="troca-info">
                     <p>
                       <strong>{troca.solicitanteNome}</strong> → <strong>{troca.destinoNome}</strong>

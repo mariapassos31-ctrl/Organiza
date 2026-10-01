@@ -5,6 +5,11 @@ import { auth } from '../../../../auth'
 import { montarPlano, resolverEquipeGestor } from '../../../../lib/escalasAuto'
 import { ehPerfilGestao } from '../../../../lib/equipesConfig'
 
+// Não avisa por e-mail aqui — quem avisa é o resumo semanal (toda sexta,
+// ver src/lib/resumoSemanal.ts), calculado em cima do estado atual da
+// escala, não do momento da geração. Isso evita mandar um e-mail (com mapa
+// desatualizado) por escala quando alguém gera várias semanas de uma vez,
+// e garante que trocas feitas depois da geração já apareçam certas.
 export async function POST(request: Request) {
   const session = await auth()
   if (!session?.user) {

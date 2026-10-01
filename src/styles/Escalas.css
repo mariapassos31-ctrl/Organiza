@@ -71,44 +71,6 @@
   white-space: nowrap;
 }
 
-/* Variante "com prévia" (dia/período extra da troca direta): cada dia vira
-   uma linha inteira, com o que as duas pessoas já têm naquele dia embaixo
-   do rótulo — precisa de mais espaço horizontal que os chips curtos
-   padrão, por isso empilha em vez de agrupar lado a lado. */
-.troca-dias-checklist-previa {
-  flex-direction: column;
-  flex-wrap: nowrap;
-  max-height: 240px;
-}
-
-.troca-dias-checklist-item-previa {
-  width: 100%;
-  align-items: flex-start !important;
-  white-space: normal !important;
-  padding: 6px 8px;
-  border-radius: 6px;
-}
-
-.troca-dias-checklist-item-previa:hover {
-  background: #eef2f7;
-}
-
-.troca-dias-checklist-item-previa input {
-  margin-top: 3px;
-  flex-shrink: 0;
-}
-
-.troca-dias-checklist-item-previa span {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.troca-dias-checklist-item-previa small {
-  color: #6b7280;
-  font-size: 12px;
-}
-
 .toggle-switch {
   position: relative;
   display: inline-block;
@@ -2433,6 +2395,7 @@
     transform: rotate(90deg);
   }
 }
+
 
 .troca-dias-checklist-item-travado {
   opacity: 0.4;

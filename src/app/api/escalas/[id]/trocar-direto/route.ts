@@ -7,6 +7,7 @@ import { ehPerfilGestao } from '../../../../../lib/equipesConfig'
 import { motivoInelegibilidadeParaTipo } from '../../../../../lib/escalasConstants'
 import { quemColideEspecialidadeNoHomeOffice, listarNomes } from '../../../../../lib/elegibilidadeHomeOffice'
 import { isolarDiasComoEscalaPropria, removerConflitosFisicos, TIPOS_PRESENCA_FISICA, type EscalaParaSegmento } from '../../../../../lib/escalaSegmento'
+import { notificarTrocaDiretaAplicada } from '../../../../../lib/emailNotificacoes'
 
 // Troca direta feita por admin/gestor no modal de editar escala: escolhe o
 // técnico novo e os dias — o sistema descobre sozinho o que CADA um dos
@@ -212,7 +213,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     const { rows: novoRows } = await query(
-      `SELECT u.cd_usuario, u.tp_role, e.tp_equipe, t.cd_tecnico,
+      `SELECT u.cd_usuario, u.tp_role, u.ds_email, u.nm_usuario, e.tp_equipe, t.cd_tecnico,
               t.nr_baia, t.ds_especialidade, t.sn_elegivel_home_office
        FROM usuarios u
        LEFT JOIN equipes e ON e.cd_equipe = u.cd_equipe
@@ -220,7 +221,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
        WHERE u.cd_usuario = $1`,
       [Number(novoTecnicoUid)]
     )
-    const novo: PessoaElegivel & { cd_usuario: number; tp_equipe: string } | undefined = novoRows[0]
+    const novo: PessoaElegivel & { cd_usuario: number; tp_equipe: string; ds_email: string; nm_usuario: string } | undefined = novoRows[0]
     if (!novo || !novo.cd_tecnico) {
       return NextResponse.json({ error: 'Técnico não encontrado' }, { status: 404 })
     }
@@ -232,12 +233,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
 
     const { rows: antigoEligRows } = await query(
-      `SELECT u.tp_role, t.nr_baia, t.ds_especialidade, t.sn_elegivel_home_office
+      `SELECT u.tp_role, u.ds_email, u.nm_usuario, t.nr_baia, t.ds_especialidade, t.sn_elegivel_home_office
        FROM tecnicos t JOIN usuarios u ON u.cd_usuario = t.cd_usuario
        WHERE t.cd_tecnico = $1`,
       [escala.tecnico_antigo_cd]
     )
-    const antigo: PessoaElegivel = { cd_tecnico: escala.tecnico_antigo_cd, ...(antigoEligRows[0] || {}) }
+    const antigo: PessoaElegivel & { ds_email?: string; nm_usuario?: string } = { cd_tecnico: escala.tecnico_antigo_cd, ...(antigoEligRows[0] || {}) }
 
     // O que cada um já tem, em CADA dia pedido — os dois lados são
     // descobertos do mesmo jeito, simétrico, sem um "lado principal".
@@ -305,11 +306,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
       await client.query('COMMIT')
 
-      return NextResponse.json({
-        ok: true,
-        novoAssumiu: agruparPorTipo(fragAntigo, novo, diasComoHomeOffice),
-        antigoAssumiu: agruparPorTipo(fragNovo, antigo, diasComoHomeOffice),
-      })
+      const novoAssumiu = agruparPorTipo(fragAntigo, novo, diasComoHomeOffice)
+      const antigoAssumiu = agruparPorTipo(fragNovo, antigo, diasComoHomeOffice)
+      const gestorNome = session.user.name || 'Um gestor'
+      await Promise.all([
+        notificarTrocaDiretaAplicada({ email: novo.ds_email, nome: novo.nm_usuario }, novoAssumiu, gestorNome),
+        notificarTrocaDiretaAplicada({ email: antigo.ds_email ?? null, nome: antigo.nm_usuario ?? '' }, antigoAssumiu, gestorNome),
+      ])
+
+      return NextResponse.json({ ok: true, novoAssumiu, antigoAssumiu })
     } catch (error) {
       await client.query('ROLLBACK')
       throw error
