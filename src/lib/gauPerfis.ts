@@ -1,16 +1,28 @@
 import 'server-only'
 import { Pool } from 'pg'
 
-// Gestor geral (vê tudo, como admin): ADM + um dos perfis de topo do Argos
-// (N3 ou Gestor), conferidos entre os perfis da pessoa NO SISTEMA (código
-// SISTEMA_GAU). Provisório — apagar quando o acesso passar a ser governado
-// por perfis próprios do Escala TI.
-export const PERFIS_GESTOR_GERAL_OBRIGATORIOS = ['ADM']
-export const PERFIS_GESTOR_GERAL_UM_DE = ['ARG_N3', 'ARG_GESTOR']
+// Código do Escala TI no GAU (SIST_ID ou SIST_CODIGO) — "ESCTI" (SIST_ID 14).
+// Dá pra trocar por GAU_SISTEMA no .env.local se o cadastro mudar de ID.
+export const SISTEMA_GAU = process.env.GAU_SISTEMA || '14'
 
-// Código do Escala TI no GAU (SIST_ID ou SIST_CODIGO). Provisório: fixo em 10,
-// dá pra trocar por GAU_SISTEMA no .env.local.
-export const SISTEMA_GAU = process.env.GAU_SISTEMA || '10'
+// Perfis cadastrados no GAU pro Escala TI (tela "Perfis RBAC"), em ordem de
+// prioridade — se a pessoa tiver mais de um, vale o mais alto. O papel que o
+// GAU atribui manda mais que o cadastro local (ds_role): é o GAU quem decide
+// quem é admin/gestor/líder/técnico, o cadastro local só guarda a equipe
+// (que o GAU não sabe) e os dados específicos de escala (baia, horário etc).
+export const PERFIS_GAU_PARA_ROLE: Array<{ perfil: string; role: string }> = [
+  { perfil: 'ESCTI_ADMIN', role: 'admin' },
+  { perfil: 'ESCTI_GESTOR', role: 'gestor' },
+  { perfil: 'ESCTI_LIDER', role: 'lider' },
+  { perfil: 'ESCTI_TECNICO', role: 'tecnico' },
+]
+
+// Papel que os perfis do GAU, no sistema ESCTI, atribuem a essa pessoa —
+// null se ela não tem nenhum dos 4 perfis (login segue só pelo cadastro
+// local, como antes do GAU).
+export function papelDoGau(perfisSistema: string[]): string | null {
+  return PERFIS_GAU_PARA_ROLE.find(p => perfisSistema.includes(p.perfil))?.role ?? null
+}
 
 export interface IdentidadeGau {
   perfis: string[]
@@ -105,7 +117,58 @@ export async function consultarGau(candidatos: string[]): Promise<IdentidadeGau>
   }
 }
 
-export function ehGestorGeral(perfisSistema: string[]): boolean {
-  return PERFIS_GESTOR_GERAL_OBRIGATORIOS.every(perfil => perfisSistema.includes(perfil)) &&
-    PERFIS_GESTOR_GERAL_UM_DE.some(perfil => perfisSistema.includes(perfil))
+export interface UsuarioGau {
+  nome: string | null
+  email: string | null
+  login: string | null
+  matricula: string | null
+  // Perfis ESCTI que essa pessoa tem — mesma fonte de papelDoGau().
+  perfis: string[]
+}
+
+// Todo mundo que tem QUALQUER um dos perfis ESCTI_* no GAU (sistema
+// SISTEMA_GAU), ativo — é a lista "quem deveria ter acesso ao Escala TI
+// segundo o GAU", usada pra tela de Usuários casar com o cadastro local.
+export async function listarUsuariosGau(): Promise<UsuarioGau[]> {
+  const pool = obterPoolGau()
+  if (!pool) {
+    console.warn('[gau] GAU_DATABASE_* não configurado no .env.local — lista de usuários do GAU ignorada')
+    return []
+  }
+  const schema = schemaGau()
+  const perfisEscti = PERFIS_GAU_PARA_ROLE.map(p => p.perfil)
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT f."FUNC_ID",
+              trim(f."FUNC_NOME") AS nome,
+              lower(trim(f."FUNC_EMAIL")) AS email,
+              lower(trim(f."FUNC_LOGIN_AD")) AS login,
+              lower(trim(f."FUNC_MATRICULA")) AS matricula,
+              trim(p."PERF_CODIGO") AS perfil
+       FROM ${schema}."FUNCIONARIO" f
+       JOIN ${schema}."FUNCIONARIO_SISTEMA_LOGIN" fsl
+         ON fsl."FUNC_ID" = f."FUNC_ID" AND COALESCE(fsl."FUSL_ATIVO", 1) = 1 AND COALESCE(fsl."FUSL_EXCLUIDO", 0) = 0
+       JOIN ${schema}."SISTEMA" s
+         ON s."SIST_ID" = fsl."SIST_ID" AND (s."SIST_ID"::text = $1 OR trim(s."SIST_CODIGO") = $1)
+       JOIN ${schema}."LOGIN_PERFIL" lp
+         ON lp."FUSL_ID" = fsl."FUSL_ID" AND COALESCE(lp."LOPE_ATIVO", 1) = 1 AND COALESCE(lp."LOPE_EXCLUIDO", 0) = 0
+       JOIN ${schema}."PERFIL" p
+         ON p."PERF_ID" = lp."PERF_ID" AND COALESCE(p."PERF_ATIVO", 1) = 1 AND COALESCE(p."PERF_EXCLUIDO", 0) = 0
+             AND trim(p."PERF_CODIGO") = ANY($2::text[])
+       WHERE COALESCE(f."FUNC_ATIVO", 1) = 1 AND COALESCE(f."FUNC_EXCLUIDO", 0) = 0`,
+      [SISTEMA_GAU, perfisEscti]
+    )
+
+    const porFuncId = new Map<number, UsuarioGau>()
+    for (const r of rows) {
+      const atual: UsuarioGau = porFuncId.get(r.FUNC_ID) ?? { nome: r.nome, email: r.email, login: r.login, matricula: r.matricula, perfis: [] }
+      if (r.perfil && !atual.perfis.includes(r.perfil)) atual.perfis.push(r.perfil)
+      porFuncId.set(r.FUNC_ID, atual)
+    }
+    return [...porFuncId.values()]
+  } catch (error) {
+    console.warn('[gau] não foi possível listar usuários do GAU:', error instanceof Error ? error.message : error)
+    return []
+  }
 }

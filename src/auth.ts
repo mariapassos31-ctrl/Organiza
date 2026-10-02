@@ -3,28 +3,8 @@ import Credentials from 'next-auth/providers/credentials'
 import { authConfig } from './auth.config'
 import { query } from './lib/db'
 import { autenticarNoGateway } from './lib/gatewayAuth'
-import { consultarGau, ehGestorGeral, SISTEMA_GAU } from './lib/gauPerfis'
-
-// Códigos que o login usa pra mostrar a mensagem certa.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function provisionarUsuarioDoGau({ nome, email, matricula }: { nome: string; email: string | null; matricula: string | null }): Promise<any> {
-  if (!email) return null
-
-  await query(
-    `INSERT INTO usuarios (nm_usuario, ds_email, tp_role, ds_matricula)
-     VALUES ($1, $2, 'tecnico', $3)
-     ON CONFLICT (ds_email) DO NOTHING`,
-    [nome, email, matricula]
-  )
-  const { rows } = await query(
-    `SELECT u.cd_usuario, u.nm_usuario, u.ds_email, u.tp_role, e.tp_equipe
-     FROM usuarios u
-     LEFT JOIN equipes e ON e.cd_equipe = u.cd_equipe
-     WHERE lower(u.ds_email) = lower($1) AND u.sn_ativo = true`,
-    [email]
-  )
-  return rows[0] ?? null
-}
+import { consultarGau, papelDoGau, SISTEMA_GAU } from './lib/gauPerfis'
+import { provisionarUsuarioDoGau } from './lib/provisionarUsuario'
 
 class SemCadastro extends CredentialsSignin {
   code = 'sem_cadastro'
@@ -88,23 +68,25 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           [candidatos]
         )
         console.info(`[login] banco local respondeu em ${Date.now() - t2}ms`)
-        // Provisório: quem tem ADM + ARG_N3 no GAU enxerga o sistema como
-        // gestor geral (admin, sem equipe fixa). Calculado a cada login, não
-        // gravado no cadastro — tirar o perfil no GAU tira a visão no
-        // próximo login.
-        const gestorGeral = ehGestorGeral(gau.perfisSistema)
-        console.info(`[login] ${login}: perfis no GAU =`, gau.perfis, `| no sistema ${SISTEMA_GAU} =`, gau.perfisSistema)
+        // Quem papel do GAU (sistema ESCTI) manda mais que o cadastro local —
+        // ver lib/gauPerfis.ts. Calculado a cada login, não gravado no
+        // cadastro: mudar o perfil no GAU muda o acesso no próximo login.
+        const papel = papelDoGau(gau.perfisSistema)
+        console.info(`[login] ${login}: perfis no GAU =`, gau.perfis, `| papel no sistema ${SISTEMA_GAU} =`, papel)
 
         let row = rows[0]
-        if (!row && gestorGeral) {
-          // O acesso vem do GAU, então quem tem o perfil não precisa de
-          // cadastro prévio: cria o registro local (nome/e-mail/matrícula
-          // vêm do GAU) no primeiro acesso. Guarda com o menor perfil — o
-          // que vale como admin é o perfil do GAU, conferido a cada login.
+        if (!row && papel) {
+          // Quem o GAU já autoriza (qualquer um dos 4 perfis ESCTI_*) não
+          // precisa esperar a sincronização agendada — provisiona na hora.
+          // Admin entra pronto (não precisa de equipe); os demais entram
+          // sem equipe definida até alguém da gestão completar o cadastro
+          // em "✏️ Editar" — a sincronização automática (ver
+          // lib/sincronizarUsuariosGau.ts) cobre quem nunca chegou a logar.
           row = await provisionarUsuarioDoGau({
             nome: gau.nome || identidade.nome || login,
             email: gau.emails[0] || identidade.email,
             matricula: gau.matriculas[0] || null,
+            role: papel,
           })
         }
         if (!row) {
@@ -116,8 +98,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           id: String(row.cd_usuario),
           name: row.nm_usuario,
           email: row.ds_email,
-          role: gestorGeral ? 'admin' : row.tp_role,
-          equipe: gestorGeral ? null : (row.tp_equipe || null),
+          role: papel ?? row.tp_role,
+          // Admin não é restrito pela própria equipe em lugar nenhum do
+          // sistema (sempre escolhe explicitamente, vê tudo) — mas isso não
+          // significa que ele não TENHA uma equipe de verdade; mostra ela
+          // quando o cadastro tiver, só informativo.
+          equipe: row.tp_equipe || null,
         }
       },
     }),

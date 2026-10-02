@@ -172,3 +172,15 @@ export interface TecnicoResumo {
   feriasInicio: string
   feriasFim: string
 }
+
+// Item do /api/integracao/aniversariantes — aniversariante do mês da TI
+// (não é escopado ao cadastro do Organiza, é informação de time).
+export interface ItemAniversariante {
+  chapa: string
+  nome: string
+  time: string
+  cargo: string
+  dia: number
+  idade: number
+  hoje: boolean
+}

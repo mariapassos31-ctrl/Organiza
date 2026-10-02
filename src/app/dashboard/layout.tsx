@@ -63,6 +63,37 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     }
   }, [userData?.uid, userData?.role, userData?.equipe])
 
+  // Sincroniza com o GAU (cria/atualiza usuários a partir dos perfis
+  // ESCTI_*) e importa do RM quem da TI está de férias agora — sem cron
+  // externo: roda sozinho enquanto alguém com perfil de gestão está com o
+  // dashboard aberto no navegador. As próprias rotas já checam a role (admin
+  // pro GAU, gestão pro RH), então chamar sem ter perfil só devolve 403 —
+  // por isso só dispara quando já dá pra saber que vai ter efeito.
+  useEffect(() => {
+    if (!userData || !ehPerfilGestao(userData.role)) return
+    let cancelled = false
+
+    const sincronizar = async () => {
+      try {
+        if (userData.role === 'admin') {
+          await fetch('/api/integracao/usuarios-gau', { method: 'POST' })
+        }
+        if (!cancelled) {
+          await fetch('/api/integracao/ferias-rh', { method: 'POST' })
+        }
+      } catch {
+        // silencioso: é sincronização de fundo, tenta de novo no próximo tick
+      }
+    }
+
+    sincronizar()
+    const intervalo = setInterval(sincronizar, 15 * 60 * 1000)
+    return () => {
+      cancelled = true
+      clearInterval(intervalo)
+    }
+  }, [userData?.uid, userData?.role])
+
   const handleLogout = async () => {
     try {
       await signOut({ redirect: false })

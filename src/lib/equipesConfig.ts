@@ -21,6 +21,7 @@ export const EQUIPES: Equipe[] = [
   { id: 'infraestrutura', label: '🔧 Infraestrutura', cor: '#e74c3c' },
   { id: 'sistemas', label: '💻 Sistemas', cor: '#27ae60' },
   { id: 'projetos', label: '📁 Projetos', cor: '#f39c12' },
+  { id: 'dados', label: '🗄️ Dados', cor: '#16a085' },
 ]
 
 // Perfis conhecidos pelo sistema. Admin também pode digitar um perfil
