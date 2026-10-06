@@ -8,17 +8,20 @@ export const SISTEMA_GAU = process.env.GAU_SISTEMA || '14'
 // Perfis cadastrados no GAU pro Escala TI (tela "Perfis RBAC"), em ordem de
 // prioridade — se a pessoa tiver mais de um, vale o mais alto. O papel que o
 // GAU atribui manda mais que o cadastro local (ds_role): é o GAU quem decide
-// quem é admin/gestor/líder/técnico, o cadastro local só guarda a equipe
-// (que o GAU não sabe) e os dados específicos de escala (baia, horário etc).
+// quem é admin/gestor/líder/técnico/estagiário-aprendiz, o cadastro local só
+// guarda a equipe (que o GAU não sabe) e os dados específicos de escala
+// (baia, horário etc). "analista" e "trainee" não têm perfil próprio no GAU
+// — continuam só no cadastro local (ver POST /api/usuarios).
 export const PERFIS_GAU_PARA_ROLE: Array<{ perfil: string; role: string }> = [
   { perfil: 'ESCTI_ADMIN', role: 'admin' },
   { perfil: 'ESCTI_GESTOR', role: 'gestor' },
   { perfil: 'ESCTI_LIDER', role: 'lider' },
   { perfil: 'ESCTI_TECNICO', role: 'tecnico' },
+  { perfil: 'ESCTI_ESTAGIARIO', role: 'estagiario_aprendiz' },
 ]
 
 // Papel que os perfis do GAU, no sistema ESCTI, atribuem a essa pessoa —
-// null se ela não tem nenhum dos 4 perfis (login segue só pelo cadastro
+// null se ela não tem nenhum desses perfis (login segue só pelo cadastro
 // local, como antes do GAU).
 export function papelDoGau(perfisSistema: string[]): string | null {
   return PERFIS_GAU_PARA_ROLE.find(p => perfisSistema.includes(p.perfil))?.role ?? null

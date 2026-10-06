@@ -76,7 +76,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         let row = rows[0]
         if (!row && papel) {
-          // Quem o GAU já autoriza (qualquer um dos 4 perfis ESCTI_*) não
+          // Quem o GAU já autoriza (qualquer um dos perfis ESCTI_*) não
           // precisa esperar a sincronização agendada — provisiona na hora.
           // Admin entra pronto (não precisa de equipe); os demais entram
           // sem equipe definida até alguém da gestão completar o cadastro
