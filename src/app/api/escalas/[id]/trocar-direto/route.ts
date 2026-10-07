@@ -5,7 +5,7 @@ import type { PoolClient } from 'pg'
 import { auth } from '../../../../../auth'
 import { ehPerfilGestao } from '../../../../../lib/equipesConfig'
 import { motivoInelegibilidadeParaTipo } from '../../../../../lib/escalasConstants'
-import { quemColideEspecialidadeNoHomeOffice, listarNomes } from '../../../../../lib/elegibilidadeHomeOffice'
+import { quemColideEspecialidadeNoHomeOffice, quemColideRoleNoHomeOffice, listarNomes } from '../../../../../lib/elegibilidadeHomeOffice'
 import { isolarDiasComoEscalaPropria, removerConflitosFisicos, TIPOS_PRESENCA_FISICA, type EscalaParaSegmento } from '../../../../../lib/escalaSegmento'
 import { notificarTrocaDiretaAplicada } from '../../../../../lib/emailNotificacoes'
 
@@ -82,8 +82,17 @@ function deveFicarSemBaiaExterno(frag: FragmentoFisico, recebe: PessoaElegivel, 
 }
 
 // Confere se `recebe` pode assumir cada fragmento (elegibilidade pro tipo +
-// colisão de especialidade em home office).
-async function validarFragmentos(cdEquipe: number, fragmentos: FragmentoFisico[], recebe: PessoaElegivel, rotuloRecebe: string, diasComoHomeOffice: Set<string>): Promise<void> {
+// colisão de especialidade em home office). `outroLadoCdTecnico` é quem
+// está do outro lado dessa mesma troca — precisa ficar de fora da checagem
+// de colisão junto com o próprio `recebe`, porque o fragmento sendo
+// avaliado é exatamente o que essa pessoa tem HOJE e está prestes a entregar
+// nessa mesma operação: não é uma colisão de verdade com outra pessoa, é a
+// troca acontecendo. `ehSuporte` restringe a checagem de Analista G./Analista
+// — essa regra só existe pro Suporte (ver escalasHomeOfficePar.ts e o
+// gerador automático, que já só liga `respeitarParAnalistaGeral` nessa
+// equipe); nas demais, mesmo tendo líder/analista, os dois podem ficar em
+// home office juntos sem problema.
+async function validarFragmentos(cdEquipe: number, fragmentos: FragmentoFisico[], recebe: PessoaElegivel, rotuloRecebe: string, diasComoHomeOffice: Set<string>, outroLadoCdTecnico: number, ehSuporte: boolean): Promise<void> {
   for (const frag of fragmentos) {
     if (deveFicarSemBaiaExterno(frag, recebe, diasComoHomeOffice)) {
       // Não vai receber nada de verdade — sem checagem de elegibilidade
@@ -104,10 +113,18 @@ async function validarFragmentos(cdEquipe: number, fragmentos: FragmentoFisico[]
       const inicioFrag = frag.dias.reduce((a, b) => (a < b ? a : b))
       const fimFrag = frag.dias.reduce((a, b) => (a > b ? a : b))
       const quemColide = await quemColideEspecialidadeNoHomeOffice(
-        cdEquipe, inicioFrag, fimFrag, recebe.ds_especialidade, recebe.cd_tecnico
+        cdEquipe, inicioFrag, fimFrag, recebe.ds_especialidade, [recebe.cd_tecnico, outroLadoCdTecnico]
       )
       if (quemColide.length > 0) {
         throw new ErroTrocaDireta(`Pessoas com a mesma especialidade não podem ficar em home office juntas: ${listarNomes(quemColide)} já está(ão) em home office nesse período`)
+      }
+      if (ehSuporte) {
+        const quemColideRole = await quemColideRoleNoHomeOffice(
+          cdEquipe, inicioFrag, fimFrag, recebe.tp_role, [recebe.cd_tecnico, outroLadoCdTecnico]
+        )
+        if (quemColideRole.length > 0) {
+          throw new ErroTrocaDireta(`Analista G. e Analista não podem ficar em home office juntos: ${listarNomes(quemColideRole)} já está(ão) em home office nesse período`)
+        }
       }
     }
   }
@@ -248,8 +265,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       return NextResponse.json({ error: 'Nenhuma escala física encontrada pra essas duas pessoas nesses dias' }, { status: 400 })
     }
 
-    await validarFragmentos(escala.cd_equipe, fragAntigo, novo, 'O técnico novo', diasComoHomeOffice)
-    await validarFragmentos(escala.cd_equipe, fragNovo, antigo, 'A pessoa atual', diasComoHomeOffice)
+    const ehSuporte = escala.tp_equipe === 'suporte'
+    await validarFragmentos(escala.cd_equipe, fragAntigo, novo, 'O técnico novo', diasComoHomeOffice, antigo.cd_tecnico, ehSuporte)
+    await validarFragmentos(escala.cd_equipe, fragNovo, antigo, 'A pessoa atual', diasComoHomeOffice, novo.cd_tecnico, ehSuporte)
 
     // Dado saudável nunca deveria ter dois registros ativos da mesma
     // pessoa cobrindo o mesmo dia com tipo físico — mas se acontecer (dado

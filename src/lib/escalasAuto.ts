@@ -168,6 +168,42 @@ async function buscarOcupacaoHomeOfficeExistente(equipeIds: number[], dataInicio
   return porDia
 }
 
+// Pra cada especialidade em `especialidades` (ex: "Manutenção"), quem foi a
+// última pessoa dessa especialidade em home office terminando ANTES de
+// `dataInicio` — só conta se terminou dentro da janela do bloco anterior
+// (duração do bloco + uma folga de até 7 dias pra cobrir fim de semana
+// entre um bloco e outro; senão não é mais "o bloco anterior", é uma folga
+// antiga sem relação com o intervalo de 1 bloco exigido). Usado pra
+// "lembrar" entre gerações separadas (ex: gerou a semana passada antes,
+// gera essa semana agora) — sem isso, cada chamada só enxergaria os blocos
+// que ELA MESMA está criando.
+async function buscarUltimaEspecialidadeAntesDoInicio(
+  equipeIds: number[],
+  especialidades: string[],
+  dataInicio: string,
+  duracaoBlocoDias: number
+): Promise<Record<string, number>> {
+  if (especialidades.length === 0) return {}
+  const limite = addDays(dataInicio, -(duracaoBlocoDias + 7))
+  const { rows } = await query(
+    `SELECT DISTINCT ON (t.ds_especialidade) t.ds_especialidade, u.cd_usuario,
+            to_char(es.dt_fim, 'YYYY-MM-DD') AS dt_fim
+     FROM escalas es
+     JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
+     JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
+     JOIN usuarios u ON u.cd_usuario = t.cd_usuario
+     WHERE es.cd_equipe = ANY($1::int[]) AND es.tp_escala = 'homeoffice' AND es.tp_status != 'cancelada'
+       AND t.ds_especialidade = ANY($2::text[]) AND es.dt_fim < $3
+     ORDER BY t.ds_especialidade, es.dt_fim DESC`,
+    [equipeIds, especialidades, dataInicio]
+  )
+  const resultado: Record<string, number> = {}
+  for (const r of rows) {
+    if (r.dt_fim >= limite) resultado[r.ds_especialidade] = Number(r.cd_usuario)
+  }
+  return resultado
+}
+
 // Sobreaviso não ocupa lugar físico nenhum — em vez de vir de uma sala
 // (que só serviria aqui pra apontar a equipe), aceita a(s) equipe(s)
 // direto. Os demais tipos continuam vindo de uma sala (é dela que se sabe
@@ -384,6 +420,9 @@ export async function montarPlanoHibrido({ role, userEquipe, body }: ArgsPlano):
     }
     const contagensIniciais = await buscarContagensHomeOffice(equipeIds, participantes.map(p => p.cd_usuario))
     const ocupacaoExistentePorDia = await buscarOcupacaoHomeOfficeExistente(equipeIds, dataInicio, dataFim)
+    const ehSoSuporte = equipeSlugs.length === 1 && equipeSlugs[0] === 'suporte'
+    const especialidadesComIntervalo = ehSoSuporte ? ['Manutenção'] : []
+    const ultimaEspecialidadeAntesDoInicio = await buscarUltimaEspecialidadeAntesDoInicio(equipeIds, especialidadesComIntervalo, dataInicio, duracaoBlocoDias)
     const resultado = construirBlocosHomeOfficePar({
       participantes,
       dataInicio,
@@ -394,6 +433,9 @@ export async function montarPlanoHibrido({ role, userEquipe, body }: ArgsPlano):
       contagensIniciais,
       ocupacaoExistentePorDia,
       respeitarEspecialidade: body.respeitarEspecialidade !== false,
+      respeitarParAnalistaGeral: ehSoSuporte,
+      especialidadesComIntervalo,
+      ultimaEspecialidadeAntesDoInicio,
     })
     blocos = resultado.blocos
     avisos = resultado.avisos
@@ -543,6 +585,9 @@ function hojeISO(): string {
 export async function recalcularHomeOfficeEquipe(equipeId: number): Promise<{ recalculado: boolean; avisos?: AvisoEscala[] }> {
   const dataInicioJanela = hojeISO()
 
+  const { rows: equipeRows } = await query(`SELECT tp_equipe FROM equipes WHERE cd_equipe = $1`, [equipeId])
+  const ehSuporte = equipeRows[0]?.tp_equipe === 'suporte'
+
   const { rows: horizonteRows } = await query(
     `SELECT to_char(MAX(dt_fim), 'YYYY-MM-DD') AS horizonte
      FROM escalas
@@ -604,6 +649,8 @@ export async function recalcularHomeOfficeEquipe(equipeId: number): Promise<{ re
   if (participantes.length === 0) return { recalculado: false }
 
   const contagensIniciais = await buscarContagensHomeOfficeAntes([equipeId], tecnicoUids, dataInicioJanela)
+  const especialidadesComIntervalo = ehSuporte ? ['Manutenção'] : []
+  const ultimaEspecialidadeAntesDoInicio = await buscarUltimaEspecialidadeAntesDoInicio([equipeId], especialidadesComIntervalo, dataInicioJanela, duracaoBlocoDias)
 
   const { blocos, avisos } = construirBlocosHomeOfficePar({
     participantes,
@@ -613,6 +660,9 @@ export async function recalcularHomeOfficeEquipe(equipeId: number): Promise<{ re
     quantidadeHomeOffice,
     duracaoBlocoDias,
     contagensIniciais,
+    respeitarParAnalistaGeral: ehSuporte,
+    especialidadesComIntervalo,
+    ultimaEspecialidadeAntesDoInicio,
   })
 
   const client = await getPool().connect()

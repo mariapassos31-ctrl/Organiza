@@ -504,7 +504,7 @@ export default function Usuarios() {
                 <label>Preferência de baia</label>
                 <select
                   value={formEditar.baia}
-                  onChange={(e) => setFormEditar({...formEditar, baia: e.target.value})}
+                  onChange={(e) => setFormEditar({...formEditar, baia: e.target.value, baiaFixa: e.target.value ? formEditar.baiaFixa : false})}
                   disabled={editando}
                 >
                   <option value="">— Sem baia —</option>
@@ -523,12 +523,15 @@ export default function Usuarios() {
                           type="checkbox"
                           checked={formEditar.baiaFixa}
                           onChange={(e) => setFormEditar({...formEditar, baiaFixa: e.target.checked})}
-                          disabled={editando}
+                          disabled={editando || !formEditar.baia}
                         />
                         <span className="toggle-switch-slider"></span>
                       </span>
                       <span>Baia fixa: essa baia é só dele. Sempre volta pra ela quando ela estiver livre e ele presencial</span>
                     </label>
+                    {!formEditar.baia && (
+                      <p className="campo-nota">Escolha uma baia acima pra poder marcar como fixa.</p>
+                    )}
                     <label className="campo-toggle">
                       <span className="toggle-switch">
                         <input

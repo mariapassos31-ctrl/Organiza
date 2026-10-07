@@ -161,7 +161,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ui
                dt_ferias_inicio = EXCLUDED.dt_ferias_inicio,
                dt_ferias_fim = EXCLUDED.dt_ferias_fim,
                sn_ativo = EXCLUDED.sn_ativo`,
-        [cdUsuario, nome, equipeId, especialidade || null, horarioEntrada || null, baia || null, Boolean(baiaFixa) || Number(baia) === 0, elegivelHomeOffice !== false, diaCurso === '' || diaCurso === undefined ? null : diaCurso, feriasInicio || null, feriasFim || null, novoAtivo]
+        [cdUsuario, nome, equipeId, especialidade || null, horarioEntrada || null, baia || null, String(baia) === '0' || (Boolean(baiaFixa) && Boolean(baia)), elegivelHomeOffice !== false, diaCurso === '' || diaCurso === undefined ? null : diaCurso, feriasInicio || null, feriasFim || null, novoAtivo]
       )
 
       // Desativou a pessoa ou suspendeu o home office dela: refaz o rodízio

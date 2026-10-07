@@ -42,7 +42,9 @@ export function formatarDataISO(data: Date) {
 
 // Monta { [baia]: [{nome, turno}] } com quem de Estag/Aprendiz ou Trainee
 // está presencial/sábado hoje (e não está no próprio dia de curso), só nas
-// baias reservadas ao respectivo perfil.
+// baias reservadas ao respectivo perfil. Sem limite de quantas pessoas por
+// baia: quem tem escala naquele dia aparece, só fica de fora quem está no
+// próprio dia de curso.
 export function calcularOcupantesJovemAprendiz(
   tecnicosSuporte: Usuario[],
   uidsPresencialHoje: Set<string>,
@@ -68,15 +70,19 @@ export function calcularOcupantesJovemAprendiz(
     ocupantesJovem[u.baia].push({ nome: u.nome, turno: turnoDoHorario(u.horarioEntrada) })
   }
 
-  // Os demais preenchem o turno vago de qualquer baia reservada ao próprio perfil.
+  // Os demais entram numa baia reservada ao próprio perfil — sem limite de
+  // quantas pessoas por baia nem exclusividade de turno (Estag/Aprendiz não
+  // tem essa restrição: quem tem escala presencial aparece, ponto; só fica
+  // de fora quem está no próprio dia de curso, já filtrado em pessoasHoje).
+  // Só espalha entre as baias reservadas (a com menos gente primeiro) pra
+  // não empilhar tudo numa baia só enquanto a outra fica vazia.
   for (const u of semBaiaFixa) {
-    const turno = turnoDoHorario(u.horarioEntrada)
-    const baiaComVaga = baiasDoPerfil(u.role).find(baia =>
-      ocupantesJovem[baia].length < 2 && !ocupantesJovem[baia].some(o => o.turno === turno && turno)
+    const baias = baiasDoPerfil(u.role)
+    if (baias.length === 0) continue
+    const baiaComMenosGente = baias.reduce((menor, atual) =>
+      ocupantesJovem[atual].length < ocupantesJovem[menor].length ? atual : menor
     )
-    if (baiaComVaga) {
-      ocupantesJovem[baiaComVaga].push({ nome: u.nome, turno })
-    }
+    ocupantesJovem[baiaComMenosGente].push({ nome: u.nome, turno: turnoDoHorario(u.horarioEntrada) })
   }
 
   return ocupantesJovem
@@ -137,14 +143,21 @@ export function calcularOcupacaoBaias(
 
   // Estag/Aprendiz e Trainee nunca passam por aqui — têm sistema próprio
   // (calculado abaixo), então ficam de fora do rodízio das demais baias.
-  // Quem tem um perfil com baia(s) reservada(s) só senta nelas — não pode
-  // fixar em outra baia, mesmo com "baia fixa" configurada errado. Quem
-  // está no Laboratório ou no Externo hoje também não entra aqui — está
-  // fisicamente em outro lugar, não numa baia comum.
+  // Quem está no Laboratório ou no Externo hoje também não entra aqui —
+  // está fisicamente em outro lugar, não numa baia comum.
+  //
+  // Baia reservada a Estag/Aprendiz, Trainee ou Supervisor é mesmo
+  // exclusiva (tem sistema de turno/marcação própria) — ninguém de fora
+  // desses perfis pode fixar ali, nem com "baia fixa" configurada errado.
+  // Mas baia marcada com um perfil comum (analista/técnico/líder/gestor)
+  // é só um rótulo informativo da sala, não uma reserva de verdade — quem
+  // escolheu fixar ali deve conseguir, mesmo que o perfil marcado na sala
+  // seja outro (ex: baia rotulada "analista" mas o líder fixou ali).
+  const baiaEhExclusiva = (perfil: string | undefined) => ehJovemAprendiz(perfil) || perfil === 'supervisor'
   const outrosFixos = tecnicosSuporte.filter(u =>
     u.baiaFixa && u.baia && !naoEscalavel(u) && !ehJovemAprendiz(u.role) &&
     u.uid !== uidNoLaboratorioHoje && u.uid !== uidNoExternoHoje &&
-    (!baiasPerfil[u.baia] || baiasPerfil[u.baia] === u.role)
+    !baiaEhExclusiva(baiasPerfil[u.baia])
   )
   // Duas pessoas configuradas com a MESMA baia fixa (erro de cadastro) não
   // podem fazer a segunda sumir do mapa inteiro — só a primeira a chegar
@@ -195,8 +208,7 @@ export function calcularOcupacaoBaias(
       if (vagaComum) return vagaComum
     }
     return baiasReservadas.find(n =>
-      !ocupantes[n] && baiasPerfil[n] !== perfilUsuario &&
-      !ehJovemAprendiz(baiasPerfil[n]) && baiasPerfil[n] !== 'supervisor'
+      !ocupantes[n] && baiasPerfil[n] !== perfilUsuario && !baiaEhExclusiva(baiasPerfil[n])
     )
   }
 

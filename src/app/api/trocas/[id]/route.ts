@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { query, getPool } from '../../../../lib/db'
 import { auth } from '../../../../auth'
 import { motivoInelegibilidadeParaTipo } from '../../../../lib/escalasConstants'
-import { quemColideEspecialidadeNoHomeOffice, listarNomes } from '../../../../lib/elegibilidadeHomeOffice'
+import { quemColideEspecialidadeNoHomeOffice, quemColideRoleNoHomeOffice, listarNomes } from '../../../../lib/elegibilidadeHomeOffice'
 import { substituirTecnicoNoPeriodo } from '../../../../lib/escalaSegmento'
 import { notificarTrocaRespondida } from '../../../../lib/emailNotificacoes'
 
@@ -25,7 +25,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       `SELECT te.cd_troca_escala, te.cd_escala, te.tp_status, te.cd_escala_solicitada,
               te.cd_tecnico_solicitante, te.cd_tecnico_destino,
               to_char(te.dt_dia, 'YYYY-MM-DD') AS dt_dia,
-              es.cd_equipe, es.tp_escala, es.ds_descricao, es.tp_status AS escala_tp_status,
+              es.cd_equipe, eq.tp_equipe, es.tp_escala, es.ds_descricao, es.tp_status AS escala_tp_status,
               es.cd_usuario_criador,
               to_char(es.dt_inicio, 'YYYY-MM-DD') AS escala_dt_inicio,
               to_char(es.dt_fim, 'YYYY-MM-DD') AS escala_dt_fim,
@@ -42,6 +42,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
               to_char(esol.dt_fim, 'YYYY-MM-DD') AS solicitada_dt_fim
        FROM trocas_escala te
        JOIN escalas es ON es.cd_escala = te.cd_escala AND es.tp_status != 'cancelada'
+       JOIN equipes eq ON eq.cd_equipe = es.cd_equipe
        JOIN tecnicos ts ON ts.cd_tecnico = te.cd_tecnico_solicitante
        JOIN usuarios usol ON usol.cd_usuario = ts.cd_usuario
        LEFT JOIN tecnicos td ON td.cd_tecnico = te.cd_tecnico_destino
@@ -127,10 +128,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       const dia = item.dt_dia
       const quemColide = await quemColideEspecialidadeNoHomeOffice(
         troca.cd_equipe, dia || item.escala_dt_inicio, dia || item.escala_dt_fim,
-        troca.destino_especialidade, troca.cd_tecnico_solicitante
+        troca.destino_especialidade, [troca.cd_tecnico_solicitante, troca.cd_tecnico_destino]
       )
       if (quemColide.length > 0) {
         return `Pessoas com a mesma especialidade não podem ficar em home office juntas: ${listarNomes(quemColide)} já está(ão) em home office nesse período`
+      }
+      if (troca.tp_equipe === 'suporte') {
+        const quemColideRole = await quemColideRoleNoHomeOffice(
+          troca.cd_equipe, dia || item.escala_dt_inicio, dia || item.escala_dt_fim,
+          troca.destino_role, [troca.cd_tecnico_solicitante, troca.cd_tecnico_destino]
+        )
+        if (quemColideRole.length > 0) {
+          return `Analista G. e Analista não podem ficar em home office juntos: ${listarNomes(quemColideRole)} já está(ão) em home office nesse período`
+        }
       }
     }
     if (item.cd_escala_solicitada) {
@@ -144,10 +154,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       if (item.solicitada_tp_escala === 'homeoffice') {
         const quemColideMutua = await quemColideEspecialidadeNoHomeOffice(
           troca.cd_equipe, item.solicitada_dt_inicio as string, item.solicitada_dt_fim as string,
-          troca.solicitante_especialidade, troca.cd_tecnico_destino
+          troca.solicitante_especialidade, [troca.cd_tecnico_destino, troca.cd_tecnico_solicitante]
         )
         if (quemColideMutua.length > 0) {
           return `Pessoas com a mesma especialidade não podem ficar em home office juntas: ${listarNomes(quemColideMutua)} já está(ão) em home office no período pedido`
+        }
+        if (troca.tp_equipe === 'suporte') {
+          const quemColideRoleMutua = await quemColideRoleNoHomeOffice(
+            troca.cd_equipe, item.solicitada_dt_inicio as string, item.solicitada_dt_fim as string,
+            troca.solicitante_role, [troca.cd_tecnico_destino, troca.cd_tecnico_solicitante]
+          )
+          if (quemColideRoleMutua.length > 0) {
+            return `Analista G. e Analista não podem ficar em home office juntos: ${listarNomes(quemColideRoleMutua)} já está(ão) em home office no período pedido`
+          }
         }
       }
     }

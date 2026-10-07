@@ -259,6 +259,52 @@ describe('construirBlocosHomeOfficePar', () => {
     expect(resultado.avisos[0].mensagem).toMatch(/especialidade/)
   })
 
+  it('com respeitarParAnalistaGeral, nunca coloca Analista G. e Analista juntos em H.O. no mesmo dia', () => {
+    const participantes = [
+      participante(0, { role: 'lider' }),
+      participante(1, { role: 'analista' }),
+      participante(2, { role: 'tecnico' }),
+      participante(3, { role: 'tecnico' }),
+    ]
+    const dataFim = addDays('2026-01-05', 19)
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim,
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 2,
+      respeitarParAnalistaGeral: true,
+    })
+
+    for (let dia = 0; dia < 20; dia++) {
+      const data = addDays('2026-01-05', dia)
+      const uidsEmHO = resultado.blocos
+        .filter(b => b.tipo === 'homeoffice' && b.dtInicio <= data && data <= b.dtFim)
+        .map(b => b.tecnicoUid)
+      const temLider = uidsEmHO.some(uid => participantes.find(p => p.cd_usuario === uid)?.role === 'lider')
+      const temAnalista = uidsEmHO.some(uid => participantes.find(p => p.cd_usuario === uid)?.role === 'analista')
+      expect(temLider && temAnalista).toBe(false)
+    }
+  })
+
+  it('sem respeitarParAnalistaGeral (padrão), Analista G. e Analista podem ficar juntos em H.O.', () => {
+    // Só 2 pessoas no total, ambas elegíveis — sem a regra ligada, formar
+    // o grupo de 2 obrigatoriamente junta os dois pelo menos uma vez.
+    const participantes = [
+      participante(0, { role: 'lider' }),
+      participante(1, { role: 'analista' }),
+    ]
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim: '2026-01-05',
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 2,
+    })
+
+    expect(resultado.blocos.filter(b => b.tipo === 'homeoffice')).toHaveLength(2)
+  })
+
   it('evita colocar a mesma dupla de baia em H.O. junta quando há alternativa', () => {
     const participantes = [
       participante(0, { baiaId: 1 }),
@@ -450,6 +496,86 @@ describe('construirBlocosHomeOfficePar', () => {
       const emHO = resultado.blocos.filter(b => b.tipo === 'homeoffice' && b.dtInicio <= data && data <= b.dtFim)
       expect(emHO).toHaveLength(2)
     }
+  })
+
+  // Caso real que motivou a regra: Alexandre (Manutenção) faz H.O. numa
+  // semana, Leonardo (também Manutenção, o "bkp") não pode fazer H.O. na
+  // semana imediatamente seguinte — precisam de 1 bloco de intervalo pra
+  // ter como alinhar o que aconteceu.
+  it('com especialidadesComIntervalo, nunca deixa 2 pessoas diferentes da mesma especialidade em blocos de H.O. adjacentes', () => {
+    const participantes = [
+      participante(0, { especialidade: 'Manutenção' }), // Alexandre
+      participante(1, { especialidade: 'Manutenção' }), // Leonardo
+      participante(2, {}),
+      participante(3, {}),
+    ]
+    const dataFim = addDays('2026-01-05', 19) // 4 blocos de 5 dias
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim,
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 1,
+      duracaoBlocoDias: 5,
+      especialidadesComIntervalo: ['Manutenção'],
+    })
+
+    const blocosManutencao = resultado.blocos
+      .filter(b => b.tipo === 'homeoffice' && participantes.find(p => p.cd_usuario === b.tecnicoUid)?.especialidade === 'Manutenção')
+      .sort((a, b) => a.dtInicio.localeCompare(b.dtInicio))
+
+    // Confirma que o cenário real aconteceu (os dois tiveram H.O. em algum
+    // momento) — senão o teste passaria vazio sem testar nada.
+    expect(new Set(blocosManutencao.map(b => b.tecnicoUid)).size).toBe(2)
+
+    for (let i = 1; i < blocosManutencao.length; i++) {
+      const anterior = blocosManutencao[i - 1]
+      const atual = blocosManutencao[i]
+      if (anterior.tecnicoUid !== atual.tecnicoUid) {
+        // Tem que ter pelo menos 1 dia de folga entre o fim de um bloco e
+        // o início do próximo de uma pessoa DIFERENTE da mesma especialidade.
+        expect(addDays(anterior.dtFim, 1)).not.toBe(atual.dtInicio)
+      }
+    }
+  })
+
+  it('especialidadesComIntervalo vazio (padrão) permite blocos adjacentes da mesma especialidade', () => {
+    const participantes = [
+      participante(0, { especialidade: 'Manutenção' }),
+      participante(1, { especialidade: 'Manutenção' }),
+    ]
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-05',
+      dataFim: addDays('2026-01-05', 9),
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 1,
+      duracaoBlocoDias: 5,
+    })
+    // Sem a regra ligada, os únicos 2 elegíveis se revezam livremente —
+    // cada um pega exatamente 1 dos 2 blocos de 5 dias.
+    expect(resultado.blocos.filter(b => b.tipo === 'homeoffice')).toHaveLength(2)
+  })
+
+  it('ultimaEspecialidadeAntesDoInicio bloqueia o primeiro bloco de uma nova geração (continuidade entre chamadas separadas)', () => {
+    const participantes = [
+      participante(0, { especialidade: 'Manutenção' }), // Leonardo — só ele disponível nessa chamada
+    ]
+    const resultado = construirBlocosHomeOfficePar({
+      participantes,
+      dataInicio: '2026-01-12',
+      dataFim: '2026-01-16',
+      diasTrabalho: TODOS_OS_DIAS,
+      quantidadeHomeOffice: 1,
+      duracaoBlocoDias: 5,
+      especialidadesComIntervalo: ['Manutenção'],
+      // Alexandre (outro uid) terminou o bloco de Manutenção bem antes
+      // dessa nova geração começar — Leonardo não pode entrar de cara.
+      ultimaEspecialidadeAntesDoInicio: { Manutenção: 'uid-alexandre' },
+    })
+
+    expect(resultado.blocos.some(b => b.tipo === 'homeoffice')).toBe(false)
+    expect(resultado.avisos.length).toBeGreaterThan(0)
   })
 
   it('duracaoBlocoDias padrão (1) continua igual ao comportamento anterior, escolhendo todo dia', () => {

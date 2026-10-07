@@ -44,6 +44,16 @@ function proximaSegundaQualquerDia(agora: Date): string {
   return addDays(hojeISO, offset)
 }
 
+// Segunda-feira da semana que CONTÉM hoje (0=dom ... 6=sáb) — usada pelo
+// botão manual "Enviar Escala da Semana", que manda o resumo da semana
+// atual, não de uma semana futura.
+function segundaDaSemanaAtual(agora: Date): string {
+  const hojeISO = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}`
+  const dia = agora.getDay()
+  const offset = dia === 0 ? -6 : 1 - dia
+  return addDays(hojeISO, offset)
+}
+
 async function jaFoiEnviadoPara(dtSemana: string): Promise<boolean> {
   const { rows } = await query(`SELECT 1 FROM resumo_semanal_enviado WHERE dt_semana = $1`, [dtSemana])
   return rows.length > 0
@@ -191,4 +201,24 @@ export async function enviarResumoSemanalTeste(agora: Date = new Date()): Promis
   const domingo = addDays(segunda, 6)
   await montarResumoDaSemana(segunda, domingo)
   return { segunda, domingo }
+}
+
+// Disparo manual de verdade (botão "Enviar Escala da Semana" na tela de
+// Escalas) — manda pra semana ATUAL (segunda a domingo que contém hoje),
+// pros e-mails de verdade de quem tem escala, não importa o dia nem se
+// RESUMO_SEMANAL_ATIVO está desligado (é uma ação explícita de quem
+// clicou, não o agendamento automático). Marca como enviada, pra não
+// duplicar se o envio automático também estiver ligado — e, pelo mesmo
+// motivo, se essa semana JÁ tiver sido enviada (por esse botão antes, ou
+// pelo agendamento automático), não manda de novo: só avisa quem chamou,
+// em vez de reenviar e-mail de verdade pra equipe inteira sem querer.
+export async function enviarResumoSemanalManual(agora: Date = new Date()): Promise<{ segunda: string; domingo: string; jaTinhaSidoEnviada: boolean }> {
+  const segunda = segundaDaSemanaAtual(agora)
+  const domingo = addDays(segunda, 6)
+  const jaTinhaSidoEnviada = await jaFoiEnviadoPara(segunda)
+  if (!jaTinhaSidoEnviada) {
+    await montarResumoDaSemana(segunda, domingo)
+    await marcarComoEnviado(segunda)
+  }
+  return { segunda, domingo, jaTinhaSidoEnviada }
 }

@@ -69,6 +69,7 @@ export default function Escalas() {
   const [externoConfig, setExternoConfig] = useState<ConfigLab>({ responsavelUid: null, backupUid: null })
   const [salas, setSalas] = useState<Sala[]>([])
   const [showPainelSalas, setShowPainelSalas] = useState(false)
+  const [enviandoResumoSemanal, setEnviandoResumoSemanal] = useState(false)
 
   const [formData, setFormData] = useState<FormEscala>({
     tipo: 'presencial',
@@ -940,6 +941,35 @@ export default function Escalas() {
     }
   }
 
+  // Botão "Enviar Escala da Semana" — manda na hora, pra semana atual,
+  // sem depender do agendador externo nem do interruptor automático
+  // (RESUMO_SEMANAL_ATIVO continua desligado, isso aqui é uma ação manual
+  // à parte). Confirma antes porque é e-mail de verdade pra toda a equipe.
+  const enviarResumoSemanal = async () => {
+    if (!(await confirmar(
+      'Manda agora o resumo da escala dessa semana por e-mail pra todo mundo que tem escala nela. Confirma?',
+      { titulo: 'Enviar Escala da Semana', textoConfirmar: 'Enviar' }
+    ))) return
+
+    setEnviandoResumoSemanal(true)
+    try {
+      const response = await fetch('/api/resumo-semanal/enviar', { method: 'POST' })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        throw new Error(data.error || 'Falha ao enviar o resumo semanal')
+      }
+      if (data.jaTinhaSidoEnviada) {
+        notificar('O resumo dessa semana já tinha sido enviado antes — não mandei de novo pra não duplicar o e-mail de todo mundo.', { tipo: 'info', titulo: 'Já enviado' })
+      } else {
+        notificar('E-mail da escala da semana enviado!', { tipo: 'sucesso', titulo: '📧 Enviado!' })
+      }
+    } catch (error) {
+      notificar(mensagemDeErro(error), { tipo: 'erro' })
+    } finally {
+      setEnviandoResumoSemanal(false)
+    }
+  }
+
   const handleCancel = () => {
     setModalOpen(false)
     setEditingId(null)
@@ -981,6 +1011,11 @@ export default function Escalas() {
           {podeVerPainelSalas && (
             <button className="btn-secondary" onClick={() => setShowPainelSalas(!showPainelSalas)}>
               {showPainelSalas ? '✕ Fechar' : '🏢 Salas'}
+            </button>
+          )}
+          {podeEditar && (
+            <button className="btn-secondary" onClick={enviarResumoSemanal} disabled={enviandoResumoSemanal}>
+              {enviandoResumoSemanal ? '⏳ Enviando...' : '📧 Enviar Escala da Semana'}
             </button>
           )}
           {podeEditar && (

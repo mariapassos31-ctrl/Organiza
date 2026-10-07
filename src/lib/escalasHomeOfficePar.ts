@@ -10,6 +10,16 @@
 //      às 7h pode ir pra H.O. normalmente, só não pode duas ao mesmo tempo)
 //   4) o grupo evita (melhor esforço) colocar as 2 pessoas da mesma dupla
 //      de baia em H.O. juntas
+//   5) (só quando `respeitarParAnalistaGeral`, usado pelo Suporte) o grupo
+//      nunca tem Analista G. (role "lider") e Analista (role "analista")
+//      juntos — a equipe não pode ficar sem nenhum dos dois pra resolver
+//      algo na hora
+//   6) (só pras especialidades em `especialidadesComIntervalo`, ex:
+//      "Manutenção") depois que ALGUÉM dessa especialidade faz H.O., outra
+//      pessoa DIFERENTE da mesma especialidade não pode entrar no bloco
+//      seguinte — precisa de pelo menos 1 bloco de intervalo entre os dois,
+//      pra sempre ter alguém que acompanhou o período anterior pra alinhar
+//      o que aconteceu. A mesma pessoa pode continuar normalmente.
 // Quem não está no grupo fica presencial — exceto especialidade "Externo",
 // que só aparece na escala nos dias em que é sorteado pro home office; nos
 // demais dias simplesmente não tem escala (não vem presencial, não ocupa
@@ -29,10 +39,20 @@ function nuncaVaiParaHomeOffice(p: Participante): boolean {
   return ehJovemAprendiz(p.role) || p.baiaId === 0 || p.elegivelHomeOffice === false
 }
 
+// Analista G. (role "lider") e Analista (role "analista") não podem ficar
+// em home office juntos — mesmo par que a troca manual bloqueia (ver
+// quemColideRoleNoHomeOffice em elegibilidadeHomeOffice.ts).
+const PAR_ROLE_SEM_HOME_OFFICE_JUNTOS: Record<string, string> = {
+  lider: 'analista',
+  analista: 'lider',
+}
+
 // Tenta montar um grupo de `quantidade` pessoas, na ordem de prioridade dada,
-// nunca repetindo especialidade, nunca repetindo horário de entrada às 07:00
-// e (se `evitarDupla`) nunca repetindo baiaId.
-function tentarFormarGrupo(candidatosOrdenados: Participante[], quantidade: number, evitarDupla: boolean, respeitarEspecialidade: boolean): Participante[] | null {
+// nunca repetindo especialidade, nunca repetindo horário de entrada às 07:00,
+// (se `evitarDupla`) nunca repetindo baiaId, (se `respeitarParAnalistaGeral`)
+// nunca juntando Analista G. com Analista, e nunca escolhendo quem
+// `bloqueadoPorIntervalo` rejeitar (regra 6, ver comentário no topo).
+function tentarFormarGrupo(candidatosOrdenados: Participante[], quantidade: number, evitarDupla: boolean, respeitarEspecialidade: boolean, respeitarParAnalistaGeral: boolean, bloqueadoPorIntervalo: (p: Participante) => boolean): Participante[] | null {
   function backtrack(inicio: number, escolhidos: Participante[]): Participante[] | null {
     if (escolhidos.length === quantidade) return escolhidos
     for (let i = inicio; i < candidatosOrdenados.length; i++) {
@@ -44,6 +64,12 @@ function tentarFormarGrupo(candidatosOrdenados: Participante[], quantidade: numb
       const horario7Repetido = normalizarHora(candidato.horarioEntrada) === '07:00' &&
         escolhidos.some(e => normalizarHora(e.horarioEntrada) === '07:00')
       if (horario7Repetido) continue
+      if (respeitarParAnalistaGeral) {
+        const roleQueColide = candidato.role ? PAR_ROLE_SEM_HOME_OFFICE_JUNTOS[candidato.role] : undefined
+        const parRepetido = roleQueColide != null && escolhidos.some(e => e.role === roleQueColide)
+        if (parRepetido) continue
+      }
+      if (bloqueadoPorIntervalo(candidato)) continue
       if (evitarDupla) {
         const duplaRepetida = escolhidos.some(e =>
           e.baiaId != null && candidato.baiaId != null && e.baiaId === candidato.baiaId
@@ -58,7 +84,7 @@ function tentarFormarGrupo(candidatosOrdenados: Participante[], quantidade: numb
   return backtrack(0, [])
 }
 
-function escolherGrupoDoDia(elegiveis: Participante[], contagens: Map<number | string, number>, quantidade: number, respeitarEspecialidade: boolean): { uids: Array<number | string>; aviso?: string } {
+function escolherGrupoDoDia(elegiveis: Participante[], contagens: Map<number | string, number>, quantidade: number, respeitarEspecialidade: boolean, respeitarParAnalistaGeral: boolean, bloqueadoPorIntervalo: (p: Participante) => boolean): { uids: Array<number | string>; aviso?: string } {
   if (elegiveis.length < quantidade) {
     return { uids: [], aviso: `Não há técnicos elegíveis suficientes para formar o grupo de home office (precisa de ${quantidade})` }
   }
@@ -69,10 +95,10 @@ function escolherGrupoDoDia(elegiveis: Participante[], contagens: Map<number | s
     return a.cd_usuario < b.cd_usuario ? -1 : a.cd_usuario > b.cd_usuario ? 1 : 0
   })
 
-  const comDupla = tentarFormarGrupo(ordenados, quantidade, true, respeitarEspecialidade)
+  const comDupla = tentarFormarGrupo(ordenados, quantidade, true, respeitarEspecialidade, respeitarParAnalistaGeral, bloqueadoPorIntervalo)
   if (comDupla) return { uids: comDupla.map(p => p.cd_usuario) }
 
-  const semDupla = tentarFormarGrupo(ordenados, quantidade, false, respeitarEspecialidade)
+  const semDupla = tentarFormarGrupo(ordenados, quantidade, false, respeitarEspecialidade, respeitarParAnalistaGeral, bloqueadoPorIntervalo)
   if (semDupla) {
     return {
       uids: semDupla.map(p => p.cd_usuario),
@@ -101,6 +127,9 @@ export function construirBlocosHomeOfficePar({
   contagensIniciais = {},
   ocupacaoExistentePorDia = {},
   respeitarEspecialidade = true,
+  respeitarParAnalistaGeral = false,
+  especialidadesComIntervalo = [],
+  ultimaEspecialidadeAntesDoInicio = {},
 }: {
   participantes: Participante[]
   dataInicio: string
@@ -111,6 +140,18 @@ export function construirBlocosHomeOfficePar({
   contagensIniciais?: Record<string, number>
   ocupacaoExistentePorDia?: Record<string, number>
   respeitarEspecialidade?: boolean
+  // Só o Suporte usa isso — Analista G. e Analista nunca em home office
+  // juntos (ver comentário no topo do arquivo).
+  respeitarParAnalistaGeral?: boolean
+  // Especialidades que precisam de 1 bloco de intervalo entre pessoas
+  // diferentes (regra 6, ver comentário no topo) — hoje só "Manutenção",
+  // passado pelo Suporte.
+  especialidadesComIntervalo?: string[]
+  // Quem tinha cada especialidade (das de `especialidadesComIntervalo`) no
+  // bloco imediatamente anterior a `dataInicio`, vindo de uma geração
+  // anterior separada (ex: gerou semana passada, gera essa semana agora) —
+  // sem isso, cada chamada só enxerga os blocos que ELA MESMA está criando.
+  ultimaEspecialidadeAntesDoInicio?: Record<string, number | string>
 }): { blocos: BlocoEscala[]; avisos: AvisoEscala[] } {
   const diasTrabalhoSet = new Set(diasTrabalho.map(Number))
   const diasUteis: string[] = []
@@ -160,6 +201,17 @@ export function construirBlocosHomeOfficePar({
 
   const tamanhoBloco = Math.max(1, Math.floor(duracaoBlocoDias))
 
+  // Quem tinha cada especialidade "com intervalo" no bloco anterior (o que
+  // já rodou nessa mesma chamada, ou o seed de uma geração anterior) —
+  // atualizado a cada bloco: se ninguém da especialidade entrou no bloco
+  // atual, o intervalo já foi cumprido e a restrição cai pro próximo.
+  const ultimoPorEspecialidade = new Map<string, number | string>(Object.entries(ultimaEspecialidadeAntesDoInicio))
+  const bloqueadoPorIntervalo = (p: Participante): boolean => {
+    if (!p.especialidade || !especialidadesComIntervalo.includes(p.especialidade)) return false
+    const ultimoUid = ultimoPorEspecialidade.get(p.especialidade)
+    return ultimoUid != null && ultimoUid !== p.cd_usuario
+  }
+
   for (let i = 0; i < diasUteis.length; i += tamanhoBloco) {
     const diasDoBloco = diasUteis.slice(i, i + tamanhoBloco)
 
@@ -182,11 +234,32 @@ export function construirBlocosHomeOfficePar({
         })
       }
     } else {
-      escolhido = escolherGrupoDoDia(elegiveisDoBloco, contagens, vagasDoBloco, respeitarEspecialidade)
+      escolhido = escolherGrupoDoDia(elegiveisDoBloco, contagens, vagasDoBloco, respeitarEspecialidade, respeitarParAnalistaGeral, bloqueadoPorIntervalo)
       if (escolhido.aviso) avisos.push({ data: diasDoBloco[0], mensagem: escolhido.aviso })
     }
 
     const escolhidosSet = new Set(escolhido.uids)
+
+    // Atualiza, pra cada especialidade "com intervalo", quem teve ela
+    // NESSE bloco — se ninguém teve, limpa (o intervalo foi cumprido e o
+    // próximo bloco fica livre de novo). Quando vagasDoBloco é 0, essa
+    // chamada não escolheu ninguém porque as vagas já vieram ocupadas de
+    // uma geração anterior (ocupacaoExistentePorDia só sabe a QUANTIDADE,
+    // não quem está lá) — nesse caso não dá pra saber se o intervalo foi
+    // cumprido ou não, então mantém o estado como estava em vez de limpar
+    // (mais seguro presumir que a restrição pode continuar valendo).
+    if (vagasDoBloco > 0) {
+      for (const especialidade of especialidadesComIntervalo) {
+        const escolhidoComEspecialidade = escolhido.uids
+          .map(uid => elegiveisDoBloco.find(p => p.cd_usuario === uid))
+          .find(p => p?.especialidade === especialidade)
+        if (escolhidoComEspecialidade) {
+          ultimoPorEspecialidade.set(especialidade, escolhidoComEspecialidade.cd_usuario)
+        } else {
+          ultimoPorEspecialidade.delete(especialidade)
+        }
+      }
+    }
 
     for (const dia of diasDoBloco) {
       const presentesHoje = participantes.filter(p => !estaDeFerias(p, dia))

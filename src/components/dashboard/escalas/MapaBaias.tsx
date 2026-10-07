@@ -3,14 +3,11 @@
 import { useState } from 'react'
 import { labelPerfil } from '../../../lib/equipesConfig'
 import { POSICOES_BAIA, type Posicao } from '../../../lib/ocupacaoBaias'
+import { primeiroNome, criarExibidorDeNome } from '../../../lib/nomes'
 import type { OcupanteAprendiz } from '../../../types/dominio'
 
 export { POSICOES_BAIA }
 export type { Posicao }
-
-export function primeiroNome(nomeCompleto: string) {
-  return nomeCompleto.trim().split(/\s+/)[0]
-}
 
 // labelPerfil() vem com emoji (bom nos seletores/badges) — na etiqueta do
 // mapa da sala isso só atrapalha a leitura, então tira o emoji daqui.
@@ -18,23 +15,12 @@ function semEmoji(texto: string) {
   return texto.replace(/^[\p{Extended_Pictographic}‍️]+\s*/u, '')
 }
 
-// Mostra só o primeiro nome pra não poluir o mapa — a não ser que dois
-// ocupantes exibidos compartilhem o mesmo primeiro nome, aí mostra nome
-// completo só desses, pra não confundir quem é quem.
-export function criarExibidorDeNome(nomes: string[]) {
-  const contagem: Record<string, number> = {}
-  for (const nome of nomes) {
-    const primeiro = primeiroNome(nome)
-    contagem[primeiro] = (contagem[primeiro] || 0) + 1
-  }
-  return (nomeCompleto: string) => (contagem[primeiroNome(nomeCompleto)] > 1 ? nomeCompleto : primeiroNome(nomeCompleto))
-}
-
-// ocupantesBaia: [{ nome, turno }] — até 2 (um de manhã, um de tarde). Uma
-// baia fixa (o caso comum) só tem 1 pessoa: mostra o nome dela direto, sem
-// precisar clicar. Só quando há 2 pessoas (turnos diferentes) ou nenhuma,
-// mostra o rótulo do perfil (Trainee/Estag/Aprendiz) — clique abre uma
-// janelinha flutuante com os nomes de quem reveza ali.
+// ocupantesBaia: [{ nome, turno }] — sem limite de quantas pessoas (não tem
+// exclusividade de turno pra Estag/Aprendiz). Uma baia fixa (o caso comum)
+// só tem 1 pessoa: mostra o nome dela direto, sem precisar clicar. Só
+// quando há mais de 1 pessoa ou nenhuma, mostra o rótulo do perfil
+// (Trainee/Estag/Aprendiz) — clique abre uma janelinha flutuante com os
+// nomes de quem reveza ali.
 function EtiquetaRestrita({ ocupantesBaia, posicao, rotulo }: { ocupantesBaia: OcupanteAprendiz[]; posicao: Posicao; rotulo: string }) {
   const [revelado, setRevelado] = useState(false)
   const textoEtiqueta = ocupantesBaia.length === 1 ? primeiroNome(ocupantesBaia[0].nome) : rotulo

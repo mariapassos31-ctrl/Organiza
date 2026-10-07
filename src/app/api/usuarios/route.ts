@@ -225,7 +225,7 @@ export async function POST(request: Request) {
                nr_dia_curso = EXCLUDED.nr_dia_curso,
                dt_ferias_inicio = EXCLUDED.dt_ferias_inicio,
                dt_ferias_fim = EXCLUDED.dt_ferias_fim`,
-        [cdUsuario, nome, email, equipeId, especialidade || null, horarioEntrada || null, baia || null, Boolean(baiaFixa) || Number(baia) === 0, elegivelHomeOffice !== false, diaCurso === '' || diaCurso === undefined ? null : diaCurso, feriasInicio || null, feriasFim || null]
+        [cdUsuario, nome, email, equipeId, especialidade || null, horarioEntrada || null, baia || null, String(baia) === '0' || (Boolean(baiaFixa) && Boolean(baia)), elegivelHomeOffice !== false, diaCurso === '' || diaCurso === undefined ? null : diaCurso, feriasInicio || null, feriasFim || null]
       )
     }
 

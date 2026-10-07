@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { query, getPool } from '../../../lib/db'
 import { auth } from '../../../auth'
 import { motivoInelegibilidadeParaTipo } from '../../../lib/escalasConstants'
-import { quemColideEspecialidadeNoHomeOffice, listarNomes } from '../../../lib/elegibilidadeHomeOffice'
+import { quemColideEspecialidadeNoHomeOffice, quemColideRoleNoHomeOffice, listarNomes } from '../../../lib/elegibilidadeHomeOffice'
 import { isolarDiasComoEscalaPropria, type EscalaParaSegmento } from '../../../lib/escalaSegmento'
 import { addDays } from '../../../lib/escalasRodizio'
 import { notificarTrocaSolicitada } from '../../../lib/emailNotificacoes'
@@ -224,8 +224,9 @@ async function validarItemTroca(
     `SELECT es.cd_escala, es.cd_equipe, es.tp_escala, es.ds_descricao, es.tp_status, es.cd_usuario_criador,
             to_char(es.dt_inicio, 'YYYY-MM-DD') AS dt_inicio,
             to_char(es.dt_fim, 'YYYY-MM-DD') AS dt_fim,
-            t.cd_tecnico, u.cd_usuario
+            t.cd_tecnico, u.cd_usuario, eq.tp_equipe
      FROM escalas es
+     JOIN equipes eq ON eq.cd_equipe = es.cd_equipe
      LEFT JOIN escala_tecnicos et ON et.cd_escala = es.cd_escala
      LEFT JOIN tecnicos t ON t.cd_tecnico = et.cd_tecnico
      LEFT JOIN usuarios u ON u.cd_usuario = t.cd_usuario
@@ -236,6 +237,9 @@ async function validarItemTroca(
     throw new ErroTroca('Escala não encontrada', 404)
   }
   const escala = escalaRows[0]
+  // Analista G./Analista só colidem em home office no Suporte — mesma
+  // regra que o gerador automático aplica (respeitarParAnalistaGeral).
+  const ehSuporte = escala.tp_equipe === 'suporte'
   const solicitanteRow = escalaRows.find((r: { cd_usuario: number }) => String(r.cd_usuario) === String(userId))
   if (!solicitanteRow) {
     throw new ErroTroca('Você só pode solicitar troca de uma escala sua', 403)
@@ -256,11 +260,23 @@ async function validarItemTroca(
     throw new ErroTroca(motivoDestino)
   }
   if (escala.tp_escala === 'homeoffice') {
+    // Exclui o solicitante (está saindo) E o destino (se ele já tiver uma
+    // escala própria de home office que se sobrepõe, é provavelmente
+    // exatamente a que vai entrar na troca mútua abaixo — não é uma
+    // colisão de verdade com outra pessoa).
     const quemColide = await quemColideEspecialidadeNoHomeOffice(
-      escala.cd_equipe, inicioColisao, fimColisao, destino.ds_especialidade, solicitanteCdTecnico
+      escala.cd_equipe, inicioColisao, fimColisao, destino.ds_especialidade, [solicitanteCdTecnico, destino.cd_tecnico]
     )
     if (quemColide.length > 0) {
       throw new ErroTroca(`Pessoas com a mesma especialidade não podem ficar em home office juntas: ${listarNomes(quemColide)} já está(ão) em home office nesse período`)
+    }
+    if (ehSuporte) {
+      const quemColideRole = await quemColideRoleNoHomeOffice(
+        escala.cd_equipe, inicioColisao, fimColisao, destino.tp_role, [solicitanteCdTecnico, destino.cd_tecnico]
+      )
+      if (quemColideRole.length > 0) {
+        throw new ErroTroca(`Analista G. e Analista não podem ficar em home office juntos: ${listarNomes(quemColideRole)} já está(ão) em home office nesse período`)
+      }
     }
   }
 
@@ -313,10 +329,16 @@ async function validarItemTroca(
     if (escalaSolicitadaEnc.tp_escala === 'homeoffice') {
       const quemColideMutua = await quemColideEspecialidadeNoHomeOffice(
         escala.cd_equipe, inicioColisaoSolicitada, fimColisaoSolicitada,
-        solicitanteElig.ds_especialidade, destino.cd_tecnico
+        solicitanteElig.ds_especialidade, [destino.cd_tecnico, solicitanteCdTecnico]
       )
       if (quemColideMutua.length > 0) {
         throw new ErroTroca(`Pessoas com a mesma especialidade não podem ficar em home office juntas: ${listarNomes(quemColideMutua)} já está(ão) em home office no período que você está pedindo`)
+      }
+      const quemColideRoleMutua = ehSuporte ? await quemColideRoleNoHomeOffice(
+        escala.cd_equipe, inicioColisaoSolicitada, fimColisaoSolicitada, role, [destino.cd_tecnico, solicitanteCdTecnico]
+      ) : []
+      if (quemColideRoleMutua.length > 0) {
+        throw new ErroTroca(`Analista G. e Analista não podem ficar em home office juntos: ${listarNomes(quemColideRoleMutua)} já está(ão) em home office no período que você está pedindo`)
       }
     }
   }

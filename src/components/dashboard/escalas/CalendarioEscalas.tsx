@@ -4,6 +4,7 @@ import { useState, useEffect, type ReactNode } from 'react'
 import type { Escala, Usuario } from '../../../types/dominio'
 import { TIPOS_ESCALA, TIPO_CURSO, ordenarSobreavisoPrimeiro, estaEmDiaCurso } from '../../../lib/escalasConstants'
 import { nomeFeriado } from '../../../lib/feriados'
+import { nomeESobrenome } from '../../../lib/nomes'
 
 function getDaysInMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
@@ -125,7 +126,7 @@ export default function CalendarioEscalas({
                 title={`${nomeTecnico}${podeEditarEscala(escala) ? ' — clique para editar' : ''}`}
               >
                 <span className="badge-tipo-beautiful">{tipo?.label.split(' ')[0]}</span>
-                <span className="badge-tecnico-beautiful">{nomeTecnico}</span>
+                <span className="badge-tecnico-beautiful">{nomeESobrenome(nomeTecnico)}</span>
               </div>
             )
           })}
